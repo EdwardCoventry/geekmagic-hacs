@@ -197,6 +197,11 @@ export class GeekMagicPanel extends LitElement {
       margin-bottom: 4px;
     }
 
+    .view-card-actions {
+      display: flex;
+      align-items: center;
+    }
+
     .view-card-header h3 {
       margin: 0;
       font-size: 16px;
@@ -1005,6 +1010,41 @@ export class GeekMagicPanel extends LitElement {
     }
   }
 
+  private async _cloneView(view: ViewConfig): Promise<void> {
+    try {
+      const result = await this.hass.connection.sendMessagePromise<{
+        view: ViewConfig;
+      }>({
+        type: "geekmagic/views/duplicate",
+        view_id: view.id,
+      });
+      this._views = [...this._views, result.view];
+      
+      // Load preview for the cloned view
+      try {
+        const previewResult = await this.hass.connection.sendMessagePromise<{
+          image: string;
+        }>({
+          type: "geekmagic/preview/render",
+          view_config: {
+            layout: result.view.layout,
+            theme: result.view.theme,
+            widgets: result.view.widgets,
+          },
+        });
+        if (previewResult.image) {
+          const newPreviews = new Map(this._viewPreviews);
+          newPreviews.set(result.view.id, previewResult.image);
+          this._viewPreviews = newPreviews;
+        }
+      } catch (err) {
+        console.error(`Failed to load preview for view ${result.view.id}:`, err);
+      }
+    } catch (err) {
+      console.error("Failed to clone view:", err);
+    }
+  }
+
   private _refreshPreview = debounce(async () => {
     if (!this._editingView) return;
 
@@ -1192,13 +1232,24 @@ export class GeekMagicPanel extends LitElement {
                   <div class="view-card-info">
                     <div class="view-card-header">
                       <h3>${view.name}</h3>
-                      <ha-icon-button
-                        .path=${"M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"}
-                        @click=${(e: Event) => {
-                          e.stopPropagation();
-                          this._deleteView(view);
-                        }}
-                      ></ha-icon-button>
+                      <div class="view-card-actions">
+                        <ha-icon-button
+                          .path=${"M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"}
+                          title="Clone view"
+                          @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._cloneView(view);
+                          }}
+                        ></ha-icon-button>
+                        <ha-icon-button
+                          .path=${"M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"}
+                          title="Delete view"
+                          @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._deleteView(view);
+                          }}
+                        ></ha-icon-button>
+                      </div>
                     </div>
                     <div class="card-meta">
                       ${this._config?.layout_types[view.layout]?.name || view.layout}

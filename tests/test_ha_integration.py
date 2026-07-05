@@ -471,3 +471,44 @@ class TestOptionsUpdate:
         # Note: The reload re-runs setup, so we need enough mocks for a second setup.
         # Since aioclient_mock keeps mocks registered, this should work.
         assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_websocket_views_duplicate(
+    hass: HomeAssistant, aioclient_mock, hass_ws_client
+) -> None:
+    """Test that we can duplicate a view via websocket."""
+    # Setup the integration
+    await setup_integration(hass, aioclient_mock)
+
+    # Connect to the websocket
+    client = await hass_ws_client(hass)
+
+    # Create a view first
+    await client.send_json(
+        {
+            "id": 1,
+            "type": "geekmagic/views/create",
+            "name": "Original View",
+            "layout": "hero",
+            "theme": "watchos",
+            "widgets": [],
+        }
+    )
+    msg = await client.receive_json()
+    assert msg["success"]
+    original_view_id = msg["result"]["view"]["id"]
+
+    # Now duplicate it
+    await client.send_json(
+        {
+            "id": 2,
+            "type": "geekmagic/views/duplicate",
+            "view_id": original_view_id,
+            "name": "Cloned View",
+        }
+    )
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"]["view_id"] != original_view_id
+    assert msg["result"]["view"]["name"] == "Cloned View"
+    assert msg["result"]["view"]["layout"] == "hero"
