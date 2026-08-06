@@ -97,6 +97,46 @@ Display OHLC (Open/High/Low/Close) candlestick charts from any numeric entity's 
   <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/candlestick_example.png" alt="Candlestick Chart - BTC/USD" width="200">
 </p>
 
+### HTML Widget (Experimental)
+
+Design cells with real HTML/CSS — flexbox, CSS grid, border-radius, web fonts —
+rendered by the [Blitz](https://github.com/DioxusLabs/blitz) engine via
+[blitz-py](https://github.com/adrienbrault/blitz-py) (Stylo + Taffy + Parley + Vello,
+no browser). A 240×240 cell renders in ~20-40ms.
+
+<img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/html_widget_fullscreen.png" alt="HTML widget fullscreen" width="200"> <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/html_widget_grid.png" alt="HTML widgets in 2x2 grid" width="200">
+
+The HTML option is a Jinja template with access to entity data:
+
+```html
+<style>
+.screen { height: 100%; display: flex; flex-direction: column;
+          align-items: center; justify-content: space-evenly; }
+.hero { font-size: 64px; font-weight: 700; color: var(--warning); }
+.label { color: var(--text-secondary); }
+</style>
+<div class="screen">
+  <div class="label">{{ name | upper }}</div>
+  <div class="hero">{{ state }}{{ unit }}</div>
+  <div class="label">HVAC {{ states('climate.living_room') | upper }}</div>
+</div>
+```
+
+- `state`, `name`, `unit`, `attributes` — the widget's configured entity
+- `states('sensor.x')`, `state_attr('sensor.x', 'attr')`, `is_state('sensor.x', 'on')` —
+  any referenced entity is tracked and pre-fetched automatically
+- `now` — timezone-aware current datetime
+- Theme colors as CSS variables: `var(--text-primary)`, `var(--text-secondary)`,
+  `var(--text-tertiary)`, `var(--primary)`, `var(--success)`, `var(--warning)`,
+  `var(--error)`, `var(--info)`, `var(--muted)`, `var(--bg)`
+
+**Requires** the optional `blitz-py` package installed into your Home Assistant
+Python environment (not yet on PyPI — build from
+[source](https://github.com/adrienbrault/blitz-py) with a Rust toolchain:
+`pip install git+https://github.com/adrienbrault/blitz-py`). Without it the
+widget shows an "Install blitz-py" placeholder. Limitations: no JavaScript, no
+network fetches (use `data:` URIs for images), no `background-clip: text`.
+
 ## Layout Examples
 
 ### Fullscreen & Grid Layouts
@@ -374,6 +414,7 @@ data:
 |------|-------------|
 | `gauge` | Bar, ring, or arc gauge (`style: bar/ring/arc`) |
 | `entity` | Any HA entity value (with optional `icon`, `attribute`) |
+| `html` | Custom HTML/CSS cell rendered by Blitz, Jinja-templated (requires optional `blitz-py`) |
 | `attribute_list` | Display multiple entity attributes as key-value pairs |
 | `climate` | Thermostat/HVAC (`show_target`, `show_humidity`, `show_mode`) |
 | `clock` | Time and date |
