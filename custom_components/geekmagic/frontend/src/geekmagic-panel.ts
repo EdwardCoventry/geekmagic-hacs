@@ -605,6 +605,34 @@ export class GeekMagicPanel extends LitElement {
       margin-bottom: 0;
     }
 
+    .option-textarea label {
+      display: block;
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-bottom: 4px;
+    }
+
+    .option-textarea textarea {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 140px;
+      resize: vertical;
+      font-family: var(--code-font-family, monospace);
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--primary-text-color);
+      background: var(--card-background-color);
+      border: 1px solid var(--divider-color);
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .option-textarea textarea:focus {
+      outline: none;
+      border-color: var(--primary-color);
+    }
+
     .option-row {
       display: flex;
       align-items: center;
@@ -1610,6 +1638,24 @@ export class GeekMagicPanel extends LitElement {
                   (e.target as HTMLInputElement).value
                 )}
             ></ha-input>
+          </div>
+        `;
+
+      case "textarea":
+        return html`
+          <div class="option-field option-textarea">
+            <label>${opt.label}</label>
+            <textarea
+              .value=${(value as string) || ""}
+              placeholder=${opt.placeholder || ""}
+              spellcheck="false"
+              @input=${(e: Event) =>
+                this._updateWidgetOption(
+                  slot,
+                  opt.key,
+                  (e.target as HTMLTextAreaElement).value
+                )}
+            ></textarea>
           </div>
         `;
 
