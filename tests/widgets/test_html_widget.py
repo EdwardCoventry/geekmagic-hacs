@@ -1,4 +1,4 @@
-"""Tests for the HTML (Blitz) widget."""
+"""Tests for the HTML widget and the htmldoc document assembly."""
 
 import sys
 from datetime import UTC, datetime
@@ -8,31 +8,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 
-from custom_components.geekmagic.render_context import RenderContext
-from custom_components.geekmagic.renderer import Renderer
-from custom_components.geekmagic.widgets.base import WidgetConfig
-from custom_components.geekmagic.widgets.components import Column
-from custom_components.geekmagic.widgets.html import (
+from custom_components.geekmagic.htmldoc import (
     HAS_BLITZ,
-    BlitzHtml,
+    CellContext,
+    build_cell_document,
+    render_document,
+)
+from custom_components.geekmagic.widgets.base import WidgetConfig
+from custom_components.geekmagic.widgets.html import (
     HtmlWidget,
     _render_template,
-    _wrap_document,
 )
 from custom_components.geekmagic.widgets.state import EntityState, WidgetState
-
-
-@pytest.fixture
-def renderer():
-    """Create a renderer instance."""
-    return Renderer()
-
-
-@pytest.fixture
-def render_context(renderer):
-    """Create a RenderContext for widgets."""
-    _, draw = renderer.create_canvas()
-    return RenderContext(draw, (10, 10, 130, 130), renderer)
+from custom_components.geekmagic.widgets.theme import DEFAULT_THEME
 
 
 @pytest.fixture
@@ -51,6 +39,12 @@ def widget_state():
         },
         now=datetime.now(tz=UTC),
     )
+
+
+@pytest.fixture
+def ctx():
+    """Standard cell context."""
+    return CellContext(width=240, height=240, slot_index=0, theme=DEFAULT_THEME)
 
 
 def make_widget(html: str, entity_id: str | None = "sensor.temperature") -> HtmlWidget:
@@ -97,27 +91,26 @@ class TestTemplateRendering:
         assert _render_template(css, widget_state) == css
 
 
-class TestWrapDocument:
-    """Theme CSS variable injection."""
+class TestCellDocument:
+    """Document assembly: theme variables and fluid kit."""
 
-    def test_injects_theme_variables(self, render_context):
-        doc = _wrap_document("<div>hi</div>", render_context)
+    def test_injects_theme_variables(self):
+        doc = build_cell_document("<div>hi</div>", DEFAULT_THEME)
         assert "--text-primary:" in doc
         assert "--success:" in doc
         assert "--bg:" in doc
         assert "<div>hi</div>" in doc
 
-    def test_base_styles(self, render_context):
-        doc = _wrap_document("", render_context)
-        assert "margin: 0" in doc
-        assert "font-family: sans-serif" in doc
-
-    def test_fluid_kit_injected(self, render_context):
-        doc = _wrap_document("", render_context)
-        for cls in (".cell", ".t-hero", ".t-value", ".t-unit", ".t-label"):
+    def test_fluid_kit_injected(self):
+        doc = build_cell_document("", DEFAULT_THEME)
+        for cls in (".cell", ".t-hero", ".t-value", ".t-unit", ".t-label", ".icon"):
             assert cls in doc
         for cls in (".hide-short", ".hide-narrow", ".hide-small"):
             assert cls in doc
+
+    def test_transparent_body(self):
+        doc = build_cell_document("", DEFAULT_THEME)
+        assert "background: transparent" in doc
 
 
 class TestGetEntities:
@@ -152,63 +145,48 @@ class TestGetEntities:
         assert widget.get_entities() == ["sensor.other"]
 
 
-class TestRenderFallbacks:
-    """Component-tree fallbacks that don't require blitz-py."""
+class TestRenderFragment:
+    """Fragment output paths that don't require blitz-py."""
 
-    def test_empty_html_placeholder(self, render_context, widget_state):
+    def test_returns_rendered_template(self, ctx, widget_state):
+        widget = make_widget('<div class="t-hero">{{ state }}</div>')
+        assert widget.render_html(ctx, widget_state) == '<div class="t-hero">21.5</div>'
+
+    def test_empty_html_placeholder(self, ctx, widget_state):
         widget = make_widget("")
-        component = widget.render(render_context, widget_state)
-        assert isinstance(component, Column)
+        assert "NO HTML CONFIGURED" in widget.render_html(ctx, widget_state)
 
-    @pytest.mark.skipif(not HAS_BLITZ, reason="missing-blitz placeholder takes precedence")
-    def test_invalid_template_placeholder(self, render_context, widget_state):
+    def test_invalid_template_placeholder(self, ctx, widget_state):
         widget = make_widget("{{ unclosed")
-        component = widget.render(render_context, widget_state)
-        assert isinstance(component, Column)
-
-    def test_missing_blitz_placeholder(self, render_context, widget_state, monkeypatch):
-        import custom_components.geekmagic.widgets.html as html_mod
-
-        monkeypatch.setattr(html_mod, "HAS_BLITZ", False)
-        widget = make_widget("<div>hi</div>")
-        component = widget.render(render_context, widget_state)
-        assert isinstance(component, Column)
+        assert "TEMPLATE ERROR" in widget.render_html(ctx, widget_state)
 
 
 @pytest.mark.skipif(not HAS_BLITZ, reason="blitz-py not installed")
 class TestBlitzRender:
     """Real rasterization through blitz-py."""
 
-    def test_returns_blitz_component(self, render_context, widget_state):
-        widget = make_widget("<div>{{ state }}</div>")
-        component = widget.render(render_context, widget_state)
-        assert isinstance(component, BlitzHtml)
-        assert "21.5" in component.html
-
-    def test_renders_pixels(self, renderer, widget_state):
-        """Rendering paints non-background pixels onto the canvas."""
-        img, draw = renderer.create_canvas()
-        ctx = RenderContext(draw, (0, 0, 240, 240), renderer)
+    def test_renders_pixels(self, ctx, widget_state):
         widget = make_widget(
             "<div style='color:#fff;font-size:60px;text-align:center'>{{ state }}</div>"
         )
-        component = widget.render(ctx, widget_state)
-        component.render(ctx, 0, 0, 240, 240)
+        doc = build_cell_document(widget.render_html(ctx, widget_state), DEFAULT_THEME)
+        img = render_document(doc, 240, 240)
+        assert img is not None
         colors = img.getcolors(maxcolors=1_000_000)
         assert colors is not None
         assert len(colors) > 1  # more than just the background
 
-    def test_hide_short_responds_to_cell_height(self, renderer, widget_state):
+    def test_hide_short_responds_to_cell_height(self, widget_state):
         """.hide-short content disappears in cells under 100px tall."""
 
         def red_pixels(cell_height: int) -> int:
-            img, draw = renderer.create_canvas()
-            ctx = RenderContext(draw, (0, 0, 240, cell_height), renderer)
             widget = make_widget(
                 '<div class="hide-short" style="color:#f00;font-size:40px">XXXX</div>'
             )
-            component = widget.render(ctx, widget_state)
-            component.render(ctx, 0, 0, 240, cell_height)
+            ctx = CellContext(width=240, height=cell_height, theme=DEFAULT_THEME)
+            doc = build_cell_document(widget.render_html(ctx, widget_state), DEFAULT_THEME)
+            img = render_document(doc, 240, cell_height)
+            assert img is not None
             rgb = img.convert("RGB")
             return sum(
                 count
@@ -219,15 +197,15 @@ class TestBlitzRender:
         assert red_pixels(240) > 0
         assert red_pixels(80) == 0
 
-    def test_fluid_hero_scales_with_cell(self, renderer, widget_state):
+    def test_fluid_hero_scales_with_cell(self, widget_state):
         """.t-hero text occupies more pixels in a larger cell."""
 
         def content_pixels(size: int) -> int:
-            img, draw = renderer.create_canvas()
-            ctx = RenderContext(draw, (0, 0, size, size), renderer)
             widget = make_widget('<div class="cell"><div class="t-hero">21.5</div></div>')
-            component = widget.render(ctx, widget_state)
-            component.render(ctx, 0, 0, size, size)
+            ctx = CellContext(width=size, height=size, theme=DEFAULT_THEME)
+            doc = build_cell_document(widget.render_html(ctx, widget_state), DEFAULT_THEME)
+            img = render_document(doc, size, size)
+            assert img is not None
             rgb = img.convert("RGB")
             return sum(
                 count
@@ -236,17 +214,3 @@ class TestBlitzRender:
             )
 
         assert content_pixels(240) > content_pixels(80) * 2
-
-    def test_render_error_does_not_raise(self, renderer, widget_state, monkeypatch):
-        """A blitz failure paints an error message instead of raising."""
-        import custom_components.geekmagic.widgets.html as html_mod
-
-        def boom(*args, **kwargs):
-            raise RuntimeError("engine exploded")
-
-        monkeypatch.setattr(html_mod.blitz_py, "render_png", boom)
-        _img, draw = renderer.create_canvas()
-        ctx = RenderContext(draw, (0, 0, 240, 240), renderer)
-        widget = make_widget("<div>hi</div>")
-        component = widget.render(ctx, widget_state)
-        component.render(ctx, 0, 0, 240, 240)  # must not raise

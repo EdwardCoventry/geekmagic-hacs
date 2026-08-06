@@ -1,6 +1,7 @@
 """Tests for layout classes."""
 
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -20,6 +21,7 @@ from custom_components.geekmagic.layouts.split import (
 from custom_components.geekmagic.renderer import Renderer
 from custom_components.geekmagic.widgets.base import WidgetConfig
 from custom_components.geekmagic.widgets.clock import ClockWidget
+from custom_components.geekmagic.widgets.state import WidgetState
 
 
 @pytest.fixture
@@ -32,6 +34,22 @@ def renderer():
 def canvas(renderer):
     """Create a canvas for drawing."""
     return renderer.create_canvas()
+
+
+def render_with_clock(renderer, canvas, layout):
+    """Place a clock in slot 0, render, and return (img, changed).
+
+    ``changed`` is True when the render modified the blank canvas.
+    """
+    img, draw = canvas
+    before = img.tobytes()
+
+    config = WidgetConfig(widget_type="clock", slot=0)
+    layout.set_widget(0, ClockWidget(config))
+
+    states = {0: WidgetState(now=datetime.now(tz=UTC))}
+    layout.render(renderer, draw, states)
+    return img, before != img.tobytes()
 
 
 class TestSlot:
@@ -112,15 +130,9 @@ class TestGridLayout:
 
     def test_render(self, renderer, canvas):
         """Test rendering layout with widgets."""
-        img, draw = canvas
-        layout = GridLayout(rows=2, cols=2)
-
-        config = WidgetConfig(widget_type="clock", slot=0)
-        widget = ClockWidget(config)
-        layout.set_widget(0, widget)
-
-        layout.render(renderer, draw)
+        img, changed = render_with_clock(renderer, canvas, GridLayout(rows=2, cols=2))
         assert img.size == (480, 480)
+        assert changed
 
 
 class TestGrid2x2:
@@ -186,15 +198,9 @@ class TestHeroLayout:
 
     def test_render(self, renderer, canvas):
         """Test rendering hero layout."""
-        img, draw = canvas
-        layout = HeroLayout()
-
-        config = WidgetConfig(widget_type="clock", slot=0)
-        widget = ClockWidget(config)
-        layout.set_widget(0, widget)
-
-        layout.render(renderer, draw)
+        img, changed = render_with_clock(renderer, canvas, HeroLayout())
         assert img.size == (480, 480)
+        assert changed
 
 
 class TestSplitLayout:
@@ -250,15 +256,9 @@ class TestSplitLayout:
 
     def test_render(self, renderer, canvas):
         """Test rendering split layout."""
-        img, draw = canvas
-        layout = SplitHorizontal()
-
-        config = WidgetConfig(widget_type="clock", slot=0)
-        widget = ClockWidget(config)
-        layout.set_widget(0, widget)
-
-        layout.render(renderer, draw)
+        img, changed = render_with_clock(renderer, canvas, SplitHorizontal())
         assert img.size == (480, 480)
+        assert changed
 
 
 class TestThreeColumnLayout:
@@ -288,11 +288,9 @@ class TestThreeColumnLayout:
 
     def test_render(self, renderer, canvas):
         """Test rendering three column layout."""
-        img, draw = canvas
-        layout = ThreeColumnLayout()
-
-        layout.render(renderer, draw)
+        img, changed = render_with_clock(renderer, canvas, ThreeColumnLayout())
         assert img.size == (480, 480)
+        assert changed
 
 
 class TestFullscreenLayout:
@@ -327,15 +325,9 @@ class TestFullscreenLayout:
 
     def test_render(self, renderer, canvas):
         """Test rendering fullscreen layout."""
-        img, draw = canvas
-        layout = FullscreenLayout()
-
-        config = WidgetConfig(widget_type="clock", slot=0)
-        widget = ClockWidget(config)
-        layout.set_widget(0, widget)
-
-        layout.render(renderer, draw)
+        img, changed = render_with_clock(renderer, canvas, FullscreenLayout())
         assert img.size == (480, 480)
+        assert changed
 
 
 class TestLayoutEntityTracking:

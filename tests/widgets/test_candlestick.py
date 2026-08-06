@@ -8,39 +8,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 
-from custom_components.geekmagic.render_context import RenderContext
-from custom_components.geekmagic.renderer import Renderer
+from custom_components.geekmagic.htmldoc import CellContext, css_rgb
 from custom_components.geekmagic.widgets.base import WidgetConfig
 from custom_components.geekmagic.widgets.candlestick import (
     CandlestickWidget,
     aggregate_ohlc,
 )
 from custom_components.geekmagic.widgets.state import EntityState, WidgetState
+from custom_components.geekmagic.widgets.theme import DEFAULT_THEME
 
 
 @pytest.fixture
-def renderer():
-    """Create a renderer instance."""
-    return Renderer()
-
-
-@pytest.fixture
-def canvas(renderer):
-    """Create a canvas for drawing."""
-    return renderer.create_canvas()
-
-
-@pytest.fixture
-def rect():
-    """Standard widget rectangle."""
-    return (10, 10, 110, 110)
-
-
-@pytest.fixture
-def render_context(renderer, canvas, rect):
-    """Create a RenderContext for widgets."""
-    _, draw = canvas
-    return RenderContext(draw, rect, renderer)
+def ctx():
+    """Create a CellContext for widgets."""
+    return CellContext(width=100, height=100, slot_index=0, theme=DEFAULT_THEME)
 
 
 class TestAggregateOHLC:
@@ -193,10 +174,10 @@ class TestCandlestickWidget:
 
 
 class TestCandlestickRendering:
-    """Tests for CandlestickDisplay rendering."""
+    """Tests for the CandlestickWidget HTML fragment output."""
 
-    def test_render_with_data(self, render_context):
-        """Test rendering with valid OHLC data."""
+    def test_render_with_data(self, ctx):
+        """Rendering with valid OHLC data produces candles and header."""
         config = WidgetConfig(
             widget_type="candlestick",
             slot=0,
@@ -220,12 +201,22 @@ class TestCandlestickRendering:
             now=datetime.now(tz=UTC),
         )
 
-        component = widget.render(render_context, state)
-        # Should not raise
-        component.render(render_context, 0, 0, 100, 100)
+        fragment = widget.render_html(ctx, state)
+        assert "<svg" in fragment
+        # One wick + one body per candle
+        assert fragment.count("<line") == 3
+        assert fragment.count("<rect") == 3
+        # Bull/bear tints resolved to concrete theme colors for SVG paint
+        assert css_rgb(DEFAULT_THEME.success) in fragment
+        assert css_rgb(DEFAULT_THEME.error) in fragment
+        # Caption row: label and current value
+        assert "BITCOIN" in fragment
+        assert "106.0$" in fragment
+        # Last candle is bullish, so the value takes the success tint
+        assert "var(--success)" in fragment
 
-    def test_render_no_data(self, render_context):
-        """Test rendering with no data shows 'No data'."""
+    def test_render_no_data(self, ctx):
+        """Rendering with no data shows 'No data' instead of a chart."""
         config = WidgetConfig(
             widget_type="candlestick",
             slot=0,
@@ -243,12 +234,12 @@ class TestCandlestickRendering:
             now=datetime.now(tz=UTC),
         )
 
-        component = widget.render(render_context, state)
-        # Should not raise
-        component.render(render_context, 0, 0, 100, 100)
+        fragment = widget.render_html(ctx, state)
+        assert "No data" in fragment
+        assert "<svg" not in fragment
 
-    def test_render_no_entity(self, render_context):
-        """Test rendering without entity state."""
+    def test_render_no_entity(self, ctx):
+        """Rendering without entity state uses the config label, no value."""
         config = WidgetConfig(
             widget_type="candlestick",
             slot=0,
@@ -265,11 +256,12 @@ class TestCandlestickRendering:
             now=datetime.now(tz=UTC),
         )
 
-        component = widget.render(render_context, state)
-        component.render(render_context, 0, 0, 100, 100)
+        fragment = widget.render_html(ctx, state)
+        assert "BTC" in fragment
+        assert "<svg" in fragment
 
-    def test_render_constant_price(self, render_context):
-        """Test rendering with constant price (zero range)."""
+    def test_render_constant_price(self, ctx):
+        """Rendering with constant price (zero range) still draws candles."""
         config = WidgetConfig(
             widget_type="candlestick",
             slot=0,
@@ -292,12 +284,12 @@ class TestCandlestickRendering:
             now=datetime.now(tz=UTC),
         )
 
-        component = widget.render(render_context, state)
         # Should not raise even with zero range
-        component.render(render_context, 0, 0, 100, 100)
+        fragment = widget.render_html(ctx, state)
+        assert fragment.count("<rect") == 2
 
-    def test_show_value_false(self, render_context):
-        """Test rendering with show_value disabled."""
+    def test_show_value_false(self, ctx):
+        """Rendering with show_value disabled omits the current value."""
         config = WidgetConfig(
             widget_type="candlestick",
             slot=0,
@@ -316,5 +308,5 @@ class TestCandlestickRendering:
             now=datetime.now(tz=UTC),
         )
 
-        component = widget.render(render_context, state)
-        assert component.current_value is None  # type: ignore[union-attr]
+        fragment = widget.render_html(ctx, state)
+        assert "100.0" not in fragment
