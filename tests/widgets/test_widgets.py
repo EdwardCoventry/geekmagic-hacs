@@ -1325,7 +1325,8 @@ class TestChartWidget:
         history = [20.0, 21.5, 22.0, 21.0, 23.5, 24.0, 23.0]
         fragment = widget.render_html(ctx, make_state(entity, history=history))
         assert "<svg" in fragment
-        assert "polyline" in fragment
+        assert "<path" in fragment  # smooth bezier line + gradient area
+        assert "linearGradient" in fragment
         assert "23.5°C" in fragment  # current value in header
         assert "TEMPERATURE" in fragment  # label
 
@@ -1373,7 +1374,10 @@ class TestChartWidget:
         )
         entity = make_entity(attributes={"friendly_name": "Temp"})
         fragment = widget.render_html(ctx, make_state(entity, history=[20.0, 21.0, 24.0]))
-        assert 'fill-opacity="0.0"' in fragment
+        # With fill off, the gradient's top stop has zero opacity, so
+        # the area fade disappears.
+        assert 'stop-opacity="0"' in fragment
+        assert 'stop-opacity="0.22"' not in fragment
 
     def test_is_binary_data_true(self):
         assert _is_binary_data([0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0]) is True

@@ -104,7 +104,16 @@ def theme_css_variables(theme: Theme) -> str:
     }
     lines = "\n".join(f"  {name}: {css_rgb(value)};" for name, value in variables.items())
     accents = "\n".join(f"  --accent-{i}: {css_rgb(c)};" for i, c in enumerate(theme.accent_colors))
-    return f":root {{\n{lines}\n{accents}\n  --radius: {theme.corner_radius}px;\n}}"
+    # Neutral derived tones: chip fills, hairline strokes, and gauge
+    # tracks derive from the text color so they read correctly on both
+    # dark themes (white-based) and light themes (ink-based).
+    tp = theme.text_primary
+    derived = (
+        f"  --chip-bg: {css_rgba(tp, 0.08)};\n"
+        f"  --hairline: {css_rgba(tp, 0.10)};\n"
+        f"  --track: {css_rgba(tp, 0.12)};"
+    )
+    return f":root {{\n{lines}\n{accents}\n{derived}\n  --radius: {theme.corner_radius}px;\n}}"
 
 
 # Fluid kit: opinionated utility classes available in every cell.
@@ -127,16 +136,17 @@ def theme_css_variables(theme: Theme) -> str:
 # fullscreen 240px.
 FLUID_KIT_CSS = """
 .cell { height: 100%; display: flex; flex-direction: column; align-items: center;
-        justify-content: space-evenly; text-align: center; box-sizing: border-box; }
+        justify-content: space-evenly; text-align: center; box-sizing: border-box;
+        padding: 4%; }
 .cell.row { flex-direction: row; }
-.t-hero { font-size: clamp(18px, min(46vmin, 30vw), 120px); font-weight: 700;
-          line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
-.t-value { font-size: clamp(14px, min(26vmin, 20vw), 64px); font-weight: 700;
+.t-hero { font-size: clamp(20px, min(48vmin, 30vw), 124px); font-weight: 800;
+          line-height: 0.95; letter-spacing: -0.035em; white-space: nowrap; }
+.t-value { font-size: clamp(15px, min(26vmin, 20vw), 64px); font-weight: 700;
            line-height: 1; white-space: nowrap; }
 .t-unit { font-size: clamp(12px, min(18vmin, 12vw), 40px); font-weight: 600;
           line-height: 1; color: var(--text-secondary); white-space: nowrap; }
-.t-label { font-size: clamp(10px, min(11vmin, 8vw), 17px); font-weight: 600;
-           line-height: 1; letter-spacing: 0.08em; color: var(--text-tertiary);
+.t-label { font-size: clamp(10px, min(10vmin, 7.5vw), 15px); font-weight: 700;
+           line-height: 1; letter-spacing: 0.14em; color: var(--text-tertiary);
            white-space: nowrap; }
 .icon { font-family: "Material Design Icons"; font-weight: 400; line-height: 1; }
 .i-lg { font-size: clamp(20px, 34vmin, 84px); }
@@ -236,36 +246,78 @@ def mdi_span(icon_name: str, classes: str = "icon i-md", style: str = "") -> str
 # ============================================================================
 
 
+def _smooth_path(pts: list[tuple[float, float]]) -> str:
+    """Catmull-Rom → cubic bezier path through the points."""
+    if len(pts) < 3:
+        return "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
+    path = [f"M {pts[0][0]:.1f} {pts[0][1]:.1f}"]
+    for i in range(len(pts) - 1):
+        p0 = pts[i - 1] if i > 0 else pts[i]
+        p1, p2 = pts[i], pts[i + 1]
+        p3 = pts[i + 2] if i + 2 < len(pts) else p2
+        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
+        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+        path.append(
+            f"C {c1[0]:.1f} {c1[1]:.1f}, {c2[0]:.1f} {c2[1]:.1f}, {p2[0]:.1f} {p2[1]:.1f}"
+        )
+    return " ".join(path)
+
+
 def svg_sparkline(
     values: list[float],
     stroke: str = "var(--primary)",
-    fill_opacity: float = 0.15,
-    stroke_width: float = 3.0,
+    fill_opacity: float = 0.22,
+    stroke_width: float = 2.6,
+    *,
+    aspect: float = 2.0,
+    smooth: bool = True,
+    show_dot: bool = True,
 ) -> str:
-    """Build a responsive SVG sparkline from a series of values.
+    """Build a responsive SVG sparkline (Apple-Health style).
 
-    The SVG uses a 100x100 viewBox with non-uniform scaling so it
-    stretches to whatever box the layout gives it.
+    Smooth bezier line, vertical gradient area fade, and an endpoint
+    dot with a soft halo. ``aspect`` is the expected width/height ratio
+    of the box the SVG will fill — the viewBox matches it so the dot
+    stays circular under stretching. Pass concrete colors, never
+    ``var()`` (SVG paint attributes don't resolve CSS variables).
     """
     if len(values) < 2:
         return ""
+    vb_w = 100.0 * max(0.4, aspect)
     vmin, vmax = min(values), max(values)
     spread = (vmax - vmin) or 1.0
     n = len(values) - 1
-    pts = []
-    for i, v in enumerate(values):
-        x = i / n * 100
-        y = 92 - (v - vmin) / spread * 84  # 8% margin top/bottom
-        pts.append(f"{x:.1f},{y:.1f}")
-    points = " ".join(pts)
-    area_points = f"0,100 {points} 100,100"
+    inset = 7.0  # headroom so the dot/halo and stroke stay inside
+    pts = [
+        (
+            inset + i / n * (vb_w - 2 * inset),
+            (100 - inset) - (v - vmin) / spread * (100 - 2 * inset),
+        )
+        for i, v in enumerate(values)
+    ]
+    line = _smooth_path(pts) if smooth else "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
+    area = f"{line} L {pts[-1][0]:.1f} 100 L {pts[0][0]:.1f} 100 Z"
+    dot = ""
+    if show_dot:
+        dx, dy = pts[-1]
+        dot = (
+            f'<circle cx="{dx:.1f}" cy="{dy:.1f}" r="7" fill="{stroke}" fill-opacity="0.25"/>'
+            f'<circle cx="{dx:.1f}" cy="{dy:.1f}" r="3.4" fill="{stroke}"/>'
+        )
     return (
-        '<svg viewBox="0 0 100 100" preserveAspectRatio="none" '
+        f'<svg viewBox="0 0 {vb_w:.0f} 100" preserveAspectRatio="none" '
         'style="width:100%;height:100%;display:block">'
-        f'<polygon points="{area_points}" fill="{stroke}" fill-opacity="{fill_opacity}"/>'
-        f'<polyline points="{points}" fill="none" stroke="{stroke}" '
+        "<defs>"
+        '<linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="{stroke}" stop-opacity="{fill_opacity}"/>'
+        f'<stop offset="100%" stop-color="{stroke}" stop-opacity="0"/>'
+        "</linearGradient>"
+        "</defs>"
+        f'<path d="{area}" fill="url(#sparkfill)"/>'
+        f'<path d="{line}" fill="none" stroke="{stroke}" '
         f'stroke-width="{stroke_width}" vector-effect="non-scaling-stroke" '
         'stroke-linejoin="round" stroke-linecap="round"/>'
+        f"{dot}"
         "</svg>"
     )
 
