@@ -6,8 +6,9 @@ import contextlib
 from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from ..htmldoc import css_rgb
+from ..htmldoc import css_rgb, css_rgba, mdi_span
 from .base import Widget, WidgetConfig
+from .chart import FontRatios, PlotMetrics, fit_px, font_ratios, plot_metrics, value_header
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -119,15 +120,38 @@ def _candles_svg(
     data: list[tuple[float, float, float, float]],
     up_color: str,
     down_color: str,
+    *,
+    aspect: float = 2.0,
+    box_h: float = 100.0,
+    wick_px: float = 1.2,
+    corner_px: float = 1.3,
+    baseline_color: str | None = None,
 ) -> str:
     """Build an OHLC candle chart as inline SVG.
 
-    Uses a 100x100 viewBox with non-uniform scaling so it stretches to
-    whatever box the layout gives it. Wicks keep a constant on-screen
-    width via ``vector-effect: non-scaling-stroke``. Colors must be
-    concrete CSS colors — ``var()`` does not resolve inside SVG paint
-    attributes in the Blitz engine.
+    The viewBox matches the box the SVG will fill (``aspect`` =
+    width/height), so one viewBox unit is the same number of device
+    pixels on both axes — that is what keeps the rounded body corners
+    circular and the inter-candle gaps optically even under stretching.
+    Wicks keep a constant on-screen width via ``vector-effect:
+    non-scaling-stroke``. Colors must be concrete CSS colors —
+    ``var()`` does not resolve inside SVG paint attributes in Blitz.
+
+    Args:
+        data: OHLC tuples, oldest first.
+        up_color: Fill/stroke for bullish candles.
+        down_color: Fill/stroke for bearish candles.
+        aspect: Width / height of the box the SVG fills.
+        box_h: Height of that box in CSS pixels (converts px-sized
+            details — corner radius, minimum body — into viewBox units).
+        wick_px: Wick stroke width in CSS pixels.
+        corner_px: Body corner radius in CSS pixels.
+        baseline_color: When set, a dashed hairline is drawn at the last
+            close price.
     """
+    vb_w = 100.0 * max(0.4, aspect)
+    unit = 100.0 / max(8.0, box_h)  # viewBox units per CSS pixel
+
     # Find global min/max for scaling
     all_highs = [c[1] for c in data]
     all_lows = [c[2] for c in data]
@@ -141,49 +165,63 @@ def _candles_svg(
         data_max += 0.5
 
     # Small margin so candles never touch the edges
-    margin = data_range * 0.05
+    margin = data_range * 0.06
     data_min -= margin
     data_max += margin
     data_range = data_max - data_min
 
     num_candles = len(data)
-    # Each candle gets equal width with a gap between them
-    candle_total = 100.0 / num_candles
-    gap = candle_total * 0.2
-    body_w = max(candle_total - gap, 0.5)
+    # Equal slots with a breathing gap; bodies never fall under a pixel.
+    slot = vb_w / num_candles
+    body_w = max(slot * 0.72, min(slot * 0.9, 1.0 * unit))
+    min_body_h = 1.4 * unit
 
     def val_to_y(val: float) -> float:
         return 100.0 - (val - data_min) / data_range * 100.0
 
     parts = [
-        '<svg viewBox="0 0 100 100" preserveAspectRatio="none" '
+        f'<svg viewBox="0 0 {vb_w:.1f} 100" preserveAspectRatio="none" '
         'style="width:100%;height:100%;display:block">'
     ]
+
+    if baseline_color:
+        # Last close reference line — the "you are here" of a price chart.
+        base_y = val_to_y(data[-1][3])
+        parts.append(
+            f'<line x1="0" x2="{vb_w:.1f}" y1="{base_y:.2f}" y2="{base_y:.2f}" '
+            f'stroke="{baseline_color}" stroke-width="1" stroke-dasharray="2.5 3.5" '
+            'vector-effect="non-scaling-stroke"/>'
+        )
+
     for i, (o, h, low, c) in enumerate(data):
         bullish = c >= o
         color = up_color if bullish else down_color
 
-        body_x = i * candle_total + gap / 2
-        center_x = body_x + body_w / 2
+        center_x = (i + 0.5) * slot
+        body_x = center_x - body_w / 2
 
         wick_top = val_to_y(h)
         wick_bottom = val_to_y(low)
         body_top = val_to_y(max(o, c))
-        body_bottom = val_to_y(min(o, c))
+        body_h = val_to_y(min(o, c)) - body_top
 
-        # Ensure the body stays visible (flat/doji candles)
-        if body_bottom - body_top < 1.0:
-            body_top = min(body_top, 99.0)
-            body_bottom = body_top + 1.0
+        # Keep flat/doji candles visible as a thin bar.
+        if body_h < min_body_h:
+            body_top = min(body_top - (min_body_h - body_h) / 2, 100.0 - min_body_h)
+            body_top = max(body_top, 0.0)
+            body_h = min_body_h
+
+        radius = min(corner_px * unit, body_w * 0.38, body_h * 0.38)
 
         parts.append(
             f'<line x1="{center_x:.2f}" x2="{center_x:.2f}" '
             f'y1="{wick_top:.2f}" y2="{wick_bottom:.2f}" '
-            f'stroke="{color}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>'
+            f'stroke="{color}" stroke-width="{wick_px:.2f}" stroke-linecap="round" '
+            'vector-effect="non-scaling-stroke"/>'
         )
         parts.append(
             f'<rect x="{body_x:.2f}" y="{body_top:.2f}" '
-            f'width="{body_w:.2f}" height="{body_bottom - body_top:.2f}" fill="{color}"/>'
+            f'width="{body_w:.2f}" height="{body_h:.2f}" rx="{radius:.2f}" fill="{color}"/>'
         )
     parts.append("</svg>")
     return "".join(parts)
@@ -247,16 +285,17 @@ class CandlestickWidget(Widget):
         return INTERVAL_TO_SECONDS.get(self.candle_interval, 14400)
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
-        """Render the candlestick chart: caption row above stretched candles."""
+        """Render the candlestick chart: price header above the candles."""
+        m = plot_metrics(ctx)
+        ratios = font_ratios(ctx)
+
         entity = state.entity
         current_value = None
         unit = ""
-
         if entity is not None:
             with contextlib.suppress(ValueError, TypeError):
                 current_value = float(entity.state)
             unit = entity.unit or ""
-        label = self.label_for(entity)
 
         data = list(state.candlestick_data)
 
@@ -266,51 +305,99 @@ class CandlestickWidget(Widget):
         up_color = css_rgb(ctx.theme.success) if ctx.theme else "var(--success)"
         down_color = css_rgb(ctx.theme.error) if ctx.theme else "var(--error)"
 
-        # Value color reflects the most recent candle direction.
+        # The header takes the direction of the most recent candle — here
+        # the tint IS the meaning, so it carries the value as well as the
+        # caret.
+        bullish = bool(data) and data[-1][3] >= data[-1][0]
         value_color = "var(--text-secondary)"
+        caret = ""
         if data:
-            last = data[-1]
-            value_color = "var(--success)" if last[3] >= last[0] else "var(--error)"
+            value_color = "var(--success)" if bullish else "var(--error)"
+            caret = "triangle-small-up" if bullish else "triangle-small-down"
 
-        # Caption row: name left, current value right.
-        header_parts: list[str] = []
-        if label:
-            header_parts.append(
-                '<span class="t-label" style="overflow: hidden; '
-                'text-overflow: ellipsis; white-space: nowrap">'
-                f"{escape(label.upper())}</span>"
-            )
-        if self.show_value and current_value is not None:
-            value_str = f"{current_value:.1f}{unit}"
-            header_parts.append(
-                f'<span style="font-size: clamp(11px, 13vmin, 22px); font-weight: 700; '
-                f'line-height: 1; white-space: nowrap; color: {value_color}">'
-                f"{escape(value_str)}</span>"
-            )
-        # Note: the flex row lives inside a plain hide-short wrapper — an
-        # inline display style would defeat the kit's display:none media query.
         header = ""
-        if header_parts:
-            header = (
-                '<div class="hide-short">'
-                '<div style="display: flex; align-items: center; '
-                'justify-content: space-between; gap: 6px">'
-                f"{''.join(header_parts)}</div></div>"
+        header_h = 0.0
+        if not m.compact:
+            header, header_h = self._header(
+                self.label_for(entity), m, ratios, current_value, unit, value_color, caret
             )
 
-        # Candle chart fills the remaining space.
+        bands = 1 + bool(header)
+        plot_h = max(16.0, m.inner_h - header_h - m.gap * (bands - 1))
+        # ``aspect`` drives the SVG's rendered height (width / aspect) —
+        # see PlotMetrics for why this is measured in Python.
+        aspect = m.inner_w / plot_h
+
         if data:
-            svg = _candles_svg(data, up_color, down_color)
-            chart = f'<div style="flex: 1; min-height: 0">{svg}</div>'
+            svg = _candles_svg(
+                data,
+                up_color,
+                down_color,
+                aspect=aspect,
+                box_h=plot_h,
+                wick_px=fit_px(1.0, 0.9 + min(ctx.width, ctx.height) / 240.0 * 0.6, 1.5),
+                corner_px=fit_px(0.8, min(ctx.width, ctx.height) / 240.0 * 1.6, 1.6),
+                baseline_color=css_rgba(ctx.theme.text_primary, 0.16) if ctx.theme else None,
+            )
+            chart = f'<div style="width: 100%">{svg}</div>'
         else:
             chart = (
-                '<div style="flex: 1; min-height: 0; display: flex; align-items: center; '
-                "justify-content: center; color: var(--text-secondary); "
-                'font-size: clamp(11px, 13vmin, 20px); font-weight: 600">No data</div>'
+                '<div style="display: flex; align-items: center; justify-content: center; '
+                f'height: {plot_h:.0f}px">'
+                f'<span style="font-size: {m.value_px * 0.68:.1f}px; font-weight: 700; '
+                'letter-spacing: 0.08em; line-height: 1; color: var(--text-tertiary)">'
+                "No data</span></div>"
             )
 
+        justify = "center" if bands == 1 else "space-between"
         return (
-            '<div class="cell" style="align-items: stretch; gap: 4px; padding: 5% 7%">'
+            f'<div class="cell" style="align-items: stretch; justify-content: {justify}; '
+            f'padding: {m.pad_y}px {m.pad_x}px">'
             f"{header}{chart}"
             "</div>"
         )
+
+    def _header(
+        self,
+        caption: str,
+        m: PlotMetrics,
+        ratios: FontRatios,
+        current_value: float | None,
+        unit: str,
+        color: str,
+        caret: str,
+    ) -> tuple[str, float]:
+        """Caption + last price, tinted by the last candle's direction."""
+        value_html = ""
+        value_w = 0.0
+        if self.show_value and current_value is not None:
+            value_text = f"{current_value:.1f}"
+            caret_px = m.value_px * 0.78
+            caret_html = ""
+            if caret:
+                value_w += caret_px * 0.9
+                caret_html = mdi_span("mdi:" + caret, "icon", f"font-size: {caret_px:.1f}px")
+            value_w += len(value_text) * m.value_px * ratios.digit
+            unit_html = ""
+            if unit:
+                value_w += len(unit) * m.unit_px * ratios.glyph
+                unit_html = (
+                    f'<span class="t-unit" style="font-size: {m.unit_px:.1f}px; '
+                    f'color: {color}">{escape(unit)}</span>'
+                )
+            value_html = (
+                f'<span class="t-value" style="font-size: {m.value_px:.1f}px; color: {color}">'
+                f"{caret_html}{escape(value_text)}{unit_html}</span>"
+            )
+
+        html = value_header(
+            caption=caption,
+            value_html=value_html,
+            value_width=value_w,
+            inner_w=m.inner_w,
+            label_px=m.label_px,
+            ratios=ratios,
+        )
+        if not html:
+            return "", 0.0
+        return html, max(m.value_px if value_html else 0.0, m.label_px if caption else 0.0)

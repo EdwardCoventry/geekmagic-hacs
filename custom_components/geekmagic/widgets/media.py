@@ -17,16 +17,104 @@ if TYPE_CHECKING:
 from .base import Widget, WidgetConfig
 from .helpers import truncate_text
 
+# ---------------------------------------------------------------------------
+# Text metrics
+#
+# Blitz renders no ``text-overflow: ellipsis`` and does not clip text with
+# ``overflow: hidden``, so every string is fitted in Python. The constants
+# below are *measured* average glyph advances (em per character) for
+# mixed-case strings in the two embedded families, plus a small safety
+# margin: Nunito ~0.452, DejaVu Sans ~0.551. Being slightly pessimistic
+# guarantees the engine always fits at least as much as we assumed, so a
+# block never grows an unplanned extra line.
+# ---------------------------------------------------------------------------
+_AVG_ROUNDED = 0.47
+_AVG_WIDE = 0.58
 
-def _fit_chars(width_px: float, min_px: float, vmin_px: float, max_px: float) -> int:
-    """Estimate chars fitting in ``width_px`` for a clamp()-sized font.
+# Shared inset for the album-art overlay: text, progress bar and label all
+# align to the same optical margin on every cell size.
+_INSET = "clamp(5px, 5.5vmin, 14px)"
+_ART_BAR_H = "clamp(2px, 1.4vmin, 4px)"
 
-    Blitz doesn't render ``text-overflow: ellipsis``, so single-line text
-    is truncated Python-side. Mirrors ``clamp(min_px, vmin_px, max_px)``
-    and assumes an average glyph width of ~0.55em (Nunito, mixed case).
+
+def _avg_glyph(ctx: CellContext) -> float:
+    """Average glyph advance (in em) for the theme's body font."""
+    return _AVG_ROUNDED if getattr(ctx.theme, "rounded_font", True) else _AVG_WIDE
+
+
+def _clamp_px(min_px: float, vmin_ratio: float, max_px: float, vmin: float) -> float:
+    """Python mirror of ``clamp(min_px, <ratio>vmin, max_px)``."""
+    return min(max_px, max(min_px, vmin_ratio * vmin))
+
+
+def _inset_px(ctx: CellContext) -> float:
+    """Python mirror of :data:`_INSET`."""
+    return _clamp_px(5.0, 0.055, 14.0, min(ctx.width, ctx.height))
+
+
+def _fit_chars(width_px: float, font_px: float, avg: float) -> int:
+    """How many characters of ``font_px`` text fit into ``width_px``."""
+    return max(3, int(width_px / (font_px * avg)))
+
+
+def _fit_lines(text: str, per_line: int, max_lines: int) -> str:
+    """Greedy-wrap ``text`` and hard-truncate it to ``max_lines`` lines.
+
+    Returned as a single string — the engine re-wraps it at the same
+    budget. Because ``per_line`` comes from a pessimistic glyph advance,
+    the rendered block never overflows the line count assumed here.
     """
-    font_px = min(max_px, max(min_px, vmin_px))
-    return max(4, int(width_px / (font_px * 0.55)))
+    words = text.split()
+    if not words:
+        return ""
+    lines: list[str] = []
+    current = ""
+    overflowed = False
+    for word in words:
+        chunk = truncate_text(word, per_line)  # a word longer than a whole line
+        candidate = f"{current} {chunk}" if current else chunk
+        if len(candidate) <= per_line:
+            current = candidate
+        elif len(lines) + 1 < max_lines:
+            lines.append(current)
+            current = chunk
+        else:
+            overflowed = True
+            break
+    lines.append(current)
+    if overflowed:
+        lines[-1] = truncate_text(f"{lines[-1]}…", per_line)
+    return " ".join(lines)
+
+
+def _fit_title(
+    text: str,
+    avail_px: float,
+    avg: float,
+    *,
+    max_px: float,
+    max_lines: int,
+    min_px: float = 11.0,
+) -> tuple[str, float]:
+    """Pick a font size and wrap/truncate a title to fill ``avail_px``.
+
+    Short titles grow to ``max_px`` (hero dominance); long ones drop to
+    two lines before they shrink, and only shrink to ``min_px`` before
+    being truncated. A title that would leave a one-word widow on the
+    second line stays on one line instead.
+    """
+    text = " ".join(text.split())
+    if not text:
+        return "", min_px
+    single = avail_px / len(text) / avg
+    if max_lines < 2 or single >= max_px * 0.8:
+        lines = 1
+        font_px = min(max_px, max(min_px, single))
+    else:
+        lines = 2
+        per = -(-len(text) // 2)
+        font_px = min(max_px, max(min_px, avail_px / per / avg))
+    return _fit_lines(text, _fit_chars(avail_px, font_px, avg), lines), font_px
 
 
 def _calculate_media_position(
@@ -94,11 +182,11 @@ def _format_time(seconds: float) -> str:
 
 
 def _progress_bar_html(percent: float, color: str, *, height_css: str, track: str) -> str:
-    """A slim rounded progress bar with a neutral track."""
+    """A slim rounded progress bar on a neutral track."""
     percent = max(0.0, min(100.0, percent))
     return (
         f'<div style="width: 100%; height: {height_css}; border-radius: 999px; '
-        f'background: {track}; overflow: hidden">'
+        f'background: {track}">'
         f'<div style="width: {percent:.1f}%; height: 100%; border-radius: 999px; '
         f'background: {color}"></div></div>'
     )
@@ -149,17 +237,17 @@ class MediaWidget(Widget):
         return self._render_now_playing(ctx, entity, position, duration, accent)
 
     def _render_idle(self, entity: EntityState | None) -> str:
-        """Idle / paused / off placeholder."""
+        """Idle / paused / off placeholder — quiet, centered, never loud."""
         if entity is not None and entity.state == "paused":
             icon, label = "pause", "PAUSED"
         else:
             icon, label = "music", "NO MEDIA"
+        # A medium glyph in secondary over a tertiary caption: present but
+        # recessive, so an idle cell reads as resting rather than broken.
         return (
-            '<div class="cell" style="justify-content: center; gap: 4vmin; '
-            'color: var(--text-secondary)">'
-            f"{mdi_span(icon, 'icon i-lg')}"
-            f'<div class="t-label hide-short" style="color: var(--text-secondary)">'
-            f"{escape(label)}</div>"
+            '<div class="cell" style="justify-content: center; gap: 3.5vmin">'
+            f"{mdi_span(icon, 'icon i-md', 'color: var(--text-secondary)')}"
+            f'<div class="t-label hide-short">{escape(label)}</div>'
             "</div>"
         )
 
@@ -173,82 +261,104 @@ class MediaWidget(Widget):
         duration: float,
         accent: str,
     ) -> str:
-        """Full-bleed album art with bottom gradient overlay and track info.
+        """Full-bleed album art with a bottom scrim and track info.
 
-        Spotify / Apple Music now-playing pattern: the art fills the cell, a
-        fade-to-black gradient anchors the metadata at the bottom, and a slim
-        tinted progress bar sits on the very bottom edge.
+        Apple-Music / Spotify now-playing pattern: the art fills the cell,
+        the top ~45% stays completely unobstructed, and a gradient scrim
+        ramps in below it to carry left-aligned metadata. A hairline
+        progress bar sits on the shared bottom inset — never flush to the
+        physical edge.
 
-        Overlay text deliberately uses fixed near-white colours, NOT theme
-        tokens: it renders on a dark gradient over photographic content, so
-        it needs white-ish contrast regardless of theme. This is the
-        documented exception to "use theme tokens for everything".
+        Overlay text and scrim deliberately use fixed white/black rgba,
+        NOT theme tokens: they render over photographic content and need
+        the same contrast in every theme. This is the documented
+        exception to "use theme tokens for everything".
         """
         if image.mode != "RGB":
             image = image.convert("RGB")
         uri = image_data_uri(image)
 
-        show_artist = ctx.height >= 130
-        show_time = ctx.height >= 200 and duration > 0
+        vmin = min(ctx.width, ctx.height)
+        avg = _avg_glyph(ctx)
+        text_width = ctx.width - 2 * _inset_px(ctx)
+
+        show_artist = self.show_artist and ctx.height >= 120
+        show_time = ctx.height >= 190 and duration > 0
         show_bar = self.show_progress and duration > 0
 
-        vmin = min(ctx.width, ctx.height)
-        text_width = ctx.width * 0.90  # 5% padding each side
-
         lines: list[str] = []
-        title = entity.get("media_title", "")
-        if title:
-            title = truncate_text(title, _fit_chars(text_width, 10, 0.09 * vmin, 20))
+        raw_title = entity.get("media_title", "")
+        if raw_title:
+            title, title_px = _fit_title(
+                raw_title,
+                text_width,
+                avg,
+                max_px=_clamp_px(11.0, 0.105, 24.0, vmin),
+                max_lines=2 if ctx.height >= 170 else 1,
+            )
             lines.append(
-                '<div style="font-size: clamp(10px, 9vmin, 20px); font-weight: 700; '
-                "color: rgb(255, 255, 255); max-width: 100%; overflow: hidden; "
-                'white-space: nowrap; text-overflow: ellipsis">'
+                f'<div style="font-size: {title_px:.1f}px; font-weight: 700; '
+                'line-height: 1.16; letter-spacing: -0.01em; color: rgba(255,255,255,0.98)">'
                 f"{escape(title)}</div>"
             )
         artist = entity.get("media_artist", "")
         if artist and show_artist:
-            artist = truncate_text(artist, _fit_chars(text_width, 9, 0.07 * vmin, 15))
+            artist_px = _clamp_px(9.0, 0.072, 15.0, vmin)
+            artist = truncate_text(artist, _fit_chars(text_width, artist_px, avg))
             lines.append(
-                '<div style="font-size: clamp(9px, 7vmin, 15px); font-weight: 600; '
-                "color: rgba(255,255,255,0.75); max-width: 100%; overflow: hidden; "
-                'white-space: nowrap; text-overflow: ellipsis">'
+                f'<div style="font-size: {artist_px:.1f}px; font-weight: 600; '
+                'line-height: 1.2; color: rgba(255,255,255,0.6); white-space: nowrap">'
                 f"{escape(artist)}</div>"
             )
         if show_time:
+            time_px = _clamp_px(9.0, 0.055, 12.0, vmin)
             time_str = f"{_format_time(position)} / {_format_time(duration)}"
             lines.append(
-                '<div style="font-size: clamp(9px, 6vmin, 13px); font-weight: 600; '
-                'color: rgba(255,255,255,0.55)">'
+                f'<div style="font-size: {time_px:.1f}px; font-weight: 600; '
+                'line-height: 1.2; letter-spacing: 0.02em; '
+                'color: rgba(255,255,255,0.5); white-space: nowrap">'
                 f"{escape(time_str)}</div>"
             )
 
         text_block = ""
         if lines:
-            bar_gap = "3.5%" if show_bar else "0%"
+            bottom = (
+                f"calc({_INSET} + {_ART_BAR_H} + clamp(4px, 3vmin, 9px))" if show_bar else _INSET
+            )
+            # Blitz resolves an absolutely positioned box against its
+            # *parent* box, so the hide-* wrapper must fill the cell —
+            # a zero-height wrapper would collapse the overlay away.
             text_block = (
-                f'<div style="position: absolute; left: 0; right: 0; bottom: {bar_gap}; '
-                "padding: 3% 5%; display: flex; flex-direction: column; "
-                'align-items: flex-start; gap: 2px; text-align: left">'
-                f"{''.join(lines)}</div>"
+                '<div class="hide-narrow" style="height: 100%">'
+                f'<div style="position: absolute; left: {_INSET}; right: {_INSET}; '
+                f"bottom: {bottom}; display: flex; flex-direction: column; "
+                'align-items: flex-start; gap: 0.2em; text-align: left">'
+                f"{''.join(lines)}</div></div>"
             )
 
         bar = ""
         if show_bar:
             percent = min(100.0, position / duration * 100)
             bar = (
-                '<div style="position: absolute; left: 0; right: 0; bottom: 0; '
-                f'height: 2.2%; background: rgba(255,255,255,0.25)">'
-                f'<div style="width: {percent:.1f}%; height: 100%; '
+                f'<div style="position: absolute; left: {_INSET}; right: {_INSET}; '
+                f"bottom: {_INSET}; height: {_ART_BAR_H}; border-radius: 999px; "
+                'background: rgba(255,255,255,0.28)">'
+                f'<div style="width: {percent:.1f}%; height: 100%; border-radius: 999px; '
                 f'background: {accent}"></div></div>'
             )
 
+        # Scrim curve: imperceptible through the top 45% of the art, then
+        # ramping hard enough that white 700-weight text clears a blown-out
+        # highlight in the artwork underneath.
         return (
-            '<div style="position: relative; width: 100%; height: 100%; overflow: hidden">'
+            '<div style="position: relative; width: 100%; height: 100%; '
+            'overflow: hidden; border-radius: inherit">'
             f'<img src="{uri}" style="position: absolute; inset: 0; width: 100%; '
             'height: 100%; object-fit: cover">'
             '<div style="position: absolute; left: 0; right: 0; bottom: 0; height: 60%; '
             "background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, "
-            'rgba(0,0,0,0.55) 45%, rgba(0,0,0,0.85) 100%)"></div>'
+            "rgba(0,0,0,0.10) 28%, rgba(0,0,0,0.38) 44%, rgba(0,0,0,0.66) 60%, "
+            'rgba(0,0,0,0.80) 80%, rgba(0,0,0,0.92) 100%)"></div>'
             f"{text_block}"
             f"{bar}"
             "</div>"
@@ -264,38 +374,42 @@ class MediaWidget(Widget):
     ) -> str:
         """Text-only now-playing card (no album art)."""
         vmin = min(ctx.width, ctx.height)
+        avg = _avg_glyph(ctx)
         text_width = ctx.width * 0.88  # 6% padding each side
 
         bands: list[str] = ['<div class="t-label hide-short">NOW PLAYING</div>']
 
-        title = entity.get("media_title", "Unknown")
-        # Title wraps to two lines; truncate anything past that budget.
-        title = truncate_text(title, 2 * _fit_chars(text_width, 12, 0.14 * vmin, 26))
+        title, title_px = _fit_title(
+            entity.get("media_title", "Unknown"),
+            text_width,
+            avg,
+            max_px=_clamp_px(13.0, 0.20, 40.0, vmin),
+            max_lines=2 if ctx.height >= 90 else 1,
+        )
         bands.append(
-            '<div style="font-size: clamp(12px, 14vmin, 26px); font-weight: 700; '
-            "line-height: 1.15; max-width: 100%; max-height: 2.35em; "
-            'overflow: hidden; overflow-wrap: break-word">'
+            f'<div style="font-size: {title_px:.1f}px; font-weight: 700; '
+            'line-height: 1.14; letter-spacing: -0.015em">'
             f"{escape(title)}</div>"
         )
 
         artist = entity.get("media_artist", "")
         if self.show_artist and artist:
-            artist = truncate_text(artist, _fit_chars(text_width, 10, 0.10 * vmin, 18))
+            artist_px = _clamp_px(10.0, 0.10, 18.0, vmin)
+            artist = truncate_text(artist, _fit_chars(text_width, artist_px, avg))
             bands.append(
-                '<div class="hide-short" style="font-size: clamp(10px, 10vmin, 18px); '
-                "font-weight: 600; color: var(--text-secondary); max-width: 100%; "
-                'overflow: hidden; white-space: nowrap; text-overflow: ellipsis">'
-                f"{escape(artist)}</div>"
+                f'<div class="hide-short" style="font-size: {artist_px:.1f}px; '
+                "font-weight: 600; line-height: 1.2; color: var(--text-secondary); "
+                f'white-space: nowrap">{escape(artist)}</div>'
             )
 
         album = entity.get("media_album_name", "")
         if self.show_album and album:
-            album = truncate_text(album, _fit_chars(text_width, 10, 0.09 * vmin, 15))
+            album_px = _clamp_px(9.0, 0.085, 14.0, vmin)
+            album = truncate_text(album, _fit_chars(text_width, album_px, avg))
             bands.append(
-                '<div class="hide-small" style="font-size: clamp(10px, 9vmin, 15px); '
-                "font-weight: 600; color: var(--text-secondary); max-width: 100%; "
-                'overflow: hidden; white-space: nowrap; text-overflow: ellipsis">'
-                f"{escape(album)}</div>"
+                f'<div class="hide-small" style="font-size: {album_px:.1f}px; '
+                "font-weight: 600; line-height: 1.2; color: var(--text-tertiary); "
+                f'white-space: nowrap">{escape(album)}</div>'
             )
 
         if self.show_progress and duration > 0:
@@ -305,18 +419,18 @@ class MediaWidget(Widget):
                 + _progress_bar_html(
                     percent,
                     accent,
-                    height_css="clamp(3px, 3.5vmin, 6px)",
-                    track="rgba(255,255,255,0.18)",
+                    height_css="clamp(3px, 2vmin, 5px)",
+                    track="var(--track)",
                 )
                 # hide-short must sit on an element without an inline
                 # display (inline style would beat the media query).
                 + '<div class="hide-short">'
                 '<div style="display: flex; justify-content: space-between; '
-                "color: var(--text-secondary); font-size: clamp(9px, 8vmin, 14px); "
-                'font-weight: 600; margin-top: 2.5vmin">'
+                "color: var(--text-secondary); font-size: clamp(9px, 6.5vmin, 12px); "
+                'font-weight: 600; letter-spacing: 0.02em; margin-top: clamp(4px, 2.5vmin, 8px)">'
                 f"<span>{escape(_format_time(position))}</span>"
                 f"<span>{escape(_format_time(duration))}</span>"
                 "</div></div></div>"
             )
 
-        return f'<div class="cell" style="padding: 4% 6%">{"".join(bands)}</div>'
+        return f'<div class="cell" style="padding: 5% 6%">{"".join(bands)}</div>'
