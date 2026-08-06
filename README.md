@@ -97,12 +97,26 @@ Display OHLC (Open/High/Low/Close) candlestick charts from any numeric entity's 
   <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/candlestick_example.png" alt="Candlestick Chart - BTC/USD" width="200">
 </p>
 
-### HTML Widget (Experimental)
+### Rendering Engine
 
-Design cells with real HTML/CSS — flexbox, CSS grid, border-radius, web fonts —
-rendered by the [Blitz](https://github.com/DioxusLabs/blitz) engine via
-[blitz-py](https://github.com/adrienbrault/blitz-py) (Stylo + Taffy + Parley + Vello,
-no browser). A 240×240 cell renders in ~20-40ms.
+All rendering is powered by the [Blitz](https://github.com/DioxusLabs/blitz)
+HTML/CSS engine via [blitz-py](https://github.com/adrienbrault/blitz-py)
+(Stylo + Taffy + Parley + Vello — no browser). Every widget is an HTML
+fragment rasterized per-cell, so real CSS drives the design: flexbox,
+gradients, glows, border-radius, media queries, SVG charts, embedded
+fonts. Each cell is its own CSS viewport — one widget template adapts
+fluidly from a 76px 3×3 cell to 240px fullscreen, shedding detail bands
+as space runs out. Themes are full stylesheets (fonts, chrome,
+backdrops, overlay effects like CRT scanlines), not just palettes.
+
+**Note:** `blitz-py` is not yet on PyPI; install it into your HA Python
+environment with a Rust toolchain
+(`pip install git+https://github.com/adrienbrault/blitz-py`). Without it
+the display shows an install hint.
+
+### HTML Widget
+
+Design your own cells with HTML/CSS + Jinja. A 240×240 cell renders in ~20-40ms.
 
 <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/html_widget_fullscreen.png" alt="HTML widget fullscreen" width="200"> <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/html_widget_grid.png" alt="HTML widgets in 2x2 grid" width="200">
 
@@ -167,12 +181,8 @@ The HTML option is a Jinja template with access to entity data:
   `var(--text-tertiary)`, `var(--primary)`, `var(--success)`, `var(--warning)`,
   `var(--error)`, `var(--info)`, `var(--muted)`, `var(--bg)`
 
-**Requires** the optional `blitz-py` package installed into your Home Assistant
-Python environment (not yet on PyPI — build from
-[source](https://github.com/adrienbrault/blitz-py) with a Rust toolchain:
-`pip install git+https://github.com/adrienbrault/blitz-py`). Without it the
-widget shows an "Install blitz-py" placeholder. Limitations: no JavaScript, no
-network fetches (use `data:` URIs for images), no `background-clip: text`.
+Limitations: no JavaScript, no network fetches (use `data:` URIs for
+images), no `background-clip: text`, no `text-shadow`.
 
 ## Layout Examples
 
