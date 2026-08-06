@@ -78,8 +78,45 @@ def _theme_css_variables(ctx: RenderContext) -> str:
     return f":root {{\n{lines}\n}}"
 
 
+# Fluid kit: opinionated utility classes injected into every document.
+#
+# Each cell is its own CSS viewport, so viewport units (vmin/vw/vh) and
+# media queries respond to the CELL size, not the display size. That
+# makes one template adapt from a 76px 3x3 cell up to 240px fullscreen:
+#
+# - ``.cell``      flex-column scaffold filling the cell, space-evenly
+#                  (the watchOS three-band default); add ``.row`` to go
+#                  horizontal
+# - ``.t-hero``    primary value — scales with cell size via clamp()
+# - ``.t-value``   secondary emphasized value
+# - ``.t-unit``    unit suffix next to a hero
+# - ``.t-label``   caps caption / label
+# - ``.hide-short``  hidden when the cell is under 100px tall
+# - ``.hide-narrow`` hidden when the cell is under 100px wide
+# - ``.hide-small``  hidden when either dimension is under 130px
+#
+# Breakpoints follow the real cell sizes: 3x3 grid ~76px, 2x2 ~118px,
+# halves ~118x240, fullscreen 240px.
+_FLUID_KIT_CSS = """
+.cell { height: 100%; display: flex; flex-direction: column; align-items: center;
+        justify-content: space-evenly; text-align: center; }
+.cell.row { flex-direction: row; }
+.t-hero { font-size: clamp(18px, min(46vmin, 30vw), 120px); font-weight: 700;
+          line-height: 1; letter-spacing: -0.03em; }
+.t-value { font-size: clamp(14px, min(26vmin, 20vw), 64px); font-weight: 700;
+           line-height: 1; }
+.t-unit { font-size: clamp(12px, min(18vmin, 12vw), 40px); font-weight: 600;
+          line-height: 1; color: var(--text-secondary); }
+.t-label { font-size: clamp(10px, min(11vmin, 8vw), 17px); font-weight: 600;
+           line-height: 1; letter-spacing: 0.08em; color: var(--text-tertiary); }
+@media (max-height: 99px) { .hide-short { display: none; } }
+@media (max-width: 99px) { .hide-narrow { display: none; } }
+@media (max-height: 129px), (max-width: 129px) { .hide-small { display: none; } }
+"""
+
+
 def _wrap_document(user_html: str, ctx: RenderContext) -> str:
-    """Wrap user HTML with theme variables and sane base styles."""
+    """Wrap user HTML with theme variables, base styles, and the fluid kit."""
     return f"""<style>
 {_theme_css_variables(ctx)}
 html, body {{ margin: 0; padding: 0; width: 100%; height: 100%; }}
@@ -88,6 +125,7 @@ body {{
   color: var(--text-primary);
   font-family: sans-serif;
 }}
+{_FLUID_KIT_CSS}
 </style>
 <body>{user_html}</body>"""
 

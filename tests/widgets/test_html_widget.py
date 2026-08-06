@@ -112,6 +112,13 @@ class TestWrapDocument:
         assert "margin: 0" in doc
         assert "font-family: sans-serif" in doc
 
+    def test_fluid_kit_injected(self, render_context):
+        doc = _wrap_document("", render_context)
+        for cls in (".cell", ".t-hero", ".t-value", ".t-unit", ".t-label"):
+            assert cls in doc
+        for cls in (".hide-short", ".hide-narrow", ".hide-small"):
+            assert cls in doc
+
 
 class TestGetEntities:
     """Entity dependency extraction from templates."""
@@ -190,6 +197,45 @@ class TestBlitzRender:
         colors = img.getcolors(maxcolors=1_000_000)
         assert colors is not None
         assert len(colors) > 1  # more than just the background
+
+    def test_hide_short_responds_to_cell_height(self, renderer, widget_state):
+        """.hide-short content disappears in cells under 100px tall."""
+
+        def red_pixels(cell_height: int) -> int:
+            img, draw = renderer.create_canvas()
+            ctx = RenderContext(draw, (0, 0, 240, cell_height), renderer)
+            widget = make_widget(
+                '<div class="hide-short" style="color:#f00;font-size:40px">XXXX</div>'
+            )
+            component = widget.render(ctx, widget_state)
+            component.render(ctx, 0, 0, 240, cell_height)
+            rgb = img.convert("RGB")
+            return sum(
+                count
+                for count, (r, g, b) in rgb.getcolors(maxcolors=1_000_000)
+                if r > 180 and g < 80 and b < 80
+            )
+
+        assert red_pixels(240) > 0
+        assert red_pixels(80) == 0
+
+    def test_fluid_hero_scales_with_cell(self, renderer, widget_state):
+        """.t-hero text occupies more pixels in a larger cell."""
+
+        def content_pixels(size: int) -> int:
+            img, draw = renderer.create_canvas()
+            ctx = RenderContext(draw, (0, 0, size, size), renderer)
+            widget = make_widget('<div class="cell"><div class="t-hero">21.5</div></div>')
+            component = widget.render(ctx, widget_state)
+            component.render(ctx, 0, 0, size, size)
+            rgb = img.convert("RGB")
+            return sum(
+                count
+                for count, (r, g, b) in rgb.getcolors(maxcolors=1_000_000)
+                if r > 100 or g > 100 or b > 100
+            )
+
+        assert content_pixels(240) > content_pixels(80) * 2
 
     def test_render_error_does_not_raise(self, renderer, widget_state, monkeypatch):
         """A blitz failure paints an error message instead of raising."""
