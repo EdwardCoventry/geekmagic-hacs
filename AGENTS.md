@@ -303,7 +303,7 @@ Fine-tune sizes with `adjust` parameter (-2 to +2, each step is ~15%):
 
 ```python
 font = ctx.get_font("secondary", adjust=+1)  # 15% larger
-font = ctx.get_font("primary", adjust=-1)    # 15% smaller
+font = ctx.get_font("primary", adjust=-1)  # 15% smaller
 ```
 
 ### Legacy Sizes
@@ -367,12 +367,12 @@ Use helper functions from `widgets/helpers.py` for common operations:
 
 ```python
 from ..widgets.helpers import (
-    truncate_text,       # Truncate long text with ellipsis
-    extract_numeric,     # Get float from entity state
-    resolve_label,       # Get label from config or friendly_name
-    calculate_percent,   # Calculate percentage in range
-    is_entity_on,        # Check binary state
-    get_unit,            # Get unit of measurement
+    truncate_text,  # Truncate long text with ellipsis
+    extract_numeric,  # Get float from entity state
+    resolve_label,  # Get label from config or friendly_name
+    calculate_percent,  # Calculate percentage in range
+    is_entity_on,  # Check binary state
+    get_unit,  # Get unit of measurement
 )
 ```
 
@@ -382,11 +382,11 @@ Use `widgets/layout_helpers.py` for common rendering patterns:
 
 ```python
 from ..widgets.layout_helpers import (
-    layout_icon_label_value,   # [Icon] [Label] ... [Value]
-    layout_centered_value,     # Centered value with label below
-    layout_bar_with_label,     # Progress bar with label/value above
-    layout_list_rows,          # Calculate row positions for lists
-    draw_title,                # Draw title at top
+    layout_icon_label_value,  # [Icon] [Label] ... [Value]
+    layout_centered_value,  # Centered value with label below
+    layout_bar_with_label,  # Progress bar with label/value above
+    layout_list_rows,  # Calculate row positions for lists
+    draw_title,  # Draw title at top
 )
 ```
 
@@ -435,7 +435,9 @@ Entity implementations live in `entities/` subfolder for organization, but **stu
 ```python
 # custom_components/geekmagic/number.py (stub for HA discovery)
 """Number platform - re-exports from entities submodule."""
+
 from .entities.number import async_setup_entry
+
 __all__ = ["async_setup_entry"]
 ```
 
@@ -471,9 +473,8 @@ result = await hass.async_add_executor_job(blocking_function, arg1, arg2)
 
 # With keyword arguments:
 from functools import partial
-result = await hass.async_add_executor_job(
-    partial(blocking_function, kwarg1=value1), arg1
-)
+
+result = await hass.async_add_executor_job(partial(blocking_function, kwarg1=value1), arg1)
 ```
 
 ### This Integration's Blocking Operations
