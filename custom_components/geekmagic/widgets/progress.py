@@ -5,8 +5,18 @@ from __future__ import annotations
 from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from ..htmldoc import css_rgb, css_rgba, mdi_span
-from ._card import card_html, chip_html
+from ..htmldoc import css_rgb, mdi_span
+from ._card import chip_html
+from ._gauge import (
+    bar_html,
+    cell_box,
+    char_em,
+    fit_caption,
+    hero_font_css,
+    label_px,
+    track_css,
+    value_unit_html,
+)
 from .base import Widget, WidgetConfig
 from .helpers import format_number, truncate_text
 
@@ -14,33 +24,18 @@ if TYPE_CHECKING:
     from ..htmldoc import CellContext
     from .state import WidgetState
 
-# Legacy thin/normal/thick bar styles expressed as fluid CSS heights.
-# (Old Pillow ratios were 0.10 / 0.17 / 0.25 of cell height.)
+# Progress bars are supporting evidence for the percent hero, not the
+# subject (that's what the gauge widget is for), so they run slimmer
+# than a bar gauge. Legacy thin/normal/thick option, re-tuned.
 _BAR_HEIGHT_CSS: dict[str, str] = {
-    "thin": "clamp(5px, 8vmin, 13px)",
-    "normal": "clamp(8px, 13vmin, 20px)",
-    "thick": "clamp(11px, 19vmin, 30px)",
+    "thin": "clamp(4px, 5vmin, 9px)",
+    "normal": "clamp(6px, 8vmin, 14px)",
+    "thick": "clamp(9px, 13vmin, 22px)",
 }
 
-
-def _track_color(ctx: CellContext, rgb: tuple[int, int, int] | None) -> str:
-    """Tinted gauge track, Apple Activity style (theme-controlled)."""
-    if rgb is None and ctx.theme is not None:
-        rgb = ctx.theme.get_accent_color(ctx.slot_index)
-    if rgb is not None and ctx.theme is not None and ctx.theme.tint_track:
-        return css_rgba(rgb, ctx.theme.tint_track_opacity)
-    return "rgba(128, 128, 128, 0.20)"
-
-
-def _bar_html(percent: float, color: str, track: str, height_css: str) -> str:
-    """Horizontal progress track + fill (same pattern as gauge bars)."""
-    return (
-        f'<div style="width: 100%; height: {height_css}; background: {track}; '
-        'border-radius: 999px; overflow: hidden">'
-        f'<div style="width: {percent:.1f}%; height: 100%; background: {color}; '
-        'border-radius: 999px"></div>'
-        "</div>"
-    )
+# Below this the multi-progress rows would be thinner than their own
+# type; extra items are dropped rather than crushed.
+_MIN_ROW_PX = 13.0
 
 
 class ProgressWidget(Widget):
@@ -72,11 +67,11 @@ class ProgressWidget(Widget):
         self.target = config.options.get("target", 100)
         self.unit = config.options.get("unit", "")
         self.show_target = config.options.get("show_target", True)
-        self.icon = config.options.get("icon")
+        self.icon = config.options.get("icon") or None
         self.bar_height_style = config.options.get("bar_height", "normal")
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
-        """Render the progress widget: caption / percent hero / chip / bar."""
+        """Render the widget: caption / percent hero / bar / value chip."""
         entity = state.entity
         value = entity.numeric() if entity is not None else 0.0
 
@@ -89,30 +84,45 @@ class ProgressWidget(Widget):
         target = self.target or 100
         percent = min(100, (value / target) * 100) if target > 0 else 0
 
-        # Supporting chip: "{value}/{target} {unit}" — ``format_number``
-        # abbreviates large values (e.g. 1.5k).
-        value_str = format_number(value)
-        if self.show_target:
-            value_str = f"{value_str}/{format_number(target)}"
-        if unit:
-            value_str = f"{value_str} {unit}"
-
         rgb = self.config.color
         color = css_rgb(rgb) if rgb else ctx.accent()
-        track = _track_color(ctx, rgb)
         bar_height = _BAR_HEIGHT_CSS.get(self.bar_height_style, _BAR_HEIGHT_CSS["normal"])
 
-        bar = f'<div style="width: 88%">{_bar_html(percent, color, track, bar_height)}</div>'
-
-        return card_html(
-            caption=label,
-            icon=self.icon,
-            icon_color=color,
-            icon_role="feature",
-            hero=f"{percent:.0f}%",
-            chips=[chip_html(value_str)] if value_str else None,
-            extra=bar,
+        icon_html = mdi_span(self.icon, "icon i-sm", f"color: {color}") if self.icon else ""
+        caption = (
+            '<div class="t-label caption-row hide-short">'
+            f"{icon_html}"
+            f"{escape(fit_caption(ctx, label.upper(), reserve_em=1.6 if icon_html else 0.0))}"
+            "</div>"
         )
+        # The percent is the hero and stays theme text — the tint lives
+        # in the icon and the bar fill (one accent per cell).
+        hero_css, unit_css = hero_font_css(f"{percent:.0f}", "%")
+        hero = value_unit_html(f"{percent:.0f}", "%", hero_css=hero_css, unit_css=unit_css)
+        bar = bar_html(percent, color=color, track=track_css(ctx, rgb), thickness=bar_height)
+        chip = self._value_chip(ctx, value, target, unit)
+        return f'<div class="cell">{caption}{hero}{bar}{chip}</div>'
+
+    def _value_chip(self, ctx: CellContext, value: float, target: float, unit: str) -> str:
+        """Raw progress as a pill: "4.2k of 10k steps".
+
+        Degrades by dropping the least important part first (unit, then
+        target) so the chip never spills out of a narrow cell.
+        """
+        amount = format_number(value)
+        variants = [amount]
+        if self.show_target:
+            variants.insert(0, f"{amount} of {format_number(target)}")
+        if unit:
+            variants.insert(0, f"{variants[0]} {unit}")
+
+        px = max(10.0, min(0.11 * min(ctx.width, ctx.height), 16.0))
+        avail_w, _ = cell_box(ctx)
+        budget = (avail_w - 1.9 * px) / (px * char_em(ctx))
+        text = next((v for v in variants if len(v) <= budget), "")
+        if not text:
+            text = truncate_text(variants[-1], max(3, int(budget)))
+        return f'<div class="chips hide-small">{chip_html(text)}</div>'
 
 
 class MultiProgressWidget(Widget):
@@ -139,106 +149,164 @@ class MultiProgressWidget(Widget):
         return [item.get("entity_id") for item in self.items if item.get("entity_id")]
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
-        """Render labeled progress bars stacked in a flex column."""
-        rows: list[str] = []
+        """Render progress rows that share the cell height evenly.
 
-        # Blitz has no text truncation, so size fonts in Python and
-        # truncate labels to the space the value line leaves them.
-        vmin = min(ctx.width, ctx.height)
-        text_px = max(10.0, min(17.0, 0.11 * vmin))
-        label_px = max(9.0, min(17.0, 0.11 * vmin, 0.08 * ctx.width))
-        label_cw = label_px * 0.70  # caps + letter-spacing
-        avail = ctx.width * 0.90  # cell padding is 5% each side
-        # The raw value column is hidden by .hide-small below 130px.
-        value_shown = ctx.width >= 130 and ctx.height >= 130
+        Every row is ``flex: 1`` so the rhythm is even by construction —
+        no dead space at the bottom, no rows crushed together at the top.
+        """
+        avail_w, avail_h = cell_box(ctx)
+        lbl_px = label_px(ctx)
 
-        if self.title:
-            title_text = truncate_text(self.title.upper(), max(4, int(avail // label_cw)))
-            rows.append(
-                '<div class="t-label hide-short" style="text-align: left">'
-                f"{escape(title_text)}</div>"
+        # The title is the first thing to go: rows carry the meaning.
+        title_html = ""
+        if self.title and min(ctx.width, ctx.height) >= 130:
+            title_html = (
+                '<div class="t-label" style="flex: none; text-align: left">'
+                f"{escape(fit_caption(ctx, self.title.upper()))}</div>"
             )
+            avail_h -= lbl_px * 1.8
 
-        # Row text scales with the cell but stays list-sized (several
-        # rows must share the cell, unlike a single hero value).
-        text_css = (
-            f"font-size: {text_px:.1f}px; font-weight: 700; line-height: 1; white-space: nowrap;"
-        )
-        # Like .t-label but with a smaller floor so three items still
-        # fit a 3x3 cell.
+        rows_fit = max(1, int(avail_h / _MIN_ROW_PX))
+        items = self.items[:rows_fit]
+        if not items:
+            return f'<div class="cell" style="align-items: stretch">{title_html}</div>'
+
+        row_h = avail_h / len(items)
+        # Row type is list-sized, not hero-sized: several rows share the
+        # cell, so it scales with the row rather than the cell.
+        text_px = max(9.0, min(17.0, 0.11 * min(ctx.width, ctx.height), row_h * 0.44))
+        label_px_row = max(8.0, min(text_px * 0.86, 0.075 * ctx.width))
+        bar_px = max(4.0, min(11.0, row_h * 0.22))
+        # One column for every percent so the bars all end on the same
+        # pixel — a ragged right edge is what makes stacked bars look
+        # accidental.
+        pct_w = 4.2 * text_px * char_em(ctx)
+        # The raw value column only survives in cells the kit keeps it in.
+        value_shown = ctx.width >= 130 and ctx.height >= 130
+        labels_shown = ctx.height >= 100
+
+        text_css = f"font-size: {text_px:.1f}px; font-weight: 700; line-height: 1;"
         label_css = (
-            f"font-size: {label_px:.1f}px; font-weight: 600; "
-            "line-height: 1; letter-spacing: 0.05em; color: var(--text-tertiary); "
-            "white-space: nowrap; text-align: left;"
+            f"font-size: {label_px_row:.1f}px; font-weight: 700; line-height: 1; "
+            "letter-spacing: 0.1em; color: var(--text-tertiary); text-align: left;"
         )
 
-        for i, item in enumerate(self.items):
-            entity_id = item.get("entity_id")
-            entity = state.get_entity(entity_id) if entity_id else None
-            value = entity.numeric() if entity is not None else 0.0
+        rows = [
+            self._row_html(
+                ctx,
+                state,
+                item,
+                index,
+                avail_w=avail_w,
+                text_px=text_px,
+                label_px_row=label_px_row,
+                bar_px=bar_px,
+                pct_w=pct_w,
+                text_css=text_css,
+                label_css=label_css,
+                value_shown=value_shown,
+                labels_shown=labels_shown,
+            )
+            for index, item in enumerate(items)
+        ]
+        return (
+            '<div class="cell" style="align-items: stretch; gap: 2%">'
+            f"{title_html}{''.join(rows)}</div>"
+        )
 
-            label = item.get("label", "")
-            if entity and not label:
-                label = entity.friendly_name
-            label = label or entity_id or "Item"
+    def _row_html(
+        self,
+        ctx: CellContext,
+        state: WidgetState,
+        item: dict[str, Any],
+        index: int,
+        *,
+        avail_w: float,
+        text_px: float,
+        label_px_row: float,
+        bar_px: float,
+        pct_w: float,
+        text_css: str,
+        label_css: str,
+        value_shown: bool,
+        labels_shown: bool,
+    ) -> str:
+        """One progress row: label + raw value over bar + percent."""
+        entity_id = item.get("entity_id")
+        entity = state.get_entity(entity_id) if entity_id else None
+        value = entity.numeric() if entity is not None else 0.0
 
-            unit = item.get("unit", "")
-            if entity and not unit:
-                unit = entity.unit or ""
+        label = item.get("label", "")
+        if entity and not label:
+            label = entity.friendly_name
+        label = label or entity_id or "Item"
 
-            target = item.get("target", 100)
-            percent = min(100, (value / target) * 100) if target > 0 else 0
+        unit = item.get("unit", "")
+        if entity and not unit:
+            unit = entity.unit or ""
 
-            rgb = item.get("color")
-            if isinstance(rgb, list):
-                rgb = tuple(rgb)
-            if rgb is None and ctx.theme is not None:
-                rgb = ctx.theme.get_accent_color(i)
-            color = css_rgb(rgb) if rgb else "var(--primary)"
-            track = _track_color(ctx, rgb)
+        target = item.get("target", 100)
+        percent = min(100, (value / target) * 100) if target > 0 else 0
 
-            value_text = f"{value:.0f}/{target:.0f}"
-            if unit:
-                value_text += f" {unit}"
+        rgb = item.get("color")
+        if isinstance(rgb, list):
+            rgb = tuple(rgb)
+        if rgb is None and ctx.theme is not None:
+            # Accent-cycled per row so a stack of bars reads as a set.
+            rgb = ctx.theme.get_accent_color(index)
+        color = css_rgb(rgb) if rgb else "var(--primary)"
 
-            icon = item.get("icon")
-            icon_html = mdi_span(icon, "icon i-sm", f"color: {color}") if icon else ""
+        value_text = f"{value:.0f}/{target:.0f}"
+        if unit:
+            value_text += f" {unit}"
 
-            # Truncate the label to whatever the icon + value leave it.
-            label_budget = avail - 8
+        icon = item.get("icon")
+        # Row icons are sized to the row's own type, not the kit's cell
+        # scale, or they tower over the label they belong to.
+        icon_html = (
+            mdi_span(icon, "icon", f"font-size: {label_px_row * 1.25:.1f}px; color: {color}")
+            if icon
+            else ""
+        )
+
+        label_row = ""
+        if labels_shown:
+            budget = avail_w - pct_w * 0.2
             if icon_html:
-                label_budget -= text_px * 1.3
+                budget -= label_px_row * 1.7
             if value_shown:
-                label_budget -= len(value_text) * text_px * 0.52
-            label_text = truncate_text(label.upper(), max(3, int(label_budget // label_cw) + 1))
-
-            # Label line: icon + caps label left, raw value right (the
-            # raw value sheds first in small cells; percent survives).
+                budget -= len(value_text) * label_px_row * char_em(ctx) + 6
+            label_text = truncate_text(
+                label.upper(), max(3, int(budget / (label_px_row * char_em(ctx, caps=True))))
+            )
+            # Label and raw value share one size so the line reads as a
+            # pair; the percent below is the row's actual readout.
+            raw = (
+                f'<span class="hide-small" style="font-size: {label_px_row:.1f}px; '
+                "font-weight: 600; line-height: 1; flex: none; "
+                f'color: var(--text-secondary)">{escape(value_text)}</span>'
+            )
+            # .hide-short must sit on a wrapper: an inline display:flex
+            # would win over the kit's media rule.
             label_row = (
-                '<div style="display: flex; align-items: center; gap: 4px">'
+                '<div class="hide-short">'
+                '<div style="display: flex; align-items: center; gap: 5px">'
                 f"{icon_html}"
                 f'<span style="{label_css} flex: 1 1 0; min-width: 0">'
                 f"{escape(label_text)}</span>"
-                f'<span class="hide-small" style="{text_css}">{escape(value_text)}</span>'
-                "</div>"
-            )
-            # Bar line: slim track + percent readout.
-            bar_row = (
-                '<div style="display: flex; align-items: center; gap: 6px">'
-                '<div style="flex: 1; min-width: 0">'
-                f"{_bar_html(percent, color, track, 'clamp(4px, 6vmin, 15px)')}"
-                "</div>"
-                f'<span style="{text_css}">{percent:.0f}%</span>'
-                "</div>"
-            )
-            rows.append(
-                '<div style="display: flex; flex-direction: column; '
-                'gap: clamp(1px, 1.5vmin, 4px)">'
-                f"{label_row}{bar_row}</div>"
+                f"{raw}</div></div>"
             )
 
+        bar = bar_html(percent, color=color, track=track_css(ctx, rgb), thickness=f"{bar_px:.1f}px")
+        bar_row = (
+            '<div style="display: flex; align-items: center; gap: 6px">'
+            f'<div style="flex: 1 1 0; min-width: 0; display: flex">{bar}</div>'
+            f'<span style="{text_css} flex: none; width: {pct_w:.0f}px; text-align: right">'
+            f"{percent:.0f}%</span>"
+            "</div>"
+        )
         return (
-            '<div class="cell" style="align-items: stretch; padding: 3% 5%; '
-            'gap: clamp(2px, 3vmin, 10px)">'
-            f"{''.join(rows)}</div>"
+            '<div style="flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; '
+            f'justify-content: center; gap: {max(2.0, bar_px * 0.5):.0f}px">'
+            f"{label_row}{bar_row}</div>"
         )

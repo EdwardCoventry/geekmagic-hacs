@@ -7,11 +7,13 @@ from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..htmldoc import css_rgb, css_rgba, mdi_span
+from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
-from .chart import FontRatios, PlotMetrics, fit_px, font_ratios, plot_metrics, value_header
+from .chart import PlotMetrics, empty_plot, fit_px, plot_metrics, value_header
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
+    from ._textfit import TextMetrics
     from .state import WidgetState
 
 
@@ -287,7 +289,7 @@ class CandlestickWidget(Widget):
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the candlestick chart: price header above the candles."""
         m = plot_metrics(ctx)
-        ratios = font_ratios(ctx)
+        tm = metrics_for(ctx.theme)
 
         entity = state.entity
         current_value = None
@@ -313,13 +315,18 @@ class CandlestickWidget(Widget):
         caret = ""
         if data:
             value_color = "var(--success)" if bullish else "var(--error)"
-            caret = "triangle-small-up" if bullish else "triangle-small-down"
+            caret = "menu-up" if bullish else "menu-down"
 
-        header = ""
-        header_h = 0.0
+        header, header_h = "", 0.0
         if not m.compact:
             header, header_h = self._header(
-                self.label_for(entity), m, ratios, current_value, unit, value_color, caret
+                self.label_for(entity),
+                m,
+                tm,
+                current_value=current_value,
+                unit=unit,
+                color=value_color,
+                caret=caret,
             )
 
         bands = 1 + bool(header)
@@ -337,17 +344,17 @@ class CandlestickWidget(Widget):
                 box_h=plot_h,
                 wick_px=fit_px(1.0, 0.9 + min(ctx.width, ctx.height) / 240.0 * 0.6, 1.5),
                 corner_px=fit_px(0.8, min(ctx.width, ctx.height) / 240.0 * 1.6, 1.6),
-                baseline_color=css_rgba(ctx.theme.text_primary, 0.16) if ctx.theme else None,
+                # The reference line needs room to read as structure
+                # rather than as a stray edge — skip it in tiny cells.
+                baseline_color=(
+                    css_rgba(ctx.theme.text_primary, 0.15)
+                    if ctx.theme and not m.compact
+                    else None
+                ),
             )
             chart = f'<div style="width: 100%">{svg}</div>'
         else:
-            chart = (
-                '<div style="display: flex; align-items: center; justify-content: center; '
-                f'height: {plot_h:.0f}px">'
-                f'<span style="font-size: {m.value_px * 0.68:.1f}px; font-weight: 700; '
-                'letter-spacing: 0.08em; line-height: 1; color: var(--text-tertiary)">'
-                "No data</span></div>"
-            )
+            chart = empty_plot(m, plot_h)
 
         justify = "center" if bands == 1 else "space-between"
         return (
@@ -361,26 +368,31 @@ class CandlestickWidget(Widget):
         self,
         caption: str,
         m: PlotMetrics,
-        ratios: FontRatios,
+        tm: TextMetrics,
+        *,
         current_value: float | None,
         unit: str,
         color: str,
         caret: str,
     ) -> tuple[str, float]:
-        """Caption + last price, tinted by the last candle's direction."""
+        """Caption + last price, tinted by the last candle's direction.
+
+        Here the tint IS the meaning (the documented status exception),
+        so the caret, the number and the unit all take it.
+        """
         value_html = ""
         value_w = 0.0
         if self.show_value and current_value is not None:
             value_text = f"{current_value:.1f}"
-            caret_px = m.value_px * 0.78
             caret_html = ""
             if caret:
-                value_w += caret_px * 0.9
+                caret_px = m.value_px * 0.72
+                value_w += caret_px  # MDI glyphs advance exactly 1em
                 caret_html = mdi_span("mdi:" + caret, "icon", f"font-size: {caret_px:.1f}px")
-            value_w += len(value_text) * m.value_px * ratios.digit
+            value_w += tm.width(value_text, m.value_px, "bold")
             unit_html = ""
             if unit:
-                value_w += len(unit) * m.unit_px * ratios.glyph
+                value_w += tm.width(unit, m.unit_px, "semibold")
                 unit_html = (
                     f'<span class="t-unit" style="font-size: {m.unit_px:.1f}px; '
                     f'color: {color}">{escape(unit)}</span>'
@@ -391,12 +403,7 @@ class CandlestickWidget(Widget):
             )
 
         html = value_header(
-            caption=caption,
-            value_html=value_html,
-            value_width=value_w,
-            inner_w=m.inner_w,
-            label_px=m.label_px,
-            ratios=ratios,
+            caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm
         )
         if not html:
             return "", 0.0

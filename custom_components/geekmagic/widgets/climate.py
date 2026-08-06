@@ -6,12 +6,24 @@ from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..htmldoc import css_rgba, mdi_span
-from ._card import caption_max_chars, chip_html
+from ._card import chip_html
+from ._cardfit import (
+    HERO_SHARE_STACKED,
+    caption_visible,
+    cell_box,
+    chip_band_px,
+    chip_px,
+    fit_caption,
+    fit_hero,
+    hero_block,
+    label_px,
+)
+from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
-from .helpers import truncate_text
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
+    from ._textfit import TextMetrics
     from .state import WidgetState
 
 
@@ -83,9 +95,13 @@ _ACTIVE_ACTIONS = frozenset({"heating", "cooling", "drying", "fan", "preheating"
 # grid tile and any backdrop treatment reads as dirt.
 _WASH_MIN_PX = 170
 
-# Chip metrics, mirroring CARD_CSS ``.chip``: font clamp(10, 11vmin, 16),
-# padding 0.85em per side, icon 1em + 0.35em gap, ~0.58em per glyph.
+# CARD_CSS ``.chips`` gap between pills.
 _CHIP_GAP_PX = 5.0
+
+# Width safety margin handed to ``fit_hero``. It solves for the size at
+# which value+suffix exactly fills the budget, so its own truncation
+# check lands on float equality and can cut a value that does fit.
+_FIT_SLACK = 0.99
 
 
 def _format_temp(value: float | str | None, unit: str = "°") -> str:
@@ -127,54 +143,57 @@ def _hvac_role(hvac_action: str | None, hvac_mode: str) -> str:
     return HVAC_MODE_ROLES.get(hvac_mode, "primary")
 
 
-def _chip_font_px(ctx: CellContext) -> float:
-    """Resolved ``.chip`` font size for this cell (mirrors the clamp)."""
-    return max(10.0, min(0.11 * min(ctx.width, ctx.height), 16.0))
+def _chip_width_px(text: str, has_icon: bool, font_px: float, metrics: TextMetrics) -> float:
+    """Rendered width of a chip pill: text + 0.85em padding each side.
 
-
-def _chip_width_px(text: str, has_icon: bool, font_px: float) -> float:
-    """Estimated rendered width of a chip pill, in pixels."""
-    width = 1.7 * font_px + len(text) * 0.58 * font_px
+    An icon adds its own em plus the pill's 0.35em gap.
+    """
+    width = metrics.width(text, font_px, "semibold") + 1.7 * font_px
     if has_icon:
         width += 1.35 * font_px
     return width
 
 
-def _row_width_px(specs: list[tuple[str, str | None, str | None]], font_px: float) -> float:
-    """Estimated width of a chip row including inter-chip gaps."""
+def _row_width_px(
+    specs: list[tuple[str, str | None, str | None]], font_px: float, metrics: TextMetrics
+) -> float:
+    """Width of a chip row including the inter-chip gaps."""
     if not specs:
         return 0.0
-    chips = sum(_chip_width_px(text, icon is not None, font_px) for text, icon, _ in specs)
+    chips = sum(_chip_width_px(t, i is not None, font_px, metrics) for t, i, _ in specs)
     return chips + _CHIP_GAP_PX * (len(specs) - 1)
 
 
 def _chip_rows(
     specs: list[tuple[str, str | None, str | None]], ctx: CellContext
-) -> list[list[str]]:
+) -> list[list[tuple[str, str | None, str | None]]]:
     """Pack chip specs into rows that fit the cell width.
 
     Blitz has no ellipsis and does not clip text, so a chip strip that
-    overflows simply bleeds past both cell edges. Measuring here keeps
-    every pill inside the cell at any size.
+    overflows simply bleeds past both cell edges. Measuring with the
+    theme's real face keeps every pill inside the cell at any size.
 
     When everything fits, one row. When it doesn't, the leading (mode)
     chip takes a line of its own and the metric chips share the next —
     a 1+2 split reads as "status, then details", where the greedy 2+1
     split would orphan a single metric pill under a full row.
     """
-    font_px = _chip_font_px(ctx)
-    usable = ctx.width * 0.92
-    if not specs or _row_width_px(specs, font_px) <= usable:
-        return [[chip_html(t, icon=i, color=c) for t, i, c in specs]] if specs else []
+    if not specs:
+        return []
+    metrics = metrics_for(ctx.theme)
+    font_px = chip_px(ctx)
+    usable = cell_box(ctx)[0]
+    if _row_width_px(specs, font_px, metrics) <= usable:
+        return [specs]
 
     rows: list[list[tuple[str, str | None, str | None]]] = [[specs[0]]]
     for spec in specs[1:]:
         candidate = [*rows[-1], spec]
-        if len(rows) > 1 and _row_width_px(candidate, font_px) <= usable:
+        if len(rows) > 1 and _row_width_px(candidate, font_px, metrics) <= usable:
             rows[-1] = candidate
         else:
             rows.append([spec])
-    return [[chip_html(t, icon=i, color=c) for t, i, c in row] for row in rows]
+    return rows
 
 
 # Widget-scoped CSS. Injected with the fragment (Blitz honours <style>
@@ -182,18 +201,12 @@ def _chip_rows(
 # contains this one widget).
 _CLIMATE_CSS = """
 <style>
-.clim-hero { display: flex; align-items: baseline; justify-content: center;
-             gap: 0.04em; max-width: 100%; }
-/* The chip stack owns its own breakpoint rather than using .hide-small:
-   a thermostat tile without its state is worth much less than one with
-   it, so chips survive down to 100px (2x2 grid) where the kit would
-   drop them at 130px. Python trims the chip SET to match. */
-.clim-stack { display: none; flex-direction: column; align-items: center;
+.clim-stack { display: flex; flex-direction: column; align-items: center;
               gap: 4px; width: 100%; }
-@media (min-width: 100px) and (min-height: 100px) { .clim-stack { display: flex; } }
-/* Wide strip cells are too short for bands but far too wide for a lone
-   hero, so they lay the same content out horizontally instead. */
-.clim-strip { display: flex; align-items: center; gap: 0.18em; }
+/* Wide strip cells are too short for stacked bands but far too wide for
+   a lone hero, so they lay the same content out horizontally instead. */
+.clim-strip { display: flex; align-items: center; gap: 0.2em; }
+.clim-strip .icon { font-size: clamp(13px, 26vmin, 32px); }
 </style>
 """
 
@@ -253,7 +266,7 @@ class ClimateWidget(Widget):
             return style
         if min(ctx.width, ctx.height) < _WASH_MIN_PX:
             return style
-        color = getattr(theme, role, None) or getattr(theme, "primary")
+        color = getattr(theme, role, None) or theme.primary
         return (
             f"{style} background: radial-gradient(120% 78% at 50% 4%, "
             f"{css_rgba(color, 0.13)}, {css_rgba(color, 0.0)} 70%);"
@@ -261,29 +274,73 @@ class ClimateWidget(Widget):
 
     @staticmethod
     def _caption_html(ctx: CellContext, label: str, icon: str, tint: str) -> str:
-        """Tinted state icon + room name, truncated to the cell width.
-
-        Uses a wider per-glyph estimate than :func:`caption_max_chars`
-        because the caption shares its line with the state icon and
-        because the widest theme combination (retro: DejaVu Sans at
-        0.2em tracking) needs ~0.8em per character, not 0.68em.
-        """
-        label_px = max(10.0, min(0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width, 15.0))
+        """Tinted state icon + room name, measured against the real face."""
+        avail_w = cell_box(ctx)[0]
         # Narrow cells spend ~18px of ~105px usable on the state icon —
         # two whole characters of the room name. The chip strip already
         # carries the tint there, so the caption keeps the full name.
         with_icon = ctx.width >= 150
-        icon_px = max(11.0, min(0.12 * min(ctx.width, ctx.height), 24.0)) if with_icon else 0.0
-        budget = ctx.width * 0.90 - icon_px - (0.45 * label_px if with_icon else 0.0)
-        text = truncate_text(label.upper(), max(4, int(budget / (label_px * 0.80))))
-        icon_html = mdi_span(icon, "icon i-sm", f"color: {tint}") if with_icon else ""
-        return f'<div class="t-label caption-row hide-short">{icon_html}{escape(text)}</div>'
+        icon_html = ""
+        if with_icon:
+            icon_px = max(11.0, min(0.12 * min(ctx.width, ctx.height), 24.0))
+            avail_w -= icon_px + 0.45 * label_px(ctx)
+            icon_html = mdi_span(icon, "icon i-sm", f"color: {tint}")
+        text = escape(fit_caption(label, ctx, avail_w))
+        return f'<div class="t-label caption-row hide-short">{icon_html}{text}</div>'
 
     @staticmethod
-    def _hero_html(value: str, unit: str) -> str:
-        """Big numerals with the degree unit set smaller and secondary."""
-        unit_html = f'<span class="t-unit">{escape(unit)}</span>' if unit and value != "--" else ""
-        return f'<div class="clim-hero"><span class="t-hero">{escape(value)}</span>{unit_html}</div>'
+    def _hero_html(ctx: CellContext, value: str, unit: str, avail_w: float, avail_h: float) -> str:
+        """Big numerals with the degree unit smaller, on the same baseline.
+
+        Sized with :func:`fit_hero` rather than the kit's ``clamp()`` so
+        a short reading like ``21`` fills the cell while ``-10.5`` still
+        fits — the clamp has to assume the worst case for every value.
+        """
+        # A 3x3 tile has no width to spare: the reading is unambiguous
+        # without "°C", and dropping it buys the numerals ~20% more size.
+        suffix = unit if value != "--" and ctx.width >= 100 else ""
+        # fit_hero sizes the value so text+suffix exactly equals the width
+        # budget, which leaves its own truncation check sitting on float
+        # equality — a hair of slack keeps a fitting value from being cut.
+        fit = fit_hero(value, ctx, avail_w * _FIT_SLACK, avail_h, suffix=suffix)
+        return f'<div class="t-hero">{hero_block(fit.text, fit.px, suffix=suffix)}</div>'
+
+    @staticmethod
+    def _is_strip(ctx: CellContext) -> bool:
+        """True for wide, short cells (footer strips, 228x74).
+
+        Too short for the kit's caption/chip bands, but leaving a lone
+        hero floating in 228px of width wastes most of the cell.
+        """
+        return ctx.height < 100 and ctx.width >= 2.2 * ctx.height
+
+    def _strip_html(
+        self,
+        ctx: CellContext,
+        hero: tuple[str, str],
+        state_icon: tuple[str, str],
+        specs: list[tuple[str, str | None, str | None]],
+    ) -> str:
+        """Horizontal treatment: state icon + hero, then the mode pill."""
+        value, unit = hero
+        icon, tint = state_icon
+        avail_w, avail_h = cell_box(ctx)
+        icon_html = mdi_span(icon, "icon i-sm", f"color: {tint}")
+        chips = ""
+        # The pill and the icon share the row with the hero, so take
+        # their width out of the hero's budget before fitting it.
+        reserved = 1.6 * label_px(ctx)
+        if specs:
+            text, chip_icon, color = specs[0]
+            reserved += _chip_width_px(
+                text, chip_icon is not None, chip_px(ctx), metrics_for(ctx.theme)
+            )
+            chips = f'<div class="chips">{chip_html(text, icon=chip_icon, color=color)}</div>'
+        hero_html = self._hero_html(ctx, value, unit, max(24.0, avail_w - reserved), avail_h * 0.86)
+        return (
+            f'{_CLIMATE_CSS}<div class="cell row" style="border-radius: var(--radius)">'
+            f'<div class="clim-strip">{icon_html}{hero_html}</div>{chips}</div>'
+        )
 
     def _chip_specs(
         self, entity: Any, hvac_action: str | None, hvac_mode: str
@@ -326,19 +383,43 @@ class ClimateWidget(Widget):
 
         unit = entity.get("temperature_unit") or "°C"
         value = _format_temp(entity.get("current_temperature"), "")
+        specs = self._chip_specs(entity, hvac_action, hvac_mode)
 
-        bands = [
-            self._caption_html(ctx, self.label_for(entity), icon_name, icon_color),
-            self._hero_html(value, unit),
-        ]
+        if self._is_strip(ctx):
+            return self._strip_html(ctx, (value, unit), (icon_name, icon_color), specs)
+
+        avail_w, avail_h = cell_box(ctx)
+        bands: list[str] = []
+        spent = 0.0
+
+        show_caption = caption_visible(ctx)
+        if show_caption:
+            spent += label_px(ctx)
 
         # Width decides how the pills pack; height decides how many rows
-        # the cell can afford. A 2x2 tile keeps only the running state,
-        # a split-v column stacks all three, a wide strip fits one row.
-        max_rows = 1 if ctx.height < 150 else 3
-        rows = _chip_rows(self._chip_specs(entity, hvac_action, hvac_mode), ctx)[:max_rows]
+        # the cell can afford. A 2x2 tile keeps only the running state, a
+        # split-v column stacks all three, a wide cell fits one row.
+        # Chips survive to 100px rather than the kit's 130px: a
+        # thermostat without its running state is worth much less.
+        rows: list[list[tuple[str, str | None, str | None]]] = []
+        if min(ctx.width, ctx.height) >= 100:
+            rows = _chip_rows(specs, ctx)[: 1 if ctx.height < 150 else 3]
+            spent += len(rows) * chip_band_px(ctx)
+
+        if show_caption:
+            bands.append(self._caption_html(ctx, self.label_for(entity), icon_name, icon_color))
+        bands.append(
+            self._hero_html(
+                ctx, value, unit, avail_w, max(24.0, avail_h - spent) * HERO_SHARE_STACKED
+            )
+        )
         if rows:
-            strip = "".join(f'<div class="chips">{"".join(row)}</div>' for row in rows)
+            strip = "".join(
+                '<div class="chips">'
+                + "".join(chip_html(t, icon=i, color=c) for t, i, c in row)
+                + "</div>"
+                for row in rows
+            )
             bands.append(f'<div class="clim-stack">{strip}</div>')
 
         cell_style = self._wash_style(ctx, hvac_action, role)

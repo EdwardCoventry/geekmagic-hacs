@@ -10,12 +10,42 @@ from ..const import (
 )
 from ..htmldoc import css_rgb
 from ._card import card_html
+from ._cardfit import (
+    HERO_LINE,
+    HERO_SHARE_SOLO,
+    HERO_SHARE_STACKED,
+    caption_visible,
+    cell_box,
+    fit_caption,
+    fit_hero,
+    hero_block,
+    label_px,
+)
 from .base import Widget, WidgetConfig
 from .helpers import get_binary_sensor_icon, translate_binary_state
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
     from .state import WidgetState
+
+# The feature icon reads as the cell's identifier, not its message: half
+# the hero keeps the value unmistakably first (watchOS complication
+# proportions).
+_ICON_RATIO = 0.5
+_ICON_MIN_PX = 13.0
+_MAX_HERO_PX = 124.0
+_MIN_HERO_PX = 12.0
+
+# A hero that is width-bound in a tall cell can leave nearly half the
+# height unspent; hand some of that slack to the icon rather than draw a
+# cell that reads half-empty. Capped well under the hero so the value
+# stays the biggest thing in the cell.
+_SLACK_TRIGGER = 0.42
+_SLACK_SHARE = 0.35
+_ICON_RATIO_MAX = 0.70
+
+# Only wrap a value onto two lines in cells with room to spare.
+_WRAP_MIN_CELL = 130
 
 
 def _get_entity_icon(entity_state) -> str | None:
@@ -101,22 +131,54 @@ class EntityWidget(Widget):
             unit = entity.unit if self.show_unit else ""
             name = self.label_for(entity)
 
-        # Build display value with unit
-        value_text = f"{value}{unit}" if unit else value
-
         # Determine icon to use
         icon = self.icon
         if not icon and self.show_icon:
             icon = _get_entity_icon(entity)
 
-        icon_color = css_rgb(self.config.color) if self.config.color else ctx.accent()
+        box_w, box_h = cell_box(ctx)
+        bands_kept = caption_visible(ctx)
+        show_caption = bool(name) and self.show_name and bands_kept
+        show_icon = bool(icon) and bands_kept
+
+        caption_band = label_px(ctx) * 1.25 if show_caption else 0.0
+        share = HERO_SHARE_SOLO if not (show_caption or show_icon) else HERO_SHARE_STACKED
+        free_h = box_h - caption_band
+
+        # Size the icon off the width-limited hero, then let it take its
+        # share of the height back out of the hero's budget.
+        loose = fit_hero(value, ctx, box_w, box_h * 4, suffix=unit, max_px=_MAX_HERO_PX)
+        icon_px = min(max(_ICON_RATIO * loose.px, _ICON_MIN_PX), 0.32 * box_h, 0.5 * box_w)
+
+        hero = fit_hero(
+            value,
+            ctx,
+            box_w,
+            max(16.0, (free_h - (icon_px if show_icon else 0.0)) * share),
+            suffix=unit,
+            allow_wrap=min(ctx.width, ctx.height) >= _WRAP_MIN_CELL,
+            max_px=_MAX_HERO_PX,
+            min_px=_MIN_HERO_PX,
+        )
+
+        icon_px = min(icon_px, max(_ICON_RATIO * hero.px, _ICON_MIN_PX))
+        slack = free_h - (icon_px + hero.px * HERO_LINE)
+        if slack > _SLACK_TRIGGER * free_h:
+            icon_px = min(icon_px + _SLACK_SHARE * slack, 0.42 * box_w, _ICON_RATIO_MAX * hero.px)
+
+        # card_html applies icon_color verbatim as the icon's inline
+        # style, so the fitted size rides along with the colour.
+        tint = css_rgb(self.config.color) if self.config.color else ctx.accent()
+        icon_css = f"{tint}; font-size: {icon_px:.0f}px"
 
         return card_html(
-            caption=name if self.show_name else None,
+            caption=fit_caption(name, ctx, box_w) if show_caption else None,
             icon=icon,
-            icon_color=icon_color,
+            icon_color=icon_css,
             # The entity icon is the cell's primary visual identifier —
             # promote it to its own band.
             icon_role="feature",
-            hero=value_text,
+            hero=hero_block(hero.text, hero.px, suffix=unit, wrapped=hero.wrapped),
+            hero_is_html=True,
+            ctx=ctx,
         )

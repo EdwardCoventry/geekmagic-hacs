@@ -1327,7 +1327,10 @@ class TestChartWidget:
         assert "<svg" in fragment
         assert "<path" in fragment  # smooth bezier line + gradient area
         assert "linearGradient" in fragment
-        assert "23.5°C" in fragment  # current value in header
+        # Value and unit are separate spans (unit steps down in size).
+        assert "23.5" in fragment  # current value in header
+        assert '<span class="t-unit"' in fragment
+        assert "°C" in fragment
         assert "TEMPERATURE" in fragment  # label
 
     def test_range_footer_shows_min_max_and_period(self, ctx):

@@ -14,11 +14,17 @@ if TYPE_CHECKING:
 from .base import Widget, WidgetConfig
 from .helpers import truncate_text
 
-# Measured average glyph advance (em per character) for UPPERCASE strings
-# at ~0.10em tracking, plus a safety margin: Nunito ~0.72, DejaVu ~0.80.
-# Blitz has no text-overflow, so the capsule label is fitted in Python.
-_AVG_CAPS_ROUNDED = 0.75
-_AVG_CAPS_WIDE = 0.83
+# Measured worst-case glyph advance (em per character) for UPPERCASE
+# strings at ~0.10em tracking, plus a safety margin: Nunito ~0.75,
+# DejaVu ~0.82. Blitz has no text-overflow, so the capsule label and the
+# placeholder caption are both fitted in Python.
+_AVG_CAPS_ROUNDED = 0.78
+_AVG_CAPS_WIDE = 0.86
+
+# Padding+border themes paint on ``.root`` (retro/minimal 5px, light 6px,
+# watchOS 0), which shrinks the fragment below ``ctx.width``. It lives in
+# ``theme.chrome_css`` where widgets can't read it — reserve worst case.
+_CHROME_PX = 6.0
 
 # Shared optical margin for the label capsule — matches the media widget's
 # album-art overlay so a camera and a media cell sit on the same grid.
@@ -80,7 +86,8 @@ class CameraWidget(Widget):
         font_px = min(15.0, max(10.0, 0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width))
         avg = _AVG_CAPS_ROUNDED if getattr(ctx.theme, "rounded_font", True) else _AVG_CAPS_WIDE
         # .t-label tracks at 0.14em, a touch wider than the capsule.
-        label = truncate_text(label, max(4, int(ctx.width * 0.88 / (font_px * (avg + 0.04)))))
+        usable = ctx.width * 0.88 - _CHROME_PX
+        label = truncate_text(label, max(4, int(usable / (font_px * (avg + 0.04)))))
         return (
             '<div class="cell" style="justify-content: center; gap: 3.5vmin">'
             f"{mdi_span('camera', 'icon i-md', 'color: var(--text-secondary)')}"
@@ -100,9 +107,9 @@ class CameraWidget(Widget):
         font_px = min(12.0, max(8.0, 0.062 * vmin))
         inset_px = min(14.0, max(5.0, 0.055 * vmin))
         avg = _AVG_CAPS_ROUNDED if getattr(ctx.theme, "rounded_font", True) else _AVG_CAPS_WIDE
-        # Subtract the two insets, the capsule's 0.72em side padding and
-        # its 1px borders from the usable width before fitting glyphs.
-        usable = ctx.width - 2 * inset_px - 1.44 * font_px - 2
+        # Subtract the two insets, the capsule's 0.72em side padding, its
+        # 1px borders and the theme chrome before fitting glyphs.
+        usable = ctx.width - 2 * inset_px - 1.44 * font_px - 2 - _CHROME_PX
         label = truncate_text(
             self.label_for(state.entity, fallback="Camera"),
             max(3, int(usable / (font_px * avg))),

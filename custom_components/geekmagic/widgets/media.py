@@ -23,13 +23,19 @@ from .helpers import truncate_text
 # Blitz renders no ``text-overflow: ellipsis`` and does not clip text with
 # ``overflow: hidden``, so every string is fitted in Python. The constants
 # below are *measured* average glyph advances (em per character) for
-# mixed-case strings in the two embedded families, plus a small safety
+# mixed-case strings in the two embedded families, plus a ~10% safety
 # margin: Nunito ~0.452, DejaVu Sans ~0.551. Being slightly pessimistic
 # guarantees the engine always fits at least as much as we assumed, so a
 # block never grows an unplanned extra line.
+#
+# _CHROME_PX covers the padding+border themes paint on ``.root``
+# (retro/minimal 5px, light 6px, watchOS 0). That inset shrinks the
+# fragment below ``ctx.width``, and it lives inside ``theme.chrome_css``
+# where widgets can't read it — so reserve the worst case.
 # ---------------------------------------------------------------------------
-_AVG_ROUNDED = 0.47
-_AVG_WIDE = 0.58
+_AVG_ROUNDED = 0.50
+_AVG_WIDE = 0.62
+_CHROME_PX = 6.0
 
 # Shared inset for the album-art overlay: text, progress bar and label all
 # align to the same optical margin on every cell size.
@@ -57,16 +63,17 @@ def _fit_chars(width_px: float, font_px: float, avg: float) -> int:
     return max(3, int(width_px / (font_px * avg)))
 
 
-def _fit_lines(text: str, per_line: int, max_lines: int) -> str:
+def _fit_lines(text: str, per_line: int, max_lines: int) -> tuple[str, int]:
     """Greedy-wrap ``text`` and hard-truncate it to ``max_lines`` lines.
 
-    Returned as a single string — the engine re-wraps it at the same
-    budget. Because ``per_line`` comes from a pessimistic glyph advance,
-    the rendered block never overflows the line count assumed here.
+    Returns the fitted string (the engine re-wraps it at the same budget)
+    and the number of lines it will occupy. Because ``per_line`` comes
+    from a pessimistic glyph advance, the rendered block never overflows
+    the line count reported here.
     """
     words = text.split()
     if not words:
-        return ""
+        return "", 0
     lines: list[str] = []
     current = ""
     overflowed = False
@@ -84,7 +91,7 @@ def _fit_lines(text: str, per_line: int, max_lines: int) -> str:
     lines.append(current)
     if overflowed:
         lines[-1] = truncate_text(f"{lines[-1]}…", per_line)
-    return " ".join(lines)
+    return " ".join(lines), len(lines)
 
 
 def _fit_title(
@@ -95,26 +102,57 @@ def _fit_title(
     max_px: float,
     max_lines: int,
     min_px: float = 11.0,
-) -> tuple[str, float]:
+) -> tuple[str, float, int]:
     """Pick a font size and wrap/truncate a title to fill ``avail_px``.
 
     Short titles grow to ``max_px`` (hero dominance); long ones drop to
     two lines before they shrink, and only shrink to ``min_px`` before
     being truncated. A title that would leave a one-word widow on the
-    second line stays on one line instead.
+    second line stays on one line instead. Returns the fitted text, its
+    font size in px, and the number of lines it occupies.
     """
     text = " ".join(text.split())
     if not text:
-        return "", min_px
+        return "", min_px, 0
     single = avail_px / len(text) / avg
     if max_lines < 2 or single >= max_px * 0.8:
-        lines = 1
+        allowed = 1
         font_px = min(max_px, max(min_px, single))
     else:
-        lines = 2
+        allowed = 2
         per = -(-len(text) // 2)
         font_px = min(max_px, max(min_px, avail_px / per / avg))
-    return _fit_lines(text, _fit_chars(avail_px, font_px, avg), lines), font_px
+    fitted, lines = _fit_lines(text, _fit_chars(avail_px, font_px, avg), allowed)
+    return fitted, font_px, lines
+
+
+def _art_scrim(cell_h: int, block_px: float) -> str:
+    """Gradient scrim for the album-art overlay, sized to its text block.
+
+    The scrim is anchored to the bottom and its ramp is derived from where
+    the metadata actually starts, so the overlay carries the same contrast
+    whether it holds one line or four. Two guarantees fall out of the
+    stop positions: the top of the cover is never touched (the scrim
+    starts at 42% at the very earliest, and is under 6% opaque for the
+    first stretch of its own height), and the text always sits on ~46%
+    black or deeper.
+    """
+    text_top = 1.0 - block_px / max(1, cell_h)
+    start = min(0.62, max(0.42, text_top - 0.11))
+    p_text = min(0.9, max(0.12, (text_top - start) / (1.0 - start)))
+    stops = (
+        (0.0, 0.0),
+        (p_text * 0.45, 0.06),
+        (p_text, 0.46),
+        (p_text + (1.0 - p_text) * 0.35, 0.70),
+        (1.0, 0.94),
+    )
+    ramp = ", ".join(f"rgba(0,0,0,{a:.2f}) {p * 100:.0f}%" for p, a in stops)
+    return (
+        '<div style="position: absolute; left: 0; right: 0; bottom: 0; '
+        f'height: {(1.0 - start) * 100:.0f}%; '
+        f'background: linear-gradient(to bottom, {ramp})"></div>'
+    )
 
 
 def _calculate_media_position(
@@ -280,39 +318,48 @@ class MediaWidget(Widget):
 
         vmin = min(ctx.width, ctx.height)
         avg = _avg_glyph(ctx)
-        text_width = ctx.width - 2 * _inset_px(ctx)
+        text_width = ctx.width - 2 * _inset_px(ctx) - _CHROME_PX
 
-        show_artist = self.show_artist and ctx.height >= 120
-        show_time = ctx.height >= 190 and duration > 0
         show_bar = self.show_progress and duration > 0
+        # Height budget, in px, of everything stacked above the bottom
+        # inset — it drives where the scrim has to start.
+        gap_px = 0.2 * _clamp_px(11.0, 0.105, 24.0, vmin)
+        block_px = 0.0
 
         lines: list[str] = []
         raw_title = entity.get("media_title", "")
+        title_lines = 0
         if raw_title:
-            title, title_px = _fit_title(
+            title, title_px, title_lines = _fit_title(
                 raw_title,
                 text_width,
                 avg,
                 max_px=_clamp_px(11.0, 0.105, 24.0, vmin),
                 max_lines=2 if ctx.height >= 170 else 1,
             )
+            block_px += title_lines * title_px * 1.16
             lines.append(
                 f'<div style="font-size: {title_px:.1f}px; font-weight: 700; '
                 'line-height: 1.16; letter-spacing: -0.01em; color: rgba(255,255,255,0.98)">'
                 f"{escape(title)}</div>"
             )
         artist = entity.get("media_artist", "")
-        if artist and show_artist:
+        if artist and self.show_artist and ctx.height >= 120:
             artist_px = _clamp_px(9.0, 0.072, 15.0, vmin)
             artist = truncate_text(artist, _fit_chars(text_width, artist_px, avg))
+            block_px += artist_px * 1.2 + gap_px
             lines.append(
                 f'<div style="font-size: {artist_px:.1f}px; font-weight: 600; '
                 'line-height: 1.2; color: rgba(255,255,255,0.6); white-space: nowrap">'
                 f"{escape(artist)}</div>"
             )
-        if show_time:
+        # The bar already shows elapsed position graphically, so the
+        # numeric readout only earns its place when the title is a single
+        # line and there is real room left.
+        if duration > 0 and ctx.height >= 190 and title_lines <= 1:
             time_px = _clamp_px(9.0, 0.055, 12.0, vmin)
             time_str = f"{_format_time(position)} / {_format_time(duration)}"
+            block_px += time_px * 1.2 + gap_px
             lines.append(
                 f'<div style="font-size: {time_px:.1f}px; font-weight: 600; '
                 'line-height: 1.2; letter-spacing: 0.02em; '
@@ -320,16 +367,23 @@ class MediaWidget(Widget):
                 f"{escape(time_str)}</div>"
             )
 
+        bar_zone = _inset_px(ctx) + (_clamp_px(2.0, 0.014, 4.0, vmin) + 6.0 if show_bar else 0.0)
+        if ctx.width < 100:
+            block_px = 0.0  # .hide-narrow drops the text block entirely
+
         text_block = ""
         if lines:
             bottom = (
                 f"calc({_INSET} + {_ART_BAR_H} + clamp(4px, 3vmin, 9px))" if show_bar else _INSET
             )
-            # Blitz resolves an absolutely positioned box against its
-            # *parent* box, so the hide-* wrapper must fill the cell —
-            # a zero-height wrapper would collapse the overlay away.
+            # Two engine constraints shape this wrapper: Blitz resolves an
+            # absolutely positioned box against its *parent* box (a
+            # zero-height wrapper would collapse the overlay away), and it
+            # paints non-positioned subtrees before positioned siblings (a
+            # static wrapper would put the text UNDER the scrim). So the
+            # hide-* wrapper is itself absolute and fills the cell.
             text_block = (
-                '<div class="hide-narrow" style="height: 100%">'
+                '<div class="hide-narrow" style="position: absolute; inset: 0">'
                 f'<div style="position: absolute; left: {_INSET}; right: {_INSET}; '
                 f"bottom: {bottom}; display: flex; flex-direction: column; "
                 'align-items: flex-start; gap: 0.2em; text-align: left">'
@@ -347,18 +401,14 @@ class MediaWidget(Widget):
                 f'background: {accent}"></div></div>'
             )
 
-        # Scrim curve: imperceptible through the top 45% of the art, then
-        # ramping hard enough that white 700-weight text clears a blown-out
-        # highlight in the artwork underneath.
+        # ``border-radius: inherit`` picks up the theme's card rounding
+        # (light/classic/soft) and stays square on the chromeless themes.
         return (
             '<div style="position: relative; width: 100%; height: 100%; '
             'overflow: hidden; border-radius: inherit">'
             f'<img src="{uri}" style="position: absolute; inset: 0; width: 100%; '
             'height: 100%; object-fit: cover">'
-            '<div style="position: absolute; left: 0; right: 0; bottom: 0; height: 60%; '
-            "background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, "
-            "rgba(0,0,0,0.10) 28%, rgba(0,0,0,0.38) 44%, rgba(0,0,0,0.66) 60%, "
-            'rgba(0,0,0,0.80) 80%, rgba(0,0,0,0.92) 100%)"></div>'
+            f"{_art_scrim(ctx.height, block_px + bar_zone)}"
             f"{text_block}"
             f"{bar}"
             "</div>"
@@ -375,11 +425,11 @@ class MediaWidget(Widget):
         """Text-only now-playing card (no album art)."""
         vmin = min(ctx.width, ctx.height)
         avg = _avg_glyph(ctx)
-        text_width = ctx.width * 0.88  # 6% padding each side
+        text_width = ctx.width * 0.88 - _CHROME_PX  # 6% padding each side
 
         bands: list[str] = ['<div class="t-label hide-short">NOW PLAYING</div>']
 
-        title, title_px = _fit_title(
+        title, title_px, _ = _fit_title(
             entity.get("media_title", "Unknown"),
             text_width,
             avg,

@@ -401,7 +401,7 @@ THEME_RETRO = Theme(
     scanlines=True,
     invert_bars=True,
     tint_track_opacity=0.16,
-    bar_background=(0, 40, 0),
+    bar_background=(8, 42, 20),
     font_stack='"DejaVu Sans", monospace',
     chrome_css="""
 .root { border: 1px solid rgba(126,255,150,0.28); padding: 5px;

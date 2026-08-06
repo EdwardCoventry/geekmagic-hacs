@@ -5,11 +5,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from ..htmldoc import css_rgb, mdi_span
+from ._cardfit import cell_box
 from .base import Widget, WidgetConfig
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
     from .state import WidgetState
+
+# Material Design Icons draw their artwork in a band roughly 0.86em tall
+# and up to 1em wide, optically centred in the em box — so a glyph sized
+# to the box fills it without needing a nudge.
+_INK_HEIGHT = 0.86
+_INK_WIDTH = 1.0
+
+# Share of the box the glyph takes. "huge" is the cell; "regular" is a
+# deliberate half-cell mark — big enough to read across a room, small
+# enough to leave the cell breathing.
+_SIZE_SHARES = {"huge": 0.94, "regular": 0.52}
+_MIN_PX = 14.0
 
 
 class IconWidget(Widget):
@@ -31,18 +44,20 @@ class IconWidget(Widget):
         # theme tint the icon via the slot's accent.
         color = css_rgb(self.config.color) if self.config.color else ctx.accent()
 
-        # "huge" fills the cell; "regular" is a modest fixed-feel glyph
-        # (legacy behaviour capped it around 32px).
-        size = "76vmin" if self.size_mode == "huge" else "clamp(16px, 22vmin, 34px)"
+        # Size the glyph to the cell it actually got: the same fragment
+        # spans a 74px grid slot and a 240px fullscreen cell.
+        box_w, box_h = cell_box(ctx)
+        fill = min(box_h / _INK_HEIGHT, box_w / _INK_WIDTH)
+        share = _SIZE_SHARES.get(self.size_mode, _SIZE_SHARES["regular"])
+        size_px = max(_MIN_PX, fill * share)
 
-        icon_html = mdi_span(self.icon, "icon", f"color: {color}; font-size: {size}")
+        style = f"color: {color}; font-size: {size_px:.1f}px"
+        icon_html = mdi_span(self.icon, "icon", style)
         if not icon_html:
             # Unknown icon name — fall back to the help glyph.
-            icon_html = mdi_span("help", "icon", f"color: {color}; font-size: {size}")
+            icon_html = mdi_span("help", "icon", style)
 
         panel_style = (
-            ' style="background: var(--surface); border-radius: var(--radius)"'
-            if self.show_panel
-            else ""
+            "background: var(--surface); border-radius: var(--radius); " if self.show_panel else ""
         )
-        return f'<div class="cell"{panel_style}>{icon_html}</div>'
+        return f'<div class="cell" style="{panel_style}justify-content: center">{icon_html}</div>'

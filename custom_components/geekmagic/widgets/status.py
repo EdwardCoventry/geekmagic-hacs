@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..const import PLACEHOLDER_NAME
-from ..htmldoc import css_rgb, css_rgba, mdi_span
-from ._textfit import fit_font_size, text_width, truncate_to_width
+from ..htmldoc import css_rgb, mdi_span
+from ._textfit import HERO_TRACKING, LABEL_TRACKING, TextMetrics, metrics_for
+from ._tint import hairline_css, tint_css
 from .base import Widget, WidgetConfig
 from .helpers import (
     ON_STATES,
@@ -19,11 +21,6 @@ from .helpers import (
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
     from .state import EntityState, WidgetState
-
-# Kit typography constants mirrored in Python so bands can be measured
-# before they are emitted (Blitz never clips text for us).
-_HERO_TRACKING = -0.035  # .t-hero letter-spacing, em
-_LABEL_TRACKING = 0.14  # .t-label letter-spacing, em
 
 # Indicator chip: the icon sits in a soft lozenge tinted with the state
 # colour — an iOS status-tile lamp. Sizes are em-relative to the icon's
@@ -72,29 +69,40 @@ def _tint_rgb(value: object, ctx: CellContext, role: str) -> tuple[int, int, int
     return getattr(theme, role)
 
 
-def _chip_html(icon: str, color: str, tint: tuple[int, int, int], *, size_class: str, px: float | None = None) -> str:
-    """Icon inside a tinted indicator lozenge.
+@dataclass(frozen=True)
+class _Indicator:
+    """Everything the state resolves to, ready to render."""
 
-    ``px`` overrides the kit size class when the band has a measured
-    height budget; otherwise the class (``i-lg``/``i-md``) drives it and
-    the chip follows in ``em``.
-    """
-    style = [
-        f"color: {color}",
-        f"background: {css_rgba(tint, _CHIP_FILL_ALPHA)}",
-        f"border: 1px solid {css_rgba(tint, _CHIP_RING_ALPHA)}",
-        f"width: {_CHIP_SIZE_EM}em",
-        f"height: {_CHIP_SIZE_EM}em",
-        "display: inline-flex",
-        "align-items: center",
-        "justify-content: center",
-        "border-radius: 999px",
-        "box-sizing: border-box",
-        "flex: none",
-    ]
-    if px is not None:
-        style.insert(0, f"font-size: {px:.1f}px")
-    return mdi_span(icon, f"icon {size_class}", "; ".join(style))
+    name: str
+    icon: str
+    color: str  # CSS colour: a theme var() or the user's rgb()
+    fill: str  # the same colour at _CHIP_FILL_ALPHA, flattened
+    ring: str  # the same colour at _CHIP_RING_ALPHA, flattened
+    text: str
+
+    def chip_html(self, *, size_class: str, px: float | None = None) -> str:
+        """Icon inside a tinted indicator lozenge.
+
+        ``px`` overrides the kit size class when the band has a measured
+        height budget; otherwise the class (``i-lg``/``i-md``) drives it
+        and the chip follows in ``em``.
+        """
+        style = [
+            f"color: {self.color}",
+            f"background: {self.fill}",
+            f"border: 1px solid {self.ring}",
+            f"width: {_CHIP_SIZE_EM}em",
+            f"height: {_CHIP_SIZE_EM}em",
+            "display: inline-flex",
+            "align-items: center",
+            "justify-content: center",
+            "border-radius: 999px",
+            "box-sizing: border-box",
+            "flex: none",
+        ]
+        if px is not None:
+            style.insert(0, f"font-size: {px:.1f}px")
+        return mdi_span(self.icon, f"icon {size_class}", "; ".join(style))
 
 
 def _label_px(ctx: CellContext) -> float:
@@ -185,57 +193,62 @@ class StatusWidget(Widget):
             ctx,
             "success" if is_on else "error",
         )
-        status_text = self.on_text if is_on else self.off_text
-        name = self.label_for(entity, fallback=PLACEHOLDER_NAME)
-        icon = self.icon or _entity_status_icon(entity) or "circle"
+        ind = _Indicator(
+            name=self.label_for(entity, fallback=PLACEHOLDER_NAME),
+            icon=self.icon or _entity_status_icon(entity) or "circle",
+            color=color,
+            fill=tint_css(tint, ctx.theme, _CHIP_FILL_ALPHA),
+            ring=tint_css(tint, ctx.theme, _CHIP_RING_ALPHA),
+            text=self.on_text if is_on else self.off_text,
+        )
 
         if not self.show_status_text:
-            return self._render_icon_only(ctx, name, icon, color, tint)
+            return self._render_icon_only(ctx, ind)
 
         # Wide slots read far better as a row: the chip anchors the left
         # edge and the name/state stack spends the width instead of
         # stranding it either side of a centred column.
         if ctx.width >= 150 and ctx.width >= ctx.height * 1.7:
-            return self._render_strip(ctx, name, icon, color, tint, status_text)
+            return self._render_strip(ctx, ind)
         if min(ctx.width, ctx.height) < 90:
-            return self._render_compact(ctx, color, status_text)
-        return self._render_stack(ctx, name, icon, color, tint, status_text)
+            return self._render_compact(ctx, ind)
+        return self._render_stack(ctx, ind)
 
     # ------------------------------------------------------------------
     # Layouts
     # ------------------------------------------------------------------
 
     def _caption_html(
-        self, text: str, px: float, max_width: float, align: str, *, hide_short: bool = True
+        self,
+        tm: TextMetrics,
+        text: str,
+        px: float,
+        max_width: float,
+        align: str,
+        *,
+        hide_short: bool = True,
     ) -> str:
         """A caps-tracked name band, truncated to the width it actually has."""
-        fitted = truncate_to_width(
-            text.upper(), px, max_width, "bold", tracking=_LABEL_TRACKING, min_chars=3
+        fitted = tm.truncate(
+            text.upper(), px, max_width, "bold", tracking=LABEL_TRACKING, min_chars=3
         )
         classes = "t-label hide-short" if hide_short else "t-label"
         return f'<div class="{classes}" style="text-align: {align}">{escape(fitted)}</div>'
 
-    def _render_stack(
-        self,
-        ctx: CellContext,
-        name: str,
-        icon: str,
-        color: str,
-        tint: tuple[int, int, int],
-        status_text: str,
-    ) -> str:
+    def _render_stack(self, ctx: CellContext, ind: _Indicator) -> str:
         """Chip / name / state, spread evenly down the cell."""
+        tm = metrics_for(ctx.theme)
         usable_h = ctx.height * 0.92
         usable_w = ctx.width * 0.92
         caption_px = _label_px(ctx)
 
         chip_outer = min(max(0.36 * usable_h, 26.0), 104.0, 0.55 * usable_w)
-        hero_px = fit_font_size(
-            status_text,
+        hero_px = tm.fit_font_size(
+            ind.text,
             usable_w * 0.94,
             0.38 * usable_h,
             "extrabold",
-            tracking=_HERO_TRACKING,
+            tracking=HERO_TRACKING,
             min_px=14.0,
         )
         # Short values leave the height budget unspent — give the slack
@@ -244,26 +257,19 @@ class StatusWidget(Widget):
         if slack > 0.22 * usable_h:
             chip_outer = min(chip_outer + slack * 0.45, 104.0, 0.55 * usable_w)
 
-        chip = _chip_html(icon, color, tint, size_class="i-md", px=chip_outer / _CHIP_SIZE_EM)
+        chip = ind.chip_html(size_class="i-md", px=chip_outer / _CHIP_SIZE_EM)
         return (
             '<div class="cell">'
             f'<div class="card-icon hide-short">{chip}</div>'
-            f"{self._caption_html(name, caption_px, usable_w, 'center')}"
-            f'<div class="t-hero" style="color: {color}; font-size: {hero_px:.1f}px">'
-            f"{escape(status_text)}</div>"
+            f"{self._caption_html(tm, ind.name, caption_px, usable_w, 'center')}"
+            f'<div class="t-hero" style="color: {ind.color}; font-size: {hero_px:.1f}px">'
+            f"{escape(ind.text)}</div>"
             "</div>"
         )
 
-    def _render_strip(
-        self,
-        ctx: CellContext,
-        name: str,
-        icon: str,
-        color: str,
-        tint: tuple[int, int, int],
-        status_text: str,
-    ) -> str:
+    def _render_strip(self, ctx: CellContext, ind: _Indicator) -> str:
         """Chip on the left, name over state on the right."""
+        tm = metrics_for(ctx.theme)
         usable_h = ctx.height * 0.92
         usable_w = ctx.width * 0.92
         caption_px = _label_px(ctx)
@@ -272,52 +278,47 @@ class StatusWidget(Widget):
         gap = max(7.0, chip_outer * 0.20)
         text_w = usable_w - chip_outer - gap
         inner_gap = max(2.0, usable_h * 0.05)
-        hero_px = fit_font_size(
-            status_text,
+        hero_px = tm.fit_font_size(
+            ind.text,
             text_w,
             usable_h - caption_px * 1.15 - inner_gap,
             "extrabold",
-            tracking=_HERO_TRACKING,
+            tracking=HERO_TRACKING,
             min_px=14.0,
         )
 
-        chip = _chip_html(icon, color, tint, size_class="i-md", px=chip_outer / _CHIP_SIZE_EM)
+        chip = ind.chip_html(size_class="i-md", px=chip_outer / _CHIP_SIZE_EM)
         return (
             f'<div class="cell row" style="justify-content: center; gap: {gap:.1f}px">'
             f"{chip}"
             '<div style="display: flex; flex-direction: column; align-items: flex-start; '
             f'justify-content: center; gap: {inner_gap:.1f}px">'
-            f"{self._caption_html(name, caption_px, text_w, 'left', hide_short=False)}"
-            f'<div class="t-hero" style="color: {color}; font-size: {hero_px:.1f}px">'
-            f"{escape(status_text)}</div>"
+            f"{self._caption_html(tm, ind.name, caption_px, text_w, 'left', hide_short=False)}"
+            f'<div class="t-hero" style="color: {ind.color}; font-size: {hero_px:.1f}px">'
+            f"{escape(ind.text)}</div>"
             "</div></div>"
         )
 
-    def _render_compact(self, ctx: CellContext, color: str, status_text: str) -> str:
+    def _render_compact(self, ctx: CellContext, ind: _Indicator) -> str:
         """3x3-grid slot: the state, as big as the cell allows."""
-        hero_px = fit_font_size(
-            status_text,
+        tm = metrics_for(ctx.theme)
+        hero_px = tm.fit_font_size(
+            ind.text,
             ctx.width * 0.90,
             ctx.height * 0.62,
             "extrabold",
-            tracking=_HERO_TRACKING,
+            tracking=HERO_TRACKING,
             min_px=12.0,
         )
         return (
             '<div class="cell" style="justify-content: center">'
-            f'<div class="t-hero" style="color: {color}; font-size: {hero_px:.1f}px">'
-            f"{escape(status_text)}</div></div>"
+            f'<div class="t-hero" style="color: {ind.color}; font-size: {hero_px:.1f}px">'
+            f"{escape(ind.text)}</div></div>"
         )
 
-    def _render_icon_only(
-        self,
-        ctx: CellContext,
-        name: str,
-        icon: str,
-        color: str,
-        tint: tuple[int, int, int],
-    ) -> str:
+    def _render_icon_only(self, ctx: CellContext, ind: _Indicator) -> str:
         """The tinted chip *is* the state — promoted to the hero band."""
+        tm = metrics_for(ctx.theme)
         usable_h = ctx.height * 0.92
         usable_w = ctx.width * 0.92
         caption_px = _label_px(ctx)
@@ -327,15 +328,19 @@ class StatusWidget(Widget):
             usable_w * 0.72,
             132.0,
         )
-        chip = _chip_html(
-            icon, color, tint, size_class="i-lg", px=max(14.0, chip_outer / _CHIP_SIZE_EM)
-        )
+        chip = ind.chip_html(size_class="i-lg", px=max(14.0, chip_outer / _CHIP_SIZE_EM))
         caption = (
-            self._caption_html(name, caption_px, usable_w, "center", hide_short=False)
+            self._caption_html(tm, ind.name, caption_px, usable_w, "center", hide_short=False)
             if show_caption
             else ""
         )
-        return f'<div class="cell">{caption}<div class="card-icon">{chip}</div></div>'
+        # Two bands only: space-evenly would fling the caption and the
+        # chip to opposite ends of a tall cell. Centre them as one unit.
+        return (
+            '<div class="cell" style="justify-content: center; '
+            f'gap: {caption_px * 0.8:.1f}px">{caption}'
+            f'<div class="card-icon">{chip}</div></div>'
+        )
 
 
 class StatusListWidget(Widget):
@@ -408,6 +413,7 @@ class StatusListWidget(Widget):
         entries = list(self.entities) or [None]
         count = len(entries)
 
+        tm = metrics_for(ctx.theme)
         caption_px = _label_px(ctx)
         usable_h = ctx.height * 0.90
         usable_w = ctx.width * 0.88
@@ -428,6 +434,7 @@ class StatusListWidget(Widget):
         rows = [
             self._row_html(
                 ctx,
+                tm,
                 state,
                 entry,
                 index=i,
@@ -444,12 +451,12 @@ class StatusListWidget(Widget):
 
         title_html = ""
         if show_title and self.title:
-            fitted = truncate_to_width(
+            fitted = tm.truncate(
                 self.title.upper(),
                 caption_px,
                 usable_w,
                 "bold",
-                tracking=_LABEL_TRACKING,
+                tracking=LABEL_TRACKING,
                 min_chars=3,
             )
             title_html = (
@@ -468,6 +475,7 @@ class StatusListWidget(Widget):
     def _row_html(
         self,
         ctx: CellContext,
+        tm: TextMetrics,
         state: WidgetState,
         entry: Any,
         *,
@@ -521,7 +529,7 @@ class StatusListWidget(Widget):
         state_text = self._state_text(entity, is_on)
         # A pill only goes in when the name keeps a readable share of the
         # row; below that the tinted icon carries the state on its own.
-        pill_w = text_width(state_text, pill_px, "bold") + pill_px * 1.7
+        pill_w = tm.width(state_text, pill_px, "bold") + pill_px * 1.7
         name_budget = avail - icon_col - gap
         pill_html = ""
         if name_budget - pill_w - gap >= name_px * 4.6:
@@ -532,10 +540,8 @@ class StatusListWidget(Widget):
                 f'background: {css_rgba(tint, _PILL_FILL_ALPHA)}">{escape(state_text)}</span>'
             )
 
-        display_label = truncate_to_width(label, name_px, name_budget, "semibold", min_chars=3)
-        sep = (
-            f"border-top: 1px solid var(--hairline); " if index > 0 else ""
-        )
+        display_label = tm.truncate(label, name_px, name_budget, "semibold", min_chars=3)
+        sep = "border-top: 1px solid var(--hairline); " if index > 0 else ""
         return (
             f'<div style="{sep}height: {row_h:.1f}px; flex: none; display: flex; '
             f'align-items: center; gap: {gap:.1f}px">'

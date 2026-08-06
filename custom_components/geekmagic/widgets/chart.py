@@ -2,8 +2,8 @@
 
 Also hosts the small measurement + header primitives shared with the
 candlestick widget: both draw an SVG plot under a caption/value header,
-and both need to know how tall that plot box will be *before* the
-engine lays it out.
+and both need to know how tall that plot box will be *before* the engine
+lays it out.
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 from ..htmldoc import css_rgb, svg_sparkline
+from ._textfit import LABEL_TRACKING, TextMetrics, metrics_for
 from .base import Widget, WidgetConfig
-from .helpers import truncate_text
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -37,6 +37,11 @@ def _is_binary_data(data: list[float]) -> bool:
     return all(v in {0.0, 1.0} for v in data)
 
 
+def _range_text(value: float) -> str:
+    """Format a range bound: a decimal only where it still carries meaning."""
+    return f"{value:.0f}" if abs(value) >= 100 else f"{value:.1f}"
+
+
 def fit_px(low: float, value: float, high: float) -> float:
     """Python mirror of CSS ``clamp()`` — keeps layout maths and type in sync."""
     return max(low, min(value, high))
@@ -48,9 +53,9 @@ class PlotMetrics(NamedTuple):
     Blitz sizes an inline ``<svg>`` from its viewBox aspect ratio — a
     percentage height against a flex-sized parent does not resolve — so
     the plot box has to be measured in Python and handed to the SVG
-    helpers as ``aspect``. Percentage *padding* is equally unusable:
-    CSS resolves it against the cell width on both axes, which collapses
-    wide/short cells.
+    helpers as ``aspect``. Percentage *padding* is equally unusable: CSS
+    resolves it against the cell width on both axes, which collapses
+    wide/short cells. Hence px everywhere.
     """
 
     pad_x: int
@@ -68,41 +73,22 @@ class PlotMetrics(NamedTuple):
 def plot_metrics(ctx: CellContext) -> PlotMetrics:
     """Measure a chart cell: insets, type sizes, and the band gap."""
     w, h = ctx.width, ctx.height
+    pad_x = max(4, round(w * 0.055))
+    pad_y = max(4, round(h * 0.05))
+    # Mirrors of the kit's clamp() sizing for .t-label / .t-value.
+    value_px = fit_px(13.0, min(0.17 * min(w, h), 0.115 * w), 31.0)
     return PlotMetrics(
-        pad_x=max(4, round(w * 0.055)),
-        pad_y=max(4, round(h * 0.05)),
-        inner_w=max(24.0, w - 2.0 * max(4, round(w * 0.055))),
-        inner_h=max(24.0, h - 2.0 * max(4, round(h * 0.05))),
-        # Mirrors of the kit's clamp() sizing for .t-label / .t-value.
+        pad_x=pad_x,
+        pad_y=pad_y,
+        inner_w=max(24.0, w - 2.0 * pad_x),
+        inner_h=max(24.0, h - 2.0 * pad_y),
         label_px=fit_px(10.0, min(0.10 * min(w, h), 0.075 * w), 15.0),
-        value_px=fit_px(13.0, min(0.17 * min(w, h), 0.115 * w), 31.0),
-        unit_px=fit_px(13.0, min(0.17 * min(w, h), 0.115 * w), 31.0) * 0.64,
+        value_px=value_px,
+        unit_px=value_px * 0.64,
         detail_px=fit_px(10.0, min(0.115 * min(w, h), 0.085 * w), 17.0),
         gap=max(3.0, h * 0.035),
         compact=h < 100 or w < 100,
     )
-
-
-class FontRatios(NamedTuple):
-    """Average glyph advance widths, in em, for width budgeting."""
-
-    digit: float
-    glyph: float
-    caption: float  # caps + letterspacing
-
-
-def font_ratios(ctx: CellContext) -> FontRatios:
-    """Advance-width estimates for the theme's font stack.
-
-    Nunito is noticeably narrower than DejaVu, and the DejaVu themes
-    also track their caps labels wider (0.18–0.20em vs 0.14em). Budget
-    for whichever family the theme actually asks for, so the header row
-    never overflows.
-    """
-    stack = getattr(ctx.theme, "font_stack", "") or ""
-    if "Nunito" in stack:
-        return FontRatios(digit=0.60, glyph=0.68, caption=0.84)
-    return FontRatios(digit=0.66, glyph=0.78, caption=0.94)
 
 
 def value_header(
@@ -110,29 +96,48 @@ def value_header(
     caption: str,
     value_html: str,
     value_width: float,
-    inner_w: float,
-    label_px: float,
-    ratios: FontRatios,
+    m: PlotMetrics,
+    tm: TextMetrics,
 ) -> str:
     """Caption (left) + value (right) sharing one baseline.
 
-    ``value_width`` is the caller's pixel estimate for the value group;
-    the caption is truncated in Python to whatever is left, because
-    Blitz has no ellipsis and does not clip overflowing text.
+    ``value_width`` is the caller's measured width of the value group;
+    the caption is truncated to whatever is left, because Blitz draws no
+    ellipsis and does not clip overflowing text — an over-long caption
+    would push the value off the panel.
     """
     caption_html = ""
+    available = m.inner_w - value_width - 8.0
     if caption:
-        limit = max(3, int((inner_w - value_width - 8.0) / (label_px * ratios.caption)))
-        caption_html = f'<span class="t-label">{escape(truncate_text(caption.upper(), limit))}</span>'
+        upper = caption.upper()
+        text = tm.truncate(upper, m.label_px, available, weight="bold", tracking=LABEL_TRACKING)
+        # A caption cut down to a letter or two is noise, not a label —
+        # give the row to the value instead.
+        if text == upper or len(text) > 4:
+            caption_html = f'<span class="t-label">{escape(text)}</span>'
     if not caption_html and not value_html:
         return ""
+    # With no caption the value anchors the row on its own; left-aligned
+    # it reads as a heading rather than a stranded number.
+    justify = "space-between" if caption_html else "flex-start"
     # Hide classes live on a plain wrapper: an inline display would
     # defeat the kit's display:none media queries.
     return (
         '<div class="hide-short hide-narrow">'
         '<div style="display: flex; align-items: baseline; '
-        'justify-content: space-between; gap: 6px">'
+        f'justify-content: {justify}; gap: 6px">'
         f"{caption_html}{value_html}</div></div>"
+    )
+
+
+def empty_plot(m: PlotMetrics, plot_h: float) -> str:
+    """Placeholder occupying the plot box when there is nothing to draw."""
+    return (
+        '<div style="display: flex; align-items: center; justify-content: center; '
+        f'height: {plot_h:.0f}px">'
+        f'<span style="font-size: {m.value_px * 0.68:.1f}px; font-weight: 700; '
+        'letter-spacing: 0.08em; line-height: 1; color: var(--text-tertiary)">'
+        "No data</span></div>"
     )
 
 
@@ -200,7 +205,7 @@ class ChartWidget(Widget):
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the chart: value header, sparkline, low/high range strip."""
         m = plot_metrics(ctx)
-        ratios = font_ratios(ctx)
+        tm = metrics_for(ctx.theme)
 
         entity = state.entity
         current_value = None
@@ -216,15 +221,15 @@ class ChartWidget(Widget):
         has_data = state.has_history()
         binary = _is_binary_data(data)
 
-        header = ""
-        header_h = 0.0
-        footer = ""
-        footer_h = 0.0
+        header, header_h = "", 0.0
+        footer, footer_h = "", 0.0
         if not m.compact:
             header, header_h = self._header(
-                self.label_for(entity), m, ratios, current_value, unit, color
+                self.label_for(entity), m, tm, current_value=current_value, unit=unit, color=color
             )
-            footer, footer_h = self._footer(data, has_data and not binary, m)
+            footer, footer_h = self._footer(
+                data, self.show_range and has_data and not binary, m, tm
+            )
 
         bands = 1 + bool(header) + bool(footer)
         plot_h = max(16.0, m.inner_h - header_h - footer_h - m.gap * (bands - 1))
@@ -248,13 +253,7 @@ class ChartWidget(Widget):
             )
             plot = f'<div style="width: 100%">{spark}</div>'
         else:
-            plot = (
-                '<div style="display: flex; align-items: center; justify-content: center; '
-                f'height: {plot_h:.0f}px">'
-                f'<span style="font-size: {m.value_px * 0.68:.1f}px; font-weight: 700; '
-                'letter-spacing: 0.08em; line-height: 1; color: var(--text-tertiary)">'
-                "No data</span></div>"
-            )
+            plot = empty_plot(m, plot_h)
 
         justify = "center" if bands == 1 else "space-between"
         return (
@@ -268,24 +267,25 @@ class ChartWidget(Widget):
         self,
         caption: str,
         m: PlotMetrics,
-        ratios: FontRatios,
+        tm: TextMetrics,
+        *,
         current_value: float | None,
         unit: str,
         color: str,
     ) -> tuple[str, float]:
         """Caption + current value; the value carries the chart's tint.
 
-        Value and line read as one visual unit — the gauge-family
+        Value and line then read as one visual unit — the gauge-family
         exception to the "hero stays text-primary" rule.
         """
         value_html = ""
         value_w = 0.0
         if self.show_value and current_value is not None:
             value_text = f"{current_value:.1f}"
-            value_w = len(value_text) * m.value_px * ratios.digit
+            value_w = tm.width(value_text, m.value_px, "bold")
             unit_html = ""
             if unit:
-                value_w += len(unit) * m.unit_px * ratios.glyph
+                value_w += tm.width(unit, m.unit_px, "semibold")
                 unit_html = (
                     f'<span class="t-unit" style="font-size: {m.unit_px:.1f}px; '
                     f'color: {color}">{escape(unit)}</span>'
@@ -296,12 +296,7 @@ class ChartWidget(Widget):
             )
 
         html = value_header(
-            caption=caption,
-            value_html=value_html,
-            value_width=value_w,
-            inner_w=m.inner_w,
-            label_px=m.label_px,
-            ratios=ratios,
+            caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm
         )
         if not html:
             return "", 0.0
@@ -312,26 +307,56 @@ class ChartWidget(Widget):
         data: list[float],
         enabled: bool,
         m: PlotMetrics,
+        tm: TextMetrics,
     ) -> tuple[str, float]:
-        """Low / period / high strip — typographic, not arrow soup."""
+        """Low / period / high strip — typographic, not arrow soup.
+
+        ``L``/``H`` are tracked caps in the tertiary tone with the numbers
+        a step larger in the secondary tone, and the period sits centered
+        as a quiet tag. Both the tag and the letters drop out (in that
+        order) when the numbers alone need the width.
+        """
         if not enabled:
             return "", 0.0
+        lo_text, hi_text = _range_text(min(data)), _range_text(max(data))
+        num_w = tm.width(lo_text, m.detail_px, "bold") + tm.width(hi_text, m.detail_px, "bold")
+        letter_w = 2.0 * (tm.width("L", m.label_px, "bold", LABEL_TRACKING) + m.detail_px * 0.42)
         period = _format_period(self.hours)
-        period_html = f'<span class="t-label hide-small">{escape(period)}</span>' if period else ""
+        period_w = tm.width(period, m.label_px, "bold", LABEL_TRACKING) + 12.0
+
+        show_letters = num_w + letter_w + 12.0 <= m.inner_w
+        if num_w + 12.0 > m.inner_w:
+            return "", 0.0
+        show_period = bool(period) and (
+            num_w + (letter_w if show_letters else 0.0) + period_w <= m.inner_w
+        )
+
         group = "display: flex; align-items: baseline; gap: 0.42em"
         num = (
             f"font-size: {m.detail_px:.1f}px; font-weight: 700; line-height: 1; "
             "letter-spacing: -0.01em; color: var(--text-secondary); white-space: nowrap"
         )
+
+        # A touch under .t-label's own size so the letters stay clearly
+        # subordinate to the numbers they annotate.
+        letter_px = min(m.label_px, m.detail_px * 0.82)
+
+        def bound(letter: str, text: str) -> str:
+            tag = (
+                f'<span class="t-label" style="font-size: {letter_px:.1f}px">{letter}</span>'
+                if show_letters
+                else ""
+            )
+            return f'<span style="{group}">{tag}<span style="{num}">{escape(text)}</span></span>'
+
+        period_html = (
+            f'<span class="t-label hide-small">{escape(period)}</span>' if show_period else ""
+        )
         return (
             '<div class="hide-short hide-narrow">'
             '<div style="display: flex; align-items: baseline; '
             'justify-content: space-between; gap: 6px">'
-            f'<span style="{group}"><span class="t-label">L</span>'
-            f'<span style="{num}">{escape(f"{min(data):.1f}")}</span></span>'
-            f"{period_html}"
-            f'<span style="{group}"><span class="t-label">H</span>'
-            f'<span style="{num}">{escape(f"{max(data):.1f}")}</span></span>'
+            f'{bound("L", lo_text)}{period_html}{bound("H", hi_text)}'
             "</div></div>",
             max(m.detail_px, m.label_px),
         )

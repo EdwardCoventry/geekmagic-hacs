@@ -7,18 +7,20 @@ from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..htmldoc import css_rgb, mdi_span, svg_arc, svg_ring
-from ._card import caption_max_chars
 from ._gauge import (
     STROKE_UNITS,
     bar_html,
+    cell_box,
+    fit_caption,
     hero_font_css,
     hero_font_px,
     hero_metrics,
+    label_px,
     track_css,
     value_unit_html,
 )
 from .base import Widget, WidgetConfig
-from .helpers import calculate_percent, truncate_text
+from .helpers import calculate_percent
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -33,7 +35,10 @@ _VBAR_THICKNESS = "clamp(12px, 17vmin, 30px)"
 # A round gauge below this diameter cannot hold a caption inside as well
 # as the value, so the caption moves above it (or sheds entirely).
 _CAPTION_INSIDE_MIN = 132.0
-_ROUND_MIN = 46.0
+_ROUND_MIN = 44.0
+# Past this width/height ratio a centered round gauge strands the cell's
+# sides, so the gauge moves left and the text stacks beside it.
+_ROW_RATIO = 1.5
 
 
 class GaugeWidget(Widget):
@@ -184,79 +189,140 @@ class GaugeWidget(Widget):
         sized against the hole rather than the cell, so text never
         collides with the stroke.
         """
-        avail_w = ctx.width * 0.92
-        avail_h = ctx.height * 0.92
-        label_px = max(10.0, min(0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width, 15.0))
+        avail_w, avail_h = cell_box(ctx)
+        lbl = label_px(ctx)
+
+        if ctx.width > ctx.height * _ROW_RATIO:
+            return self._render_round_row(
+                ctx, name, digits, unit, percent=percent, color=color, track=track
+            )
 
         # Big gauges hold the caption inside, under the value (Activity
         # style) — that buys the ring the whole cell. Smaller ones put it
         # above; the smallest drop it entirely.
         inside = bool(name) and min(avail_w, avail_h) >= _CAPTION_INSIDE_MIN
         above = bool(name) and not inside and ctx.height >= 92
-        reserve = label_px * 1.9 if above else 0.0
+        reserve = lbl * 1.9 if above else 0.0
         diameter = min(avail_w, avail_h - reserve)
         if diameter < _ROUND_MIN and above:
             # Not enough room for both — the gauge wins.
             above = False
-            reserve = 0.0
             diameter = min(avail_w, avail_h)
         diameter = max(_ROUND_MIN, diameter)
 
-        stroke_px = diameter * STROKE_UNITS / 100
-        hole = diameter - 2 * stroke_px
-
         label_html = ""
         if digits or unit:
-            # Largest text whose bounding box still fits the hole: the
-            # box diagonal must clear the inner circle.
-            chars = hero_metrics(digits, unit)
-            fit = 0.47 * hole / math.sqrt((0.325 * chars) ** 2 + 0.16)
-            value_px = max(11.0, min(fit * 0.92, hole * 0.62))
+            value_px = self._hole_font_px(diameter, digits, unit)
             if inside:
                 value_px *= 0.82
-            label_html = value_unit_html(
-                digits,
-                unit,
-                hero_css=f"{value_px:.1f}px",
-                unit_css=f"{value_px * 0.38:.1f}px",
-                color=color,
-                unit_color=color,
-            )
+            label_html = self._value_html(digits, unit, value_px, color)
             if inside:
-                caption_px = max(9.0, min(label_px, value_px * 0.30))
+                caption_px = max(9.0, min(lbl, value_px * 0.30))
+                hole = diameter - 2 * diameter * STROKE_UNITS / 100
                 label_html += (
                     f'<div class="t-label" style="font-size: {caption_px:.1f}px; '
-                    f'margin-top: {value_px * 0.18:.1f}px">'
-                    f"{escape(self._fit(name.upper(), hole * 0.82, caption_px * 0.72))}</div>"
+                    f'margin-top: {value_px * 0.16:.1f}px">'
+                    f"{escape(fit_caption(ctx, name.upper(), width_px=hole * 0.86))}</div>"
                 )
 
+        box = self._gauge_box(diameter, percent, color, track, label_html)
+        caption = ""
+        if above:
+            caption = (
+                f'<div class="t-label caption-row">{escape(fit_caption(ctx, name.upper()))}</div>'
+            )
+        return f'<div class="cell">{caption}{box}</div>'
+
+    def _render_round_row(
+        self,
+        ctx: CellContext,
+        name: str,
+        digits: str,
+        unit: str,
+        *,
+        percent: float,
+        color: str,
+        track: str,
+    ) -> str:
+        """Wide cell: gauge left, caption + value stacked beside it.
+
+        Centering a circle in a 3:1 cell wastes both sides and shrinks
+        the gauge to a token; standing it at the left and setting the
+        readout next to it (the Fitness-app row) keeps the gauge at full
+        height and the value big.
+        """
+        avail_w, avail_h = cell_box(ctx)
+        gap = avail_w * 0.05
+        diameter = max(_ROUND_MIN, min(avail_h, avail_w * 0.46))
+        text_w = max(24.0, avail_w - diameter - gap)
+        caption = ""
+        if name and ctx.height >= 60:
+            caption = (
+                f'<div class="t-label" style="font-size: {label_px(ctx):.1f}px">'
+                f"{escape(fit_caption(ctx, name.upper(), width_px=text_w))}</div>"
+            )
+        label_html = ""
+        if digits or unit:
+            hero_px = min(
+                hero_font_px(digits, unit, text_w),
+                avail_h * (0.52 if caption else 0.74),
+            )
+            label_html = self._value_html(digits, unit, hero_px, color)
+        box = self._gauge_box(diameter, percent, color, track, "")
+        return (
+            f'<div class="cell row" style="gap: {gap:.0f}px">'
+            f"{box}"
+            '<div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; '
+            'align-items: center; justify-content: center; gap: 6%">'
+            f"{caption}{label_html}</div>"
+            "</div>"
+        )
+
+    @staticmethod
+    def _hole_font_px(diameter: float, digits: str, unit: str) -> float:
+        """Largest value type that fits inside a round gauge's hole.
+
+        The text's bounding box has to clear the inner circle, so the
+        half-diagonal — not the half-width — is what must fit.
+        """
+        hole = diameter - 2 * diameter * STROKE_UNITS / 100
+        chars = hero_metrics(digits, unit)
+        fit = 0.47 * hole / math.sqrt((0.325 * chars) ** 2 + 0.16)
+        return max(11.0, min(fit * 0.92, hole * 0.62))
+
+    @staticmethod
+    def _value_html(digits: str, unit: str, size_px: float, color: str) -> str:
+        """Value + unit at an explicit pixel size (gauge-tinted)."""
+        return value_unit_html(
+            digits,
+            unit,
+            hero_css=f"{size_px:.1f}px",
+            unit_css=f"{size_px * 0.38:.1f}px",
+            color=color,
+            unit_color=color,
+        )
+
+    def _gauge_box(
+        self, diameter: float, percent: float, color: str, track: str, label_html: str
+    ) -> str:
+        """Fixed-size square holding the SVG gauge and its centered label."""
         if self.style == "ring":
             gauge = svg_ring(percent, stroke=color, track=track, stroke_width=STROKE_UNITS)
         else:
             gauge = svg_arc(percent, stroke=color, track=track, stroke_width=STROKE_UNITS)
-
-        # Optical centering: text centered on the geometric middle of a
-        # circle reads low, so lift it by a hair.
-        lift = diameter * 0.035
-        overlay = (
-            '<div style="position: absolute; inset: 0; display: flex; '
-            "flex-direction: column; align-items: center; justify-content: center; "
-            f'padding-bottom: {lift:.1f}px">{label_html}</div>'
-            if label_html
-            else ""
-        )
-        box = (
+        overlay = ""
+        if label_html:
+            # Optical centering: text centered on the geometric middle of
+            # a circle reads low, so lift it by a hair.
+            overlay = (
+                '<div style="position: absolute; inset: 0; display: flex; '
+                "flex-direction: column; align-items: center; justify-content: center; "
+                f'padding-bottom: {diameter * 0.035:.1f}px">{label_html}</div>'
+            )
+        return (
             f'<div style="position: relative; flex: none; width: {diameter:.0f}px; '
             f'height: {diameter:.0f}px">{gauge}{overlay}</div>'
         )
-
-        caption = ""
-        if above:
-            caption = (
-                '<div class="t-label caption-row">'
-                f"{escape(self._fit(name.upper(), avail_w, label_px * 0.72))}</div>"
-            )
-        return f'<div class="cell">{caption}{box}</div>'
 
     # ------------------------------------------------------------------
     # Bar gauges
@@ -278,26 +344,19 @@ class GaugeWidget(Widget):
             self.orientation == "auto" and ctx.height > ctx.width * 1.6
         )
         icon_html = mdi_span(self.icon, "icon i-sm", f"color: {color}") if self.icon else ""
-        # Gauge-family exception: the value shares the fill tint so value
-        # and bar read as one object (Apple Activity).
-        hero_css, unit_css = hero_font_css(digits, unit)
-        hero = value_unit_html(
-            digits, unit, hero_css=hero_css, unit_css=unit_css, color=color, unit_color=color
-        )
 
         if not vertical:
             caption = self._caption(ctx, name, icon_html)
             bar = bar_html(percent, color=color, track=track, thickness=_BAR_THICKNESS)
-            return f'<div class="cell">{caption}{hero}{bar}</div>'
+            return f'<div class="cell">{caption}{self._hero(digits, unit, color)}{bar}</div>'
 
-        vbar = bar_html(
-            percent, color=color, track=track, thickness=_VBAR_THICKNESS, vertical=True
-        )
+        vbar = bar_html(percent, color=color, track=track, thickness=_VBAR_THICKNESS, vertical=True)
         if ctx.width > ctx.height * 1.15:
             # Wide cell, vertical bar: stand the bar up the left edge and
             # set the label + value beside it instead of stranding a stub
             # of a bar in the middle.
-            caption = self._caption(ctx, name, icon_html, reserve_ratio=0.62)
+            caption = self._caption(ctx, name, icon_html, width_ratio=0.6)
+            hero = self._hero(digits, unit, color, cap_vw=24.0, cap_vmin=44.0)
             return (
                 '<div class="cell row" style="gap: 6%">'
                 f'<div style="align-self: stretch; display: flex; flex: none">{vbar}</div>'
@@ -307,7 +366,11 @@ class GaugeWidget(Widget):
                 "</div>"
             )
 
+        # Tall cell: caption above, bar taking every spare pixel, value
+        # under it. The value stays deliberately smaller than a
+        # horizontal bar's hero so the column of colour stays the subject.
         caption = self._caption(ctx, name, icon_html)
+        hero = self._hero(digits, unit, color, cap_vw=27.0, cap_vmin=30.0)
         return (
             '<div class="cell">'
             f"{caption}"
@@ -321,24 +384,37 @@ class GaugeWidget(Widget):
     # Helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _hero(
+        digits: str,
+        unit: str,
+        color: str,
+        *,
+        cap_vw: float = 38.0,
+        cap_vmin: float = 48.0,
+    ) -> str:
+        """Fluid hero value. Gauge-family exception: it wears the fill's
+        tint so value and bar read as one object (Apple Activity)."""
+        hero_css, unit_css = hero_font_css(digits, unit, cap_vw=cap_vw, cap_vmin=cap_vmin)
+        return value_unit_html(
+            digits, unit, hero_css=hero_css, unit_css=unit_css, color=color, unit_color=color
+        )
+
+    @staticmethod
     def _caption(
-        self,
         ctx: CellContext,
         name: str,
         icon_html: str = "",
         *,
-        reserve_ratio: float = 1.0,
+        width_ratio: float = 1.0,
     ) -> str:
         """Caps caption band, Python-truncated to the cell width."""
         if not name:
             return ""
-        limit = caption_max_chars(ctx, reserve_em=1.6 if icon_html else 0.0)
-        text = name.upper()
-        if limit is not None:
-            text = truncate_text(text, max(3, int(limit * reserve_ratio)))
+        text = fit_caption(
+            ctx,
+            name.upper(),
+            reserve_em=1.6 if icon_html else 0.0,
+            width_px=ctx.width * 0.90 * width_ratio,
+        )
         return f'<div class="t-label caption-row hide-short">{icon_html}{escape(text)}</div>'
-
-    @staticmethod
-    def _fit(text: str, width: float, char_px: float) -> str:
-        """Truncate ``text`` to ``width`` pixels (Blitz never clips text)."""
-        return truncate_text(text, max(3, int(width / max(1.0, char_px))))

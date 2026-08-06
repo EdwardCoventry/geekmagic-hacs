@@ -19,6 +19,7 @@ from html import escape
 from typing import TYPE_CHECKING
 
 from ..htmldoc import css_rgba
+from .helpers import truncate_text
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -35,6 +36,54 @@ PILL_RADIUS = "999px"
 # Ring/arc stroke as a share of the gauge diameter (SVG user units on the
 # 100x100 viewBox). ~10.5% keeps the ring bold without closing the hole.
 STROKE_UNITS = 10.5
+
+
+def cell_box(ctx: CellContext) -> tuple[float, float]:
+    """Content box of the kit's ``.cell``, in pixels.
+
+    ``padding: 4%`` resolves against the containing block's *width* on
+    every side, so a short wide cell loses far more of its height than a
+    naive ``0.92 * height`` suggests. Geometry computed in Python (round
+    gauges) has to account for that or it overflows the cell.
+    """
+    pad = ctx.width * 0.04
+    return ctx.width - 2 * pad, max(8.0, ctx.height - 2 * pad)
+
+
+def label_px(ctx: CellContext) -> float:
+    """Rendered size of the kit's ``.t-label`` at this cell size."""
+    return max(10.0, min(0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width, 15.0))
+
+
+def char_em(ctx: CellContext, *, caps: bool = False) -> float:
+    """Average glyph advance as a share of the font size.
+
+    Rounded (Nunito) themes pack tighter than the DejaVu/mono themes,
+    which also track wider — budgeting per glyph by family keeps both
+    from spilling out of the cell.
+    """
+    rounded = getattr(ctx.theme, "rounded_font", True) if ctx.theme is not None else True
+    if caps:
+        return 0.68 if rounded else 0.88
+    return 0.53 if rounded else 0.62
+
+
+def fit_caption(
+    ctx: CellContext,
+    text: str,
+    *,
+    reserve_em: float = 0.0,
+    width_px: float | None = None,
+) -> str:
+    """Truncate a caps caption to the width it has to live in.
+
+    Blitz has no ``text-overflow`` and ignores ``overflow: hidden`` on
+    text, so every caption is fitted here instead.
+    """
+    px = label_px(ctx)
+    per_char = px * char_em(ctx, caps=True)
+    usable = (width_px if width_px is not None else ctx.width * 0.90) - reserve_em * px
+    return truncate_text(text, max(3, int(usable / per_char)))
 
 
 def track_css(
@@ -127,8 +176,7 @@ def hero_font_css(
     cap = min(cap_vw, 90.0 / (_DIGIT_EM * hero_metrics(digits, unit)))
     hero = f"clamp(16px, min({cap_vmin:.0f}vmin, {cap:.1f}vw), 124px)"
     unit_css = (
-        f"clamp(11px, min({cap_vmin * _UNIT_RATIO:.0f}vmin, "
-        f"{cap * _UNIT_RATIO:.1f}vw), 46px)"
+        f"clamp(11px, min({cap_vmin * _UNIT_RATIO:.0f}vmin, {cap * _UNIT_RATIO:.1f}vw), 46px)"
     )
     return hero, unit_css
 
