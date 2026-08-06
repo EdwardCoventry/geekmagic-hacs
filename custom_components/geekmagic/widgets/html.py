@@ -1,48 +1,26 @@
-"""HTML widget rendered with the Blitz engine via blitz-py.
+"""HTML widget — user-authored HTML/CSS with Jinja templating.
 
-Renders user-authored HTML/CSS (with Jinja templating over entity state)
-to pixels using `blitz-py <https://github.com/adrienbrault/blitz-py>`_
-— Stylo (CSS) + Taffy (layout) + Parley (text) + Vello (raster), no
-browser required. A 240x240 cell renders in ~20ms, and the whole
-pipeline already runs in the coordinator's executor thread, so the
-blocking call is safe here.
-
-blitz-py is an optional dependency: when it isn't importable the widget
-degrades to an informative placeholder instead of failing the render.
-
-The active theme is exposed to the HTML as CSS custom properties
-(``--bg``, ``--text-primary``, ``--primary``, ``--success``, ...) so
-user markup can stay theme-consistent without hardcoding colours.
+The whole rendering pipeline is Blitz-based; this widget simply passes
+the user's (Jinja-rendered) markup through as the cell fragment. The
+pipeline wraps it with the theme's CSS variables, the fluid kit, and
+theme chrome, so user templates can use ``var(--text-primary)``,
+``.cell`` / ``.t-hero`` / ``.hide-short`` etc. directly.
 """
 
 from __future__ import annotations
 
-import io
 import logging
 import re
-from dataclasses import dataclass, field
+from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from jinja2.sandbox import SandboxedEnvironment
-from PIL import Image
 
 from .base import Widget, WidgetConfig
-from .components import THEME_TEXT_SECONDARY, Column, Component, Icon, Text
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
-
-# Native module without type stubs; typed Any so ty doesn't require it.
-blitz_py: Any
-try:
-    from importlib import import_module
-
-    blitz_py = import_module("blitz_py")
-    HAS_BLITZ = True
-except ImportError:  # pragma: no cover - depends on environment
-    blitz_py = None
-    HAS_BLITZ = False
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,84 +28,6 @@ _LOGGER = logging.getLogger(__name__)
 # or state_attr("climate.living", "current_temperature"). Used to declare
 # entity dependencies so the coordinator pre-fetches them into WidgetState.
 _ENTITY_REF_RE = re.compile(r"""\b(?:states|state_attr)\(\s*['"]([^'"]+)['"]""")
-
-
-def _css_rgb(color: tuple[int, int, int]) -> str:
-    """Format an RGB tuple as a CSS color."""
-    return f"rgb({color[0]}, {color[1]}, {color[2]})"
-
-
-def _theme_css_variables(ctx: RenderContext) -> str:
-    """Build a :root CSS block exposing the active theme as variables."""
-    theme = ctx.theme
-    variables = {
-        "--bg": theme.background,
-        "--surface": theme.surface,
-        "--text-primary": theme.text_primary,
-        "--text-secondary": theme.text_secondary,
-        "--text-tertiary": theme.text_tertiary,
-        "--primary": theme.primary,
-        "--secondary": theme.secondary,
-        "--success": theme.success,
-        "--warning": theme.warning,
-        "--error": theme.error,
-        "--info": theme.info,
-        "--muted": theme.muted,
-    }
-    lines = "\n".join(f"  {name}: {_css_rgb(value)};" for name, value in variables.items())
-    return f":root {{\n{lines}\n}}"
-
-
-# Fluid kit: opinionated utility classes injected into every document.
-#
-# Each cell is its own CSS viewport, so viewport units (vmin/vw/vh) and
-# media queries respond to the CELL size, not the display size. That
-# makes one template adapt from a 76px 3x3 cell up to 240px fullscreen:
-#
-# - ``.cell``      flex-column scaffold filling the cell, space-evenly
-#                  (the watchOS three-band default); add ``.row`` to go
-#                  horizontal
-# - ``.t-hero``    primary value — scales with cell size via clamp()
-# - ``.t-value``   secondary emphasized value
-# - ``.t-unit``    unit suffix next to a hero
-# - ``.t-label``   caps caption / label
-# - ``.hide-short``  hidden when the cell is under 100px tall
-# - ``.hide-narrow`` hidden when the cell is under 100px wide
-# - ``.hide-small``  hidden when either dimension is under 130px
-#
-# Breakpoints follow the real cell sizes: 3x3 grid ~76px, 2x2 ~118px,
-# halves ~118x240, fullscreen 240px.
-_FLUID_KIT_CSS = """
-.cell { height: 100%; display: flex; flex-direction: column; align-items: center;
-        justify-content: space-evenly; text-align: center; }
-.cell.row { flex-direction: row; }
-.t-hero { font-size: clamp(18px, min(46vmin, 30vw), 120px); font-weight: 700;
-          line-height: 1; letter-spacing: -0.03em; }
-.t-value { font-size: clamp(14px, min(26vmin, 20vw), 64px); font-weight: 700;
-           line-height: 1; }
-.t-unit { font-size: clamp(12px, min(18vmin, 12vw), 40px); font-weight: 600;
-          line-height: 1; color: var(--text-secondary); }
-.t-label { font-size: clamp(10px, min(11vmin, 8vw), 17px); font-weight: 600;
-           line-height: 1; letter-spacing: 0.08em; color: var(--text-tertiary); }
-@media (max-height: 99px) { .hide-short { display: none; } }
-@media (max-width: 99px) { .hide-narrow { display: none; } }
-@media (max-height: 129px), (max-width: 129px) { .hide-small { display: none; } }
-"""
-
-
-def _wrap_document(user_html: str, ctx: RenderContext) -> str:
-    """Wrap user HTML with theme variables, base styles, and the fluid kit."""
-    return f"""<style>
-{_theme_css_variables(ctx)}
-html, body {{ margin: 0; padding: 0; width: 100%; height: 100%; }}
-body {{
-  background: var(--bg);
-  color: var(--text-primary);
-  font-family: sans-serif;
-}}
-{_FLUID_KIT_CSS}
-</style>
-<body>{user_html}</body>"""
 
 
 def _build_template_context(state: WidgetState) -> dict[str, Any]:
@@ -169,69 +69,13 @@ def _render_template(source: str, state: WidgetState) -> str:
     return env.from_string(source).render(**_build_template_context(state))
 
 
-@dataclass
-class BlitzHtml(Component):
-    """Component that rasterizes an HTML document with blitz-py.
-
-    The blitz call happens in ``render()`` where the final cell size is
-    known, so the document is always rasterized at exactly the pixels it
-    will occupy — no scaling artifacts.
-    """
-
-    html: str
-    error_text: str | None = field(default=None)
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        if width <= 0 or height <= 0:
-            return
-        # Render at the canvas supersampling factor so the pasted bitmap
-        # maps 1:1 onto the scaled canvas instead of being upscaled.
-        scale = float(getattr(getattr(ctx, "_renderer", None), "scale", 1) or 1)
-        bg = ctx.theme.background
-        try:
-            png = blitz_py.render_png(
-                self.html,
-                width=width,
-                height=height,
-                scale=scale,
-                color_scheme="dark",
-                background=f"#{bg[0]:02x}{bg[1]:02x}{bg[2]:02x}",
-            )
-            image = Image.open(io.BytesIO(png))
-        except Exception:
-            _LOGGER.exception("blitz-py failed to render HTML widget")
-            font = ctx.get_font("small")
-            ctx.draw_text(
-                "HTML render error",
-                (x + width // 2, y + height // 2),
-                font,
-                ctx.theme.error,
-                "mm",
-            )
-            return
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        ctx.draw_image(image, rect=(x, y, x + width, y + height), fit_mode="stretch")
-
-
-def _placeholder(message: str) -> Component:
-    """Placeholder shown when blitz-py isn't installed or HTML is empty."""
-    return Column(
-        children=[
-            Icon("code-tags", color=THEME_TEXT_SECONDARY, max_size=40),
-            Text(message, font="small", color=THEME_TEXT_SECONDARY, truncate=True),
-        ],
-        gap=8,
-        align="center",
-        justify="center",
-    )
+def _placeholder(message: str) -> str:
+    """Placeholder fragment for empty or broken templates."""
+    return f'<div class="cell"><div class="t-label">{escape(message.upper())}</div></div>'
 
 
 class HtmlWidget(Widget):
-    """Widget that renders arbitrary HTML/CSS via the Blitz engine.
+    """Widget that renders arbitrary HTML/CSS.
 
     The ``html`` option is a Jinja template with access to:
 
@@ -242,19 +86,23 @@ class HtmlWidget(Widget):
     - ``now`` — timezone-aware current datetime
 
     Theme colours are available in CSS as ``var(--text-primary)``,
-    ``var(--primary)``, ``var(--success)``, etc.
+    ``var(--primary)``, ``var(--success)``, etc., and the fluid kit
+    classes (``.cell``, ``.t-hero``, ``.hide-short``, ...) work out of
+    the box.
     """
 
     WIDGET_TYPE: ClassVar[str] = "html"
     SCHEMA: ClassVar[dict[str, Any]] = {
-        "name": "HTML (Blitz)",
+        "name": "HTML",
         "needs_entity": False,
         "options": [
             {
                 "key": "html",
                 "type": "textarea",
                 "label": "HTML Template",
-                "placeholder": '<div class="screen">{{ state }}{{ unit }}</div>',
+                "placeholder": (
+                    '<div class="cell"><div class="t-hero">{{ state }}{{ unit }}</div></div>'
+                ),
             },
             {"key": "entity_id", "type": "entity", "label": "Entity (template data)"},
         ],
@@ -266,20 +114,16 @@ class HtmlWidget(Widget):
         self.html = config.options.get("html", "")
         self.dynamic_entity_id = config.options.get("entity_id")
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
-        """Render the HTML widget."""
-        if not HAS_BLITZ:
-            return _placeholder("Install blitz-py")
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Render the HTML widget fragment."""
         if not self.html.strip():
             return _placeholder("No HTML configured")
 
         try:
-            rendered = _render_template(self.html, state)
+            return _render_template(self.html, state)
         except Exception:
             _LOGGER.exception("Invalid Jinja template in HTML widget")
             return _placeholder("Template error")
-
-        return BlitzHtml(html=_wrap_document(rendered, ctx))
 
     def get_entities(self) -> list[str]:
         """Return entity IDs this widget depends on.

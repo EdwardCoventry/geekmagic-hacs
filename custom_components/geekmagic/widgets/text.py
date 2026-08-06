@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from ..htmldoc import css_rgb
+from ._card import card_html
 from .base import Widget, WidgetConfig
-from .components import THEME_TEXT_PRIMARY, Component
-from .data_card import DataCard
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
 
 
 class TextWidget(Widget):
-    """Widget that displays static or dynamic text via ``DataCard``.
+    """Widget that displays static or dynamic text via the card pattern.
 
-    Maps to ``DataCard(caption=label, hero=text)`` — the watchOS
+    Maps to ``card_html(caption=label, hero=text)`` — the watchOS
     caption-above-hero pattern. The hero auto-fits the cell, so the
     legacy ``size`` option (small/regular/large/xlarge) is no longer
     needed and is silently ignored if present in stored configs.
@@ -41,12 +41,12 @@ class TextWidget(Widget):
         # Entity ID for dynamic text (from options, takes precedence over widget entity_id)
         self.dynamic_entity_id = config.options.get("entity_id")
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the text widget."""
-        return DataCard(
+        return card_html(
             caption=self.config.label,
             hero=self._get_text(state),
-            hero_color=self.config.color or THEME_TEXT_PRIMARY,
+            hero_color=css_rgb(self.config.color) if self.config.color else None,
         )
 
     def _get_text(self, state: WidgetState) -> str:

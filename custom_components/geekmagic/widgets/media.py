@@ -2,31 +2,31 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
+from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PIL import Image
-
-from ..render_context import SizeCategory, get_size_category
-from .base import Widget, WidgetConfig
-from .components import (
-    THEME_PRIMARY,
-    THEME_TEXT_PRIMARY,
-    THEME_TEXT_SECONDARY,
-    Bar,
-    Color,
-    Column,
-    Component,
-    Icon,
-    Row,
-    Spacer,
-    Text,
-)
+from ..htmldoc import css_rgb, image_data_uri, mdi_span
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from PIL import Image
+
+    from ..htmldoc import CellContext
     from .state import EntityState, WidgetState
+
+from .base import Widget, WidgetConfig
+from .helpers import truncate_text
+
+
+def _fit_chars(width_px: float, min_px: float, vmin_px: float, max_px: float) -> int:
+    """Estimate chars fitting in ``width_px`` for a clamp()-sized font.
+
+    Blitz doesn't render ``text-overflow: ellipsis``, so single-line text
+    is truncated Python-side. Mirrors ``clamp(min_px, vmin_px, max_px)``
+    and assumes an average glyph width of ~0.55em (Nunito, mixed case).
+    """
+    font_px = min(max_px, max(min_px, vmin_px))
+    return max(4, int(width_px / (font_px * 0.55)))
 
 
 def _calculate_media_position(
@@ -93,280 +93,15 @@ def _format_time(seconds: float) -> str:
     return f"{minutes}:{secs:02d}"
 
 
-@dataclass
-class ImageFill(Component):
-    """Component that fills its area with an image."""
-
-    image: Image.Image
-    fit: str = "cover"  # "cover", "contain", "fill"
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        ctx.draw_image(self.image, rect=(x, y, x + width, y + height), fit_mode=self.fit)
-
-
-@dataclass
-class DarkOverlay(Component):
-    """Soft fade-to-black overlay at the bottom of the container.
-
-    Renders as a smooth gradient (transparent at the top of the overlay,
-    fully opaque at the bottom) so album art shows through gracefully.
-    """
-
-    height_ratio: float = 0.45
-    color: Color = (0, 0, 0)
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        overlay_height = int(height * self.height_ratio)
-        overlay_y = y + height - overlay_height
-        ctx.draw_gradient_fade(
-            (x, overlay_y, x + width, y + height), color=self.color, direction="down"
-        )
-
-
-@dataclass
-class AlbumArt(Component):
-    """Album art display with overlay showing track info.
-
-    Uses Stack to layer: image -> dark overlay -> text info -> progress bar.
-    Inspired by Spotify/Apple Music now playing screens.
-    """
-
-    image: Image.Image
-    title: str = ""
-    artist: str = ""
-    position: float = 0
-    duration: float = 0
-    color: Color = THEME_PRIMARY  # Theme-aware sentinel
-    show_progress: bool = True
-    show_overlay: bool = True
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        """Render album art with overlay using component composition."""
-        # Layer 1: Album art background
-        ImageFill(image=self.image, fit="cover").render(ctx, x, y, width, height)
-
-        if not self.show_overlay:
-            return
-
-        # Determine sizing based on available space using standard size categories
-        size = get_size_category(height)
-        is_micro = size == SizeCategory.MICRO
-        is_compact = size in (SizeCategory.MICRO, SizeCategory.TINY, SizeCategory.SMALL)
-        show_artist = size in (SizeCategory.MEDIUM, SizeCategory.LARGE)
-        show_time = size == SizeCategory.LARGE
-
-        # Overlay ratio: gradient extends slightly higher to give the text
-        # room to breathe over the album art (watchOS now-playing pattern).
-        if is_micro:
-            overlay_ratio = 0.45
-        elif is_compact:
-            overlay_ratio = 0.50
-        else:
-            overlay_ratio = 0.55
-
-        # Layer 2: Dark overlay at bottom
-        DarkOverlay(height_ratio=overlay_ratio).render(ctx, x, y, width, height)
-
-        # Layer 3: Text content positioned at bottom
-        overlay_height = int(height * overlay_ratio)
-        text_area_y = y + height - overlay_height
-        # Smaller padding for micro cells to fit more text
-        padding = max(2, int(width * 0.02)) if is_micro else max(4, int(width * 0.04))
-
-        # Build text components
-        text_children: list[Component] = []
-
-        # Title - always show, smaller font for compact cells
-        if self.title:
-            if is_micro:
-                title_font = "tiny"
-                title_bold = False
-            elif is_compact:
-                title_font = "tiny"
-                title_bold = True
-            else:
-                title_font = "small"
-                title_bold = True
-
-            # Album-art overlay text deliberately uses fixed near-white /
-            # near-grey colours, NOT theme.text_primary. These render on
-            # top of a black gradient over photographic content, so they
-            # need pure-white-ish contrast regardless of theme — even on
-            # the 'light' theme the gradient is dark, and theme text
-            # colours would be invisible. This is the documented exception
-            # to "use theme tokens for everything".
-            text_children.append(
-                Text(
-                    self.title,
-                    font=title_font,
-                    color=(255, 255, 255),
-                    bold=title_bold,
-                    align="start",
-                    auto_fit=True,
-                )
-            )
-
-        # Artist - show only when there's room (MEDIUM, LARGE).
-        # Same album-art-overlay exception as the title.
-        if self.artist and show_artist:
-            text_children.append(
-                Text(
-                    self.artist,
-                    font="tiny",
-                    color=(160, 160, 160),
-                    align="start",
-                    truncate=True,
-                )
-            )
-
-        # Time display for large cells only
-        if self.duration > 0 and show_time:
-            pos_str = _format_time(self.position)
-            dur_str = _format_time(self.duration)
-            time_str = f"{pos_str} / {dur_str}"
-            text_children.append(
-                Text(
-                    time_str,
-                    font="tiny",
-                    color=(120, 120, 120),
-                    align="start",
-                )
-            )
-
-        # Render text column in overlay area
-        if text_children:
-            text_column = Column(
-                children=text_children,
-                align="start",
-                justify="end",  # Stack from bottom up
-                padding=padding,
-                gap=1,  # Minimal gap between items
-            )
-            # Position text in overlay area (leaving room for progress bar)
-            bar_height = max(2, int(height * 0.015)) if self.show_progress else 0
-            text_height = overlay_height - bar_height - padding
-            text_column.render(ctx, x, text_area_y, width, text_height)
-
-        # Layer 4: Progress bar at very bottom
-        if self.show_progress and self.duration > 0:
-            progress = min(100, (self.position / self.duration) * 100)
-            bar_height = max(2, int(height * 0.015))
-            bar_y = y + height - bar_height
-
-            # Tinted track via theme (Activity-bar style).
-            Bar(
-                percent=progress,
-                color=self.color,
-                height=bar_height,
-            ).render(ctx, x, bar_y, width, bar_height)
-
-
-@dataclass
-class NowPlaying(Component):
-    """Now playing display component (text-only version)."""
-
-    title: str
-    artist: str = ""
-    album: str = ""
-    position: float = 0
-    duration: float = 0
-    color: Color = THEME_PRIMARY  # Theme-aware sentinel
-    show_artist: bool = True
-    show_album: bool = False
-    show_progress: bool = True
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        """Render now playing info."""
-        padding = int(width * 0.05)
-
-        # Truncate text
-        max_chars = (width - padding * 2) // 8
-        title = self.title[: max_chars - 2] + ".." if len(self.title) > max_chars else self.title
-        artist = (
-            self.artist[: max_chars - 2] + ".." if len(self.artist) > max_chars else self.artist
-        )
-        album = self.album[: max_chars - 2] + ".." if len(self.album) > max_chars else self.album
-
-        # Build component tree
-        children: list[Component] = [
-            Text("NOW PLAYING", font="small", color=THEME_TEXT_SECONDARY),
-            Spacer(min_size=int(height * 0.03)),
-            Text(title, font="regular", color=THEME_TEXT_PRIMARY),
-        ]
-
-        if self.show_artist and artist:
-            children.append(Spacer(min_size=int(height * 0.02)))
-            children.append(Text(artist, font="small", color=THEME_TEXT_SECONDARY))
-
-        if self.show_album and self.album:
-            children.append(Spacer(min_size=int(height * 0.02)))
-            children.append(Text(album, font="small", color=THEME_TEXT_SECONDARY))
-
-        # Add spacer before progress section
-        children.append(Spacer())
-
-        # Progress bar and time labels
-        if self.show_progress and self.duration > 0:
-            progress = min(100, (self.position / self.duration) * 100)
-            pos_str = _format_time(self.position)
-            dur_str = _format_time(self.duration)
-
-            children.extend(
-                [
-                    Bar(
-                        percent=progress,
-                        color=self.color,
-                        height=max(4, int(height * 0.05)),
-                    ),
-                    Spacer(min_size=int(height * 0.02)),
-                    Row(
-                        children=[
-                            Text(pos_str, font="small", color=THEME_TEXT_SECONDARY, align="start"),
-                            Spacer(),
-                            Text(dur_str, font="small", color=THEME_TEXT_SECONDARY, align="end"),
-                        ]
-                    ),
-                ]
-            )
-
-        # Render the column
-        Column(children=children, padding=padding, align="center").render(ctx, x, y, width, height)
-
-
-@dataclass
-class MediaIdle(Component):
-    """Idle/paused state display."""
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        """Render paused state."""
-        # Calculate icon size - larger for better visibility
-        icon_size = max(32, int(height * 0.3))
-
-        # Build component tree - use gap instead of Spacer to keep elements grouped
-        Column(
-            children=[
-                Icon("pause", size=icon_size, color=THEME_TEXT_SECONDARY),
-                Text("PAUSED", font="regular", color=THEME_TEXT_SECONDARY),
-            ],
-            align="center",
-            justify="center",
-            gap=int(height * 0.06),
-        ).render(ctx, x, y, width, height)
+def _progress_bar_html(percent: float, color: str, *, height_css: str, track: str) -> str:
+    """A slim rounded progress bar with a neutral track."""
+    percent = max(0.0, min(100.0, percent))
+    return (
+        f'<div style="width: 100%; height: {height_css}; border-radius: 999px; '
+        f'background: {track}; overflow: hidden">'
+        f'<div style="width: {percent:.1f}%; height: 100%; border-radius: 999px; '
+        f'background: {color}"></div></div>'
+    )
 
 
 class MediaWidget(Widget):
@@ -392,43 +127,196 @@ class MediaWidget(Widget):
         self.show_progress = config.options.get("show_progress", True)
         self.show_album_art = config.options.get("show_album_art", True)
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
-        """Render the media player widget.
-
-        Args:
-            ctx: RenderContext for drawing
-            state: Widget state with entity data
-        """
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Render the media player widget."""
         entity = state.entity
 
         if entity is None or entity.state in ("off", "unavailable", "unknown", "idle", "paused"):
-            return MediaIdle()
+            return self._render_idle(entity)
 
         # Calculate current position (accounts for elapsed playback time)
         position = _calculate_media_position(entity, state.now)
-        duration = entity.get("media_duration", 0) or 0
+        duration = float(entity.get("media_duration", 0) or 0)
+
+        accent = css_rgb(self.config.color) if self.config.color else ctx.accent()
 
         # Use album art if available and enabled
         if self.show_album_art and state.image is not None:
-            return AlbumArt(
-                image=state.image.convert("RGB") if state.image.mode != "RGB" else state.image,
-                title=entity.get("media_title", ""),
-                artist=entity.get("media_artist", ""),
-                position=position,
-                duration=duration,
-                color=self.config.color or ctx.theme.get_accent_color(self.config.slot),
-                show_progress=self.show_progress,
-                show_overlay=True,
+            return self._render_album_art(
+                ctx, entity, state.image, position=position, duration=duration, accent=accent
             )
 
-        return NowPlaying(
-            title=entity.get("media_title", "Unknown"),
-            artist=entity.get("media_artist", ""),
-            album=entity.get("media_album_name", ""),
-            position=position,
-            duration=duration,
-            color=self.config.color or ctx.theme.get_accent_color(self.config.slot),
-            show_artist=self.show_artist,
-            show_album=self.show_album,
-            show_progress=self.show_progress,
+        return self._render_now_playing(ctx, entity, position, duration, accent)
+
+    def _render_idle(self, entity: EntityState | None) -> str:
+        """Idle / paused / off placeholder."""
+        if entity is not None and entity.state == "paused":
+            icon, label = "pause", "PAUSED"
+        else:
+            icon, label = "music", "NO MEDIA"
+        return (
+            '<div class="cell" style="justify-content: center; gap: 4vmin; '
+            'color: var(--text-secondary)">'
+            f"{mdi_span(icon, 'icon i-lg')}"
+            f'<div class="t-label hide-short" style="color: var(--text-secondary)">'
+            f"{escape(label)}</div>"
+            "</div>"
         )
+
+    def _render_album_art(
+        self,
+        ctx: CellContext,
+        entity: EntityState,
+        image: Image.Image,
+        *,
+        position: float,
+        duration: float,
+        accent: str,
+    ) -> str:
+        """Full-bleed album art with bottom gradient overlay and track info.
+
+        Spotify / Apple Music now-playing pattern: the art fills the cell, a
+        fade-to-black gradient anchors the metadata at the bottom, and a slim
+        tinted progress bar sits on the very bottom edge.
+
+        Overlay text deliberately uses fixed near-white colours, NOT theme
+        tokens: it renders on a dark gradient over photographic content, so
+        it needs white-ish contrast regardless of theme. This is the
+        documented exception to "use theme tokens for everything".
+        """
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        uri = image_data_uri(image)
+
+        show_artist = ctx.height >= 130
+        show_time = ctx.height >= 200 and duration > 0
+        show_bar = self.show_progress and duration > 0
+
+        vmin = min(ctx.width, ctx.height)
+        text_width = ctx.width * 0.90  # 5% padding each side
+
+        lines: list[str] = []
+        title = entity.get("media_title", "")
+        if title:
+            title = truncate_text(title, _fit_chars(text_width, 10, 0.09 * vmin, 20))
+            lines.append(
+                '<div style="font-size: clamp(10px, 9vmin, 20px); font-weight: 700; '
+                "color: rgb(255, 255, 255); max-width: 100%; overflow: hidden; "
+                'white-space: nowrap; text-overflow: ellipsis">'
+                f"{escape(title)}</div>"
+            )
+        artist = entity.get("media_artist", "")
+        if artist and show_artist:
+            artist = truncate_text(artist, _fit_chars(text_width, 9, 0.07 * vmin, 15))
+            lines.append(
+                '<div style="font-size: clamp(9px, 7vmin, 15px); font-weight: 600; '
+                "color: rgba(255,255,255,0.75); max-width: 100%; overflow: hidden; "
+                'white-space: nowrap; text-overflow: ellipsis">'
+                f"{escape(artist)}</div>"
+            )
+        if show_time:
+            time_str = f"{_format_time(position)} / {_format_time(duration)}"
+            lines.append(
+                '<div style="font-size: clamp(9px, 6vmin, 13px); font-weight: 600; '
+                'color: rgba(255,255,255,0.55)">'
+                f"{escape(time_str)}</div>"
+            )
+
+        text_block = ""
+        if lines:
+            bar_gap = "3.5%" if show_bar else "0%"
+            text_block = (
+                f'<div style="position: absolute; left: 0; right: 0; bottom: {bar_gap}; '
+                "padding: 3% 5%; display: flex; flex-direction: column; "
+                'align-items: flex-start; gap: 2px; text-align: left">'
+                f"{''.join(lines)}</div>"
+            )
+
+        bar = ""
+        if show_bar:
+            percent = min(100.0, position / duration * 100)
+            bar = (
+                '<div style="position: absolute; left: 0; right: 0; bottom: 0; '
+                f'height: 2.2%; background: rgba(255,255,255,0.25)">'
+                f'<div style="width: {percent:.1f}%; height: 100%; '
+                f'background: {accent}"></div></div>'
+            )
+
+        return (
+            '<div style="position: relative; width: 100%; height: 100%; overflow: hidden">'
+            f'<img src="{uri}" style="position: absolute; inset: 0; width: 100%; '
+            'height: 100%; object-fit: cover">'
+            '<div style="position: absolute; left: 0; right: 0; bottom: 0; height: 60%; '
+            "background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, "
+            'rgba(0,0,0,0.55) 45%, rgba(0,0,0,0.85) 100%)"></div>'
+            f"{text_block}"
+            f"{bar}"
+            "</div>"
+        )
+
+    def _render_now_playing(
+        self,
+        ctx: CellContext,
+        entity: EntityState,
+        position: float,
+        duration: float,
+        accent: str,
+    ) -> str:
+        """Text-only now-playing card (no album art)."""
+        vmin = min(ctx.width, ctx.height)
+        text_width = ctx.width * 0.88  # 6% padding each side
+
+        bands: list[str] = ['<div class="t-label hide-short">NOW PLAYING</div>']
+
+        title = entity.get("media_title", "Unknown")
+        # Title wraps to two lines; truncate anything past that budget.
+        title = truncate_text(title, 2 * _fit_chars(text_width, 12, 0.14 * vmin, 26))
+        bands.append(
+            '<div style="font-size: clamp(12px, 14vmin, 26px); font-weight: 700; '
+            "line-height: 1.15; max-width: 100%; max-height: 2.35em; "
+            'overflow: hidden; overflow-wrap: break-word">'
+            f"{escape(title)}</div>"
+        )
+
+        artist = entity.get("media_artist", "")
+        if self.show_artist and artist:
+            artist = truncate_text(artist, _fit_chars(text_width, 10, 0.10 * vmin, 18))
+            bands.append(
+                '<div class="hide-short" style="font-size: clamp(10px, 10vmin, 18px); '
+                "font-weight: 600; color: var(--text-secondary); max-width: 100%; "
+                'overflow: hidden; white-space: nowrap; text-overflow: ellipsis">'
+                f"{escape(artist)}</div>"
+            )
+
+        album = entity.get("media_album_name", "")
+        if self.show_album and album:
+            album = truncate_text(album, _fit_chars(text_width, 10, 0.09 * vmin, 15))
+            bands.append(
+                '<div class="hide-small" style="font-size: clamp(10px, 9vmin, 15px); '
+                "font-weight: 600; color: var(--text-secondary); max-width: 100%; "
+                'overflow: hidden; white-space: nowrap; text-overflow: ellipsis">'
+                f"{escape(album)}</div>"
+            )
+
+        if self.show_progress and duration > 0:
+            percent = min(100.0, position / duration * 100)
+            bands.append(
+                '<div style="width: 100%">'
+                + _progress_bar_html(
+                    percent,
+                    accent,
+                    height_css="clamp(3px, 3.5vmin, 6px)",
+                    track="rgba(255,255,255,0.18)",
+                )
+                # hide-short must sit on an element without an inline
+                # display (inline style would beat the media query).
+                + '<div class="hide-short">'
+                '<div style="display: flex; justify-content: space-between; '
+                "color: var(--text-secondary); font-size: clamp(9px, 8vmin, 14px); "
+                'font-weight: 600; margin-top: 2.5vmin">'
+                f"<span>{escape(_format_time(position))}</span>"
+                f"<span>{escape(_format_time(duration))}</span>"
+                "</div></div></div>"
+            )
+
+        return f'<div class="cell" style="padding: 4% 6%">{"".join(bands)}</div>'

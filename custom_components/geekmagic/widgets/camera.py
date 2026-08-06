@@ -2,86 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PIL import Image
-
-from .base import Widget, WidgetConfig
-from .components import (
-    THEME_TEXT_PRIMARY,
-    THEME_TEXT_SECONDARY,
-    Color,
-    Column,
-    Component,
-    Icon,
-    Text,
-)
+from ..htmldoc import css_rgb, image_data_uri, mdi_span
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
 
-
-@dataclass
-class CameraImage(Component):
-    """Camera image display component."""
-
-    image: Image.Image
-    label: str | None = None
-    color: Color = THEME_TEXT_PRIMARY
-    fit: str = "contain"
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        """Render camera image, optionally with a floating label chip."""
-        # Image fills the entire widget — no reserved space.
-        ctx.draw_image(self.image, rect=(x, y, x + width, y + height), fit_mode=self.fit)
-
-        if not self.label:
-            return
-
-        # Floating label chip: caps text on a soft dark capsule, top-left.
-        # Mimics watchOS "Now Playing"-style metadata chips that float over
-        # photo content.
-        font = ctx.get_font("tertiary")
-        text = self.label.upper()
-        text_w, text_h = ctx.get_text_size(text, font)
-        chip_pad_x = max(6, int(width * 0.04))
-        chip_pad_y = max(3, int(height * 0.02))
-        margin = max(6, int(width * 0.04))
-        chip_x = x + margin
-        chip_y = y + margin
-        chip_w = text_w + chip_pad_x * 2
-        chip_h = text_h + chip_pad_y * 2
-
-        ctx.draw_rounded_rect(
-            (chip_x, chip_y, chip_x + chip_w, chip_y + chip_h),
-            radius=chip_h // 2,
-            fill=(0, 0, 0),
-        )
-        ctx.draw_text(
-            text,
-            (chip_x + chip_w // 2, chip_y + chip_h // 2),
-            font=font,
-            color=self.color,
-            anchor="mm",
-        )
-
-
-def _camera_placeholder(label: str = "No Image") -> Component:
-    """Create placeholder component when no camera image available."""
-    return Column(
-        children=[
-            Icon("camera", color=THEME_TEXT_SECONDARY, max_size=48),
-            Text(label, font="small", color=THEME_TEXT_SECONDARY),
-        ],
-        gap=8,
-        align="center",
-        justify="center",
-    )
+from .base import Widget, WidgetConfig
+from .helpers import truncate_text
 
 
 class CameraWidget(Widget):
@@ -110,21 +41,48 @@ class CameraWidget(Widget):
         self.show_label = config.options.get("show_label", False)
         self.fit = config.options.get("fit", "contain")
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
-        """Render the camera widget.
-
-        Args:
-            ctx: RenderContext for drawing
-            state: Widget state with camera image
-        """
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Render the camera widget."""
         if state.image is None:
-            return _camera_placeholder(label=self.config.label or "No Image")
+            label = escape(self.config.label or "No Image")
+            return (
+                '<div class="cell" style="justify-content: center; gap: 4vmin; '
+                'color: var(--text-secondary)">'
+                f"{mdi_span('camera', 'icon i-lg')}"
+                f'<div class="t-label hide-short" style="color: var(--text-secondary)">'
+                f"{label}</div>"
+                "</div>"
+            )
 
-        label = self.label_for(state.entity, fallback="Camera") if self.show_label else None
+        image = state.image.convert("RGB") if state.image.mode != "RGB" else state.image
+        uri = image_data_uri(image)
+        fit = self.fit if self.fit in ("cover", "contain") else "contain"
 
-        return CameraImage(
-            image=state.image.convert("RGB") if state.image.mode != "RGB" else state.image,
-            label=label,
-            color=self.config.color or THEME_TEXT_PRIMARY,
-            fit=self.fit,
+        chip = ""
+        if self.show_label:
+            label = self.label_for(state.entity, fallback="Camera")
+            # Blitz doesn't render text-overflow ellipsis — truncate in
+            # Python. Mirror the CSS font-size clamp(9px, 9vmin, 15px);
+            # caps + letter-spacing average ~0.72em per character.
+            font_px = min(15.0, max(9.0, 0.09 * min(ctx.width, ctx.height)))
+            max_chars = max(4, int(ctx.width * 0.72 / (font_px * 0.72)))
+            label = truncate_text(label, max_chars)
+            chip_color = css_rgb(self.config.color) if self.config.color else "var(--text-primary)"
+            chip = (
+                '<div style="position: absolute; top: 5%; left: 5%; '
+                "background: rgba(0,0,0,0.65); border-radius: 999px; "
+                "padding: 1.5% 4%; font-size: clamp(9px, 9vmin, 15px); "
+                "font-weight: 600; letter-spacing: 0.08em; line-height: 1.3; "
+                f"text-transform: uppercase; color: {chip_color}; max-width: 80%; "
+                'overflow: hidden; white-space: nowrap; text-overflow: ellipsis">'
+                f"{escape(label)}</div>"
+            )
+
+        # Image fills the entire cell edge-to-edge — no reserved space.
+        return (
+            '<div style="position: relative; width: 100%; height: 100%; overflow: hidden">'
+            f'<img src="{uri}" style="width: 100%; height: 100%; '
+            f'object-fit: {fit}; display: block">'
+            f"{chip}"
+            "</div>"
         )

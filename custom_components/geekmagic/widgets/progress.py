@@ -2,84 +2,45 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from ..htmldoc import css_rgb, css_rgba, mdi_span
+from ._card import card_html, chip_html
 from .base import Widget, WidgetConfig
-from .components import (
-    THEME_PRIMARY,
-    THEME_TEXT_PRIMARY,
-    THEME_TEXT_SECONDARY,
-    Bar,
-    Color,
-    Column,
-    Component,
-    Flex,
-    Icon,
-    Row,
-    Spacer,
-    Text,
-)
-from .data_card import Chip, DataCard
-from .helpers import format_number
+from .helpers import format_number, truncate_text
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
 
+# Legacy thin/normal/thick bar styles expressed as fluid CSS heights.
+# (Old Pillow ratios were 0.10 / 0.17 / 0.25 of cell height.)
+_BAR_HEIGHT_CSS: dict[str, str] = {
+    "thin": "clamp(5px, 8vmin, 13px)",
+    "normal": "clamp(8px, 13vmin, 20px)",
+    "thick": "clamp(11px, 19vmin, 30px)",
+}
 
-@dataclass
-class ProgressDisplay(Component):
-    """Progress bar display — caption + percent hero + value/target chip + bar.
 
-    Maps onto ``DataCard``: the bar lives in the indicator slot, the
-    raw value/target reads as a supporting chip, and the percent
-    becomes the hero. Bar height honours the legacy
-    ``thin``/``normal``/``thick`` style options.
-    """
+def _track_color(ctx: CellContext, rgb: tuple[int, int, int] | None) -> str:
+    """Tinted gauge track, Apple Activity style (theme-controlled)."""
+    if rgb is None and ctx.theme is not None:
+        rgb = ctx.theme.get_accent_color(ctx.slot_index)
+    if rgb is not None and ctx.theme is not None and ctx.theme.tint_track:
+        return css_rgba(rgb, ctx.theme.tint_track_opacity)
+    return "rgba(128, 128, 128, 0.20)"
 
-    value: float
-    target: float = 100
-    label: str = "Progress"
-    unit: str = ""
-    color: Color = THEME_PRIMARY
-    icon: str | None = None
-    show_target: bool = True
-    bar_height_style: str = "normal"
 
-    BAR_HEIGHT_MULTIPLIERS: ClassVar[dict[str, float]] = {
-        "thin": 0.10,
-        "normal": 0.17,
-        "thick": 0.25,
-    }
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        target = self.target or 100
-        percent = min(100, (self.value / target) * 100) if target > 0 else 0
-        bar_h_ratio = self.BAR_HEIGHT_MULTIPLIERS.get(self.bar_height_style, 0.17)
-        bar_height = max(4, int(height * bar_h_ratio))
-
-        # Supporting strip: "{value}/{target} {unit}" — the raw value
-        # reads as a small caption beside the bar. ``format_number``
-        # abbreviates large values (e.g. 1.5k).
-        value_str = format_number(self.value)
-        if self.show_target:
-            value_str = f"{value_str}/{format_number(target)}"
-        if self.unit:
-            value_str = f"{value_str} {self.unit}"
-
-        DataCard(
-            caption=self.label,
-            icon=self.icon,
-            icon_color=self.color,
-            icon_role="feature",
-            hero=f"{percent:.0f}%",
-            supporting=[Chip(value_str)] if value_str else [],
-            indicator=Bar(percent=percent, color=self.color, height=bar_height),
-        ).render(ctx, x, y, width, height)
+def _bar_html(percent: float, color: str, track: str, height_css: str) -> str:
+    """Horizontal progress track + fill (same pattern as gauge bars)."""
+    return (
+        f'<div style="width: 100%; height: {height_css}; background: {track}; '
+        'border-radius: 999px; overflow: hidden">'
+        f'<div style="width: {percent:.1f}%; height: 100%; background: {color}; '
+        'border-radius: 999px"></div>'
+        "</div>"
+    )
 
 
 class ProgressWidget(Widget):
@@ -114,8 +75,8 @@ class ProgressWidget(Widget):
         self.icon = config.options.get("icon")
         self.bar_height_style = config.options.get("bar_height", "normal")
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
-        """Render the progress widget."""
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Render the progress widget: caption / percent hero / chip / bar."""
         entity = state.entity
         value = entity.numeric() if entity is not None else 0.0
 
@@ -125,119 +86,33 @@ class ProgressWidget(Widget):
 
         label = self.label_for(entity, fallback="Progress")
 
-        return ProgressDisplay(
-            value=value,
-            target=self.target,
-            label=label,
-            unit=unit,
-            color=self.config.color or ctx.theme.get_accent_color(self.config.slot),
+        target = self.target or 100
+        percent = min(100, (value / target) * 100) if target > 0 else 0
+
+        # Supporting chip: "{value}/{target} {unit}" — ``format_number``
+        # abbreviates large values (e.g. 1.5k).
+        value_str = format_number(value)
+        if self.show_target:
+            value_str = f"{value_str}/{format_number(target)}"
+        if unit:
+            value_str = f"{value_str} {unit}"
+
+        rgb = self.config.color
+        color = css_rgb(rgb) if rgb else ctx.accent()
+        track = _track_color(ctx, rgb)
+        bar_height = _BAR_HEIGHT_CSS.get(self.bar_height_style, _BAR_HEIGHT_CSS["normal"])
+
+        bar = f'<div style="width: 88%">{_bar_html(percent, color, track, bar_height)}</div>'
+
+        return card_html(
+            caption=label,
             icon=self.icon,
-            show_target=self.show_target,
-            bar_height_style=self.bar_height_style,
+            icon_color=color,
+            icon_role="feature",
+            hero=f"{percent:.0f}%",
+            chips=[chip_html(value_str)] if value_str else None,
+            extra=bar,
         )
-
-
-@dataclass
-class MultiProgressDisplay(Component):
-    """Multi-progress list display component."""
-
-    items: list[dict] = field(default_factory=list)
-    title: str | None = None
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        """Render multi-progress list."""
-        padding = int(width * 0.05)
-
-        # Calculate sizes
-        bar_height = max(4, int(height * 0.06))
-        # Bumped from 0.09 -> 0.13: at 240 px the icon is 31 px (was
-        # 21), big enough to actually read at a glance instead of
-        # registering as a tiny dot beside the label.
-        icon_size = max(12, int(height * 0.13))
-
-        # Build component tree
-        children = []
-
-        # Add title if present
-        if self.title:
-            children.append(
-                Row(
-                    children=[
-                        Text(
-                            text=self.title.upper(),
-                            font="small",
-                            color=THEME_TEXT_SECONDARY,
-                            align="start",
-                        )
-                    ],
-                    padding=padding,
-                )
-            )
-
-        # Build each progress item row
-        for i, item in enumerate(self.items):
-            label = item.get("label", "Item")
-            value = item.get("value", 0)
-            target = item.get("target", 100)
-            color = item.get("color", ctx.theme.get_accent_color(i))
-            icon = item.get("icon")
-            unit = item.get("unit", "")
-
-            percent = min(100, (value / target) * 100) if target > 0 else 0
-            value_text = f"{value:.0f}/{target:.0f}"
-            if unit:
-                value_text += f" {unit}"
-
-            # Top row: Icon + Label + Spacer + Value
-            top_row_children = []
-            if icon:
-                top_row_children.append(Icon(name=icon, size=icon_size, color=color))
-            top_row_children.extend(
-                [
-                    Text(
-                        text=label.upper(),
-                        font="small",
-                        color=THEME_TEXT_SECONDARY,
-                        align="start",
-                    ),
-                    Spacer(),
-                    Text(text=value_text, font="small", color=THEME_TEXT_PRIMARY, align="end"),
-                ]
-            )
-
-            # Bottom row: Bar + Percent
-            bottom_row_children: list[Component] = [
-                Flex(Bar(percent=percent, color=color, height=bar_height)),
-                Text(text=f"{percent:.0f}%", font="small", color=THEME_TEXT_PRIMARY, align="end"),
-            ]
-
-            # Combine label-row and bar-row into a column for this item.
-            # Use a tight intra-item gap so the bar reads as part of the
-            # same activity as its label/value, not a separate band.
-            item_column = Column(
-                children=[
-                    Row(children=top_row_children, gap=4, align="center", padding=padding),
-                    Row(children=bottom_row_children, gap=8, align="center", padding=padding),
-                ],
-                gap=2,
-                justify="center",
-                align="stretch",  # Stretch rows to full width for Spacer to work
-            )
-            children.append(item_column)
-
-        # Render the entire column. Inter-item gap is larger than the
-        # intra-item gap so each (label / bar) pair groups visually
-        # while distinct activities stay separated.
-        Column(
-            children=children,
-            gap=max(8, int(height * 0.05)),
-            justify="start",
-            align="stretch",  # Stretch to full width
-            padding=0,
-        ).render(ctx, x, y, width, height)
 
 
 class MultiProgressWidget(Widget):
@@ -263,9 +138,40 @@ class MultiProgressWidget(Widget):
         """Return list of entity IDs."""
         return [item.get("entity_id") for item in self.items if item.get("entity_id")]
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
-        """Render the multi-progress widget."""
-        display_items = []
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Render labeled progress bars stacked in a flex column."""
+        rows: list[str] = []
+
+        # Blitz has no text truncation, so size fonts in Python and
+        # truncate labels to the space the value line leaves them.
+        vmin = min(ctx.width, ctx.height)
+        text_px = max(10.0, min(17.0, 0.11 * vmin))
+        label_px = max(9.0, min(17.0, 0.11 * vmin, 0.08 * ctx.width))
+        label_cw = label_px * 0.70  # caps + letter-spacing
+        avail = ctx.width * 0.90  # cell padding is 5% each side
+        # The raw value column is hidden by .hide-small below 130px.
+        value_shown = ctx.width >= 130 and ctx.height >= 130
+
+        if self.title:
+            title_text = truncate_text(self.title.upper(), max(4, int(avail // label_cw)))
+            rows.append(
+                '<div class="t-label hide-short" style="text-align: left">'
+                f"{escape(title_text)}</div>"
+            )
+
+        # Row text scales with the cell but stays list-sized (several
+        # rows must share the cell, unlike a single hero value).
+        text_css = (
+            f"font-size: {text_px:.1f}px; font-weight: 700; line-height: 1; white-space: nowrap;"
+        )
+        # Like .t-label but with a smaller floor so three items still
+        # fit a 3x3 cell.
+        label_css = (
+            f"font-size: {label_px:.1f}px; font-weight: 600; "
+            "line-height: 1; letter-spacing: 0.05em; color: var(--text-tertiary); "
+            "white-space: nowrap; text-align: left;"
+        )
+
         for i, item in enumerate(self.items):
             entity_id = item.get("entity_id")
             entity = state.get_entity(entity_id) if entity_id else None
@@ -280,15 +186,59 @@ class MultiProgressWidget(Widget):
             if entity and not unit:
                 unit = entity.unit or ""
 
-            display_items.append(
-                {
-                    "label": label,
-                    "value": value,
-                    "target": item.get("target", 100),
-                    "color": item.get("color", ctx.theme.get_accent_color(i)),
-                    "icon": item.get("icon"),
-                    "unit": unit,
-                }
+            target = item.get("target", 100)
+            percent = min(100, (value / target) * 100) if target > 0 else 0
+
+            rgb = item.get("color")
+            if isinstance(rgb, list):
+                rgb = tuple(rgb)
+            if rgb is None and ctx.theme is not None:
+                rgb = ctx.theme.get_accent_color(i)
+            color = css_rgb(rgb) if rgb else "var(--primary)"
+            track = _track_color(ctx, rgb)
+
+            value_text = f"{value:.0f}/{target:.0f}"
+            if unit:
+                value_text += f" {unit}"
+
+            icon = item.get("icon")
+            icon_html = mdi_span(icon, "icon i-sm", f"color: {color}") if icon else ""
+
+            # Truncate the label to whatever the icon + value leave it.
+            label_budget = avail - 8
+            if icon_html:
+                label_budget -= text_px * 1.3
+            if value_shown:
+                label_budget -= len(value_text) * text_px * 0.52
+            label_text = truncate_text(label.upper(), max(3, int(label_budget // label_cw) + 1))
+
+            # Label line: icon + caps label left, raw value right (the
+            # raw value sheds first in small cells; percent survives).
+            label_row = (
+                '<div style="display: flex; align-items: center; gap: 4px">'
+                f"{icon_html}"
+                f'<span style="{label_css} flex: 1 1 0; min-width: 0">'
+                f"{escape(label_text)}</span>"
+                f'<span class="hide-small" style="{text_css}">{escape(value_text)}</span>'
+                "</div>"
+            )
+            # Bar line: slim track + percent readout.
+            bar_row = (
+                '<div style="display: flex; align-items: center; gap: 6px">'
+                '<div style="flex: 1; min-width: 0">'
+                f"{_bar_html(percent, color, track, 'clamp(4px, 6vmin, 15px)')}"
+                "</div>"
+                f'<span style="{text_css}">{percent:.0f}%</span>'
+                "</div>"
+            )
+            rows.append(
+                '<div style="display: flex; flex-direction: column; '
+                'gap: clamp(1px, 1.5vmin, 4px)">'
+                f"{label_row}{bar_row}</div>"
             )
 
-        return MultiProgressDisplay(items=display_items, title=self.title)
+        return (
+            '<div class="cell" style="align-items: stretch; padding: 3% 5%; '
+            'gap: clamp(2px, 3vmin, 10px)">'
+            f"{''.join(rows)}</div>"
+        )

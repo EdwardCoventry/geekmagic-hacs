@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
+from ..htmldoc import css_rgb, mdi_span
 from .base import Widget, WidgetConfig
-from .components import Center, Component, Icon, Panel
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
 
 
@@ -25,20 +25,24 @@ class IconWidget(Widget):
         # "size" option: "regular" (default) or "huge" (fills container)
         self.size_mode = config.options.get("size", "regular")
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the icon widget."""
-        # In "huge" mode the Icon clamps to the cell; an arbitrary 240
-        # ceiling lets it grow to the full 240x240 panel.
-        max_size = 240 if self.size_mode == "huge" else 32
-
         # Honour an explicit per-widget colour, otherwise let the active
         # theme tint the icon via the slot's accent.
-        color = self.config.color or ctx.theme.get_accent_color(self.config.slot)
+        color = css_rgb(self.config.color) if self.config.color else ctx.accent()
 
-        content = Center(child=Icon(self.icon, max_size=max_size, color=color))
+        # "huge" fills the cell; "regular" is a modest fixed-feel glyph
+        # (legacy behaviour capped it around 32px).
+        size = "76vmin" if self.size_mode == "huge" else "clamp(16px, 22vmin, 34px)"
 
-        # Wrap in panel if enabled
-        if self.show_panel:
-            return Panel(child=content)
+        icon_html = mdi_span(self.icon, "icon", f"color: {color}; font-size: {size}")
+        if not icon_html:
+            # Unknown icon name — fall back to the help glyph.
+            icon_html = mdi_span("help", "icon", f"color: {color}; font-size: {size}")
 
-        return content
+        panel_style = (
+            ' style="background: var(--surface); border-radius: var(--radius)"'
+            if self.show_panel
+            else ""
+        )
+        return f'<div class="cell"{panel_style}>{icon_html}</div>'

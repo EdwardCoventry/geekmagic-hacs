@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
+from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from ..htmldoc import css_rgb, css_rgba, mdi_span, svg_arc, svg_ring
 from .base import Widget, WidgetConfig
-from .component_helpers import ArcGauge, BarGauge, RingGauge
-from .components import Component
 from .helpers import calculate_percent, format_value_with_unit
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
 
 
 class GaugeWidget(Widget):
-    """Widget that displays a value as a gauge (bar or ring)."""
+    """Widget that displays a value as a gauge (bar, ring, or arc)."""
 
     WIDGET_TYPE: ClassVar[str] = "gauge"
     SCHEMA: ClassVar[dict[str, Any]] = {
@@ -32,8 +32,7 @@ class GaugeWidget(Widget):
             },
             {
                 # Only meaningful when style="bar". Auto picks based on
-                # cell shape (vertical for tall+narrow, stacked for
-                # square hero cells, compact for everything else).
+                # cell shape (vertical for tall+narrow cells).
                 "key": "orientation",
                 "type": "select",
                 "label": "Bar Orientation",
@@ -60,8 +59,7 @@ class GaugeWidget(Widget):
         self.orientation = config.options.get("orientation", "auto")
         self.min_value = config.options.get("min", 0)
         self.max_value = config.options.get("max", 100)
-        # Normalise icon: ``ha-icon-picker`` writes ``""`` when cleared, but
-        # downstream the empty string used to render as ``help-circle``.
+        # Normalise icon: ``ha-icon-picker`` writes ``""`` when cleared.
         self.icon = config.options.get("icon") or None
         self.show_name = config.options.get("show_name", True)
         self.show_value = config.options.get("show_value", True)
@@ -95,19 +93,10 @@ class GaugeWidget(Widget):
 
         return matching_color
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
-        """Render the gauge widget.
-
-        Args:
-            ctx: RenderContext for drawing
-            state: Widget state with entity data
-
-        Returns:
-            Component tree for rendering
-        """
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Render the gauge widget."""
         entity = state.entity
 
-        # Extract numeric value
         value = entity.numeric(self.attribute) if entity is not None else 0.0
         display_value = f"{value:.0f}" if entity is not None else "--"
 
@@ -119,29 +108,113 @@ class GaugeWidget(Widget):
             if not unit and entity is not None:
                 unit = entity.unit or ""
 
-        # Calculate percentage
         percent = calculate_percent(value, self.min_value, self.max_value)
-
-        # Get label — empty string when hidden so DataCard drops the caption band.
         name = self.label_for(entity) if self.show_name else ""
 
-        # Determine color
         threshold_color = self._get_threshold_color(value)
-        color = threshold_color or self.config.color or ctx.theme.get_accent_color(self.config.slot)
+        rgb = threshold_color or self.config.color
+        color = css_rgb(rgb) if rgb else ctx.accent()
+        # Tinted track, Apple Activity style (theme-controlled opacity).
+        track_rgb = threshold_color or self.config.color
+        if track_rgb is None and ctx.theme is not None:
+            track_rgb = ctx.theme.get_accent_color(ctx.slot_index)
+        track = (
+            css_rgba(track_rgb, ctx.theme.tint_track_opacity)
+            if (track_rgb is not None and ctx.theme is not None and ctx.theme.tint_track)
+            else "rgba(128, 128, 128, 0.20)"
+        )
 
-        # Format value with unit
         value_text = format_value_with_unit(display_value, unit) if self.show_value else ""
 
-        # Track color stays None so the theme's tinted track applies
+        if self.style in ("ring", "arc"):
+            return self._render_round(name, value_text, percent, color, track)
+        return self._render_bar(ctx, name, value_text, percent=percent, color=color, track=track)
+
+    def _render_round(
+        self, name: str, value_text: str, percent: float, color: str, track: str
+    ) -> str:
+        """Ring or arc gauge: SVG fills the cell, value centered inside."""
+        label_html = ""
+        if value_text:
+            # Gauge-family exception: value shares the gauge tint so
+            # value + fill read as one visual unit.
+            label_html = f'<div class="t-value" style="color: {color}">{escape(value_text)}</div>'
         if self.style == "ring":
-            return RingGauge(percent=percent, value=value_text, label=name, color=color)
-        if self.style == "arc":
-            return ArcGauge(percent=percent, value=value_text, label=name, color=color)
-        return BarGauge(
-            percent=percent,
-            value=value_text,
-            label=name,
-            color=color,
-            icon=self.icon,
-            mode=self.orientation,
+            gauge = svg_ring(percent, stroke=color, track=track, label_html=label_html)
+        else:
+            arc = svg_arc(percent, stroke=color, track=track)
+            gauge = (
+                '<div style="position:relative;height:100%;aspect-ratio:1;margin:0 auto">'
+                f"{arc}"
+                '<div style="position:absolute;inset:0;display:flex;align-items:center;'
+                f'justify-content:center">{label_html}</div></div>'
+            )
+        caption = (
+            f'<div class="t-label caption-row hide-short">{escape(name.upper())}</div>'
+            if name
+            else ""
+        )
+        return (
+            '<div class="cell" style="gap: 4px; padding: 4%">'
+            f"{caption}"
+            f'<div style="flex: 1; min-height: 0; width: 100%">{gauge}</div>'
+            "</div>"
+        )
+
+    def _render_bar(
+        self,
+        ctx: CellContext,
+        name: str,
+        value_text: str,
+        *,
+        percent: float,
+        color: str,
+        track: str,
+    ) -> str:
+        """Bar gauge — horizontal by default, vertical for tall narrow cells."""
+        vertical = self.orientation == "vertical" or (
+            self.orientation == "auto" and ctx.height > ctx.width * 1.6
+        )
+        icon_html = mdi_span(self.icon, "icon i-sm", f"color: {color}") if self.icon else ""
+
+        if vertical:
+            bar = (
+                f'<div style="flex:1; min-height:0; width: clamp(14px, 22vw, 34px); '
+                f"background: {track}; border-radius: 999px; position: relative; "
+                'margin: 0 auto">'
+                '<div style="position:absolute; bottom:0; left:0; right:0; '
+                f'height: {percent:.1f}%; background: {color}; border-radius: 999px"></div>'
+                "</div>"
+            )
+            caption_inner = f"{icon_html}{escape(name.upper())}"
+            label = (
+                f'<div class="t-label caption-row hide-short">{caption_inner}</div>' if name else ""
+            )
+            value = f'<div class="t-value">{escape(value_text)}</div>' if value_text else ""
+            return f'<div class="cell" style="gap:5px; padding:5%">{label}{bar}{value}</div>'
+
+        # Horizontal: stacked caption / hero value / track. The hero
+        # shares the bar tint (gauge-family exception) and the caption
+        # sheds in short cells, leaving value + bar.
+        bar = (
+            f'<div style="width:100%; height: clamp(9px, 13vmin, 20px); '
+            f'background: {track}; border-radius: 999px; overflow: hidden">'
+            f'<div style="width: {percent:.1f}%; height: 100%; background: {color}; '
+            'border-radius: 999px"></div>'
+            "</div>"
+        )
+        caption = (
+            f'<div class="t-label caption-row hide-short">{icon_html}{escape(name.upper())}</div>'
+            if name
+            else ""
+        )
+        value = (
+            f'<div class="t-hero" style="color: {color}">{escape(value_text)}</div>'
+            if value_text
+            else ""
+        )
+        return (
+            '<div class="cell" style="align-items: stretch; padding: 6%; gap: 5px">'
+            f"{caption}{value}{bar}"
+            "</div>"
         )

@@ -125,6 +125,26 @@ class Theme:
     # background (deference principle).
     surface_chrome: bool = False
 
+    # ------------------------------------------------------------------
+    # CSS-first styling (Blitz pipeline). Themes are full stylesheets,
+    # not just palettes: distinct fonts, chrome, backdrops, and effects.
+    # ------------------------------------------------------------------
+
+    # font-family stack for all cell documents. Families resolve against
+    # the embedded fonts: "Nunito", "DejaVu Sans", "Material Design Icons".
+    font_stack: str = '"Nunito", "DejaVu Sans", sans-serif'
+
+    # Per-cell chrome: styles applied inside every cell document.
+    # ``.root`` fills the cell — paint cards/borders on it here.
+    chrome_css: str = ""
+
+    # Fullscreen backdrop document body CSS. Empty = solid var(--bg).
+    backdrop_css: str = ""
+
+    # Fullscreen overlay document body CSS + HTML, composited on top of
+    # everything (scanlines, vignettes). Empty = no overlay pass.
+    overlay_css: str = ""
+
     # Track styling for bars/rings/arcs.
     # When `tint_track`, the track is the accent color blended toward black
     # at `tint_track_opacity`. When False, `bar_background` is used.
@@ -152,6 +172,9 @@ THEME_WATCHOS = Theme(
     border=(40, 40, 40),
     corner_radius=12,
     tint_track_opacity=0.20,
+    # True-black deference: no chrome, content floats. Nunito rounded.
+    chrome_css="",
+    backdrop_css="body { background: #000; }",
 )
 
 # 1. Classic — like watchOS but with a subtle card chrome for users who
@@ -169,6 +192,13 @@ THEME_CLASSIC = Theme(
         SYSTEM_YELLOW,
     ),
     surface_chrome=True,
+    # Elevated dark cards with a soft top-light gradient and hairline border.
+    chrome_css="""
+.root { border-radius: var(--radius); padding: 4px;
+  background: linear-gradient(175deg, rgba(255,255,255,0.085), rgba(255,255,255,0.025));
+  border: 1px solid rgba(255,255,255,0.09); }
+""",
+    backdrop_css="body { background: #000; }",
 )
 
 # 2. Minimal — sharp, mono, ice blue
@@ -198,6 +228,15 @@ THEME_MINIMAL = Theme(
     rounded_font=False,
     tint_track=False,
     bar_background=(30, 30, 30),
+    # Swiss-style: DejaVu, hairline square frames, light weights,
+    # generous letterspacing. No decoration.
+    font_stack='"DejaVu Sans", sans-serif',
+    chrome_css="""
+.root { border: 1px solid rgba(255,255,255,0.22); padding: 4px; }
+.t-hero, .t-value { font-weight: 400; letter-spacing: 0; }
+.t-label { font-weight: 400; letter-spacing: 0.18em; }
+""",
+    backdrop_css="body { background: #000; }",
 )
 
 # 3. Neon — cyberpunk
@@ -235,6 +274,22 @@ THEME_NEON = Theme(
     glow_effect=True,
     surface_chrome=True,
     tint_track_opacity=0.22,
+    # Cyberpunk: deep violet backdrop, glass cells with cyan borders
+    # that GLOW (box-shadow), magenta accents.
+    chrome_css="""
+.root { border-radius: 6px; padding: 4px;
+  background: rgba(10, 12, 28, 0.55);
+  border: 1.5px solid rgba(0, 255, 255, 0.55);
+  box-shadow: 0 0 14px rgba(0, 255, 255, 0.28),
+              inset 0 0 22px rgba(0, 255, 255, 0.07); }
+.t-label { color: rgb(255, 0, 255); letter-spacing: 0.14em; }
+""",
+    backdrop_css="""
+body { background: radial-gradient(circle at 50% -30%, #241b4d, #060614 62%); }
+""",
+    overlay_css="""
+body { background: radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 55%, rgba(10,0,30,0.42)); }
+""",
 )
 
 # 4. Retro — terminal/CRT
@@ -265,6 +320,23 @@ THEME_RETRO = Theme(
     scanlines=True,
     invert_bars=True,
     bar_background=(0, 40, 0),
+    # CRT terminal: phosphor green on near-black, square bracketed
+    # frames, DejaVu, uppercase everything, scanline overlay.
+    font_stack='"DejaVu Sans", monospace',
+    chrome_css="""
+.root { border: 1px solid rgba(0, 255, 0, 0.55); padding: 4px;
+  background: rgba(0, 24, 0, 0.35); }
+.t-hero, .t-value, .t-label, .t-unit { text-transform: uppercase; }
+.t-label { letter-spacing: 0.2em; }
+""",
+    backdrop_css="""
+body { background: radial-gradient(circle at 50% 40%, #001400, #000600 75%); }
+""",
+    overlay_css="""
+body { background: repeating-linear-gradient(0deg,
+  rgba(0, 0, 0, 0.30) 0px, rgba(0, 0, 0, 0.30) 1px,
+  rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 3px); }
+""",
 )
 
 # 5. Soft — muted, cozy
@@ -300,6 +372,16 @@ THEME_SOFT = Theme(
     value_bold=False,
     surface_chrome=True,
     tint_track_opacity=0.22,
+    # Cozy dusk: soft indigo gradient backdrop, pillowy rounded cards,
+    # lighter type.
+    chrome_css="""
+.root { border-radius: 18px; padding: 5px;
+  background: linear-gradient(170deg, rgba(120, 130, 175, 0.20), rgba(70, 75, 110, 0.10)); }
+.t-hero, .t-value { font-weight: 600; }
+""",
+    backdrop_css="""
+body { background: linear-gradient(180deg, #171724, #0e0e16 70%); }
+""",
 )
 
 # 6. Light — clean light theme
@@ -332,6 +414,16 @@ THEME_LIGHT = Theme(
     widget_padding=6,
     tint_track_opacity=0.16,
     bar_background=(232, 232, 238),
+    # Paper: airy off-white, floating white cards with real drop
+    # shadows and hairline borders.
+    chrome_css="""
+.root { border-radius: 14px; padding: 5px; background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 2px 10px rgba(30, 40, 60, 0.10); }
+""",
+    backdrop_css="""
+body { background: linear-gradient(180deg, #f4f6fa, #e9edf4); }
+""",
 )
 
 # 7. Ocean — deep blue
@@ -362,6 +454,16 @@ THEME_OCEAN = Theme(
     ),
     surface_chrome=True,
     tint_track_opacity=0.22,
+    # Abyss: deep-sea vertical gradient, translucent aqua glass cells
+    # lit from above.
+    chrome_css="""
+.root { border-radius: 12px; padding: 4px;
+  background: linear-gradient(180deg, rgba(0, 200, 240, 0.13), rgba(0, 90, 140, 0.07));
+  border: 1px solid rgba(0, 200, 240, 0.22); }
+""",
+    backdrop_css="""
+body { background: linear-gradient(180deg, #06304f, #021326 80%); }
+""",
 )
 
 # 8. Sunset — warm
@@ -393,6 +495,17 @@ THEME_SUNSET = Theme(
     corner_radius=14,
     surface_chrome=True,
     tint_track_opacity=0.22,
+    # Golden hour: plum-to-ember horizon gradient, warm glass cards
+    # with an amber rim glow.
+    chrome_css="""
+.root { border-radius: 16px; padding: 5px;
+  background: linear-gradient(200deg, rgba(255, 140, 90, 0.14), rgba(120, 40, 60, 0.10));
+  border: 1px solid rgba(255, 159, 67, 0.25);
+  box-shadow: 0 0 18px rgba(255, 120, 70, 0.12); }
+""",
+    backdrop_css="""
+body { background: linear-gradient(180deg, #241026, #4a1e2e 55%, #7a3b2e 100%); }
+""",
 )
 
 # 9. Forest — natural
@@ -424,6 +537,16 @@ THEME_FOREST = Theme(
     corner_radius=8,
     surface_chrome=True,
     tint_track_opacity=0.20,
+    # Undergrowth: mossy gradient, leaf-tinted cells with organic
+    # asymmetric corner radii.
+    chrome_css="""
+.root { border-radius: 18px 6px 18px 6px; padding: 5px;
+  background: linear-gradient(160deg, rgba(116, 205, 130, 0.13), rgba(40, 80, 45, 0.10));
+  border: 1px solid rgba(116, 205, 130, 0.20); }
+""",
+    backdrop_css="""
+body { background: linear-gradient(200deg, #16241a, #0c1810 75%); }
+""",
 )
 
 # 10. Candy — playful pastel (light variant)
@@ -459,6 +582,18 @@ THEME_CANDY = Theme(
     surface_chrome=True,
     tint_track_opacity=0.20,
     bar_background=(255, 220, 235),
+    # Bubblegum: pastel gradient sky, marshmallow-round white cards
+    # with pink rims and squishy shadows, extra-bold type.
+    chrome_css="""
+.root { border-radius: 22px; padding: 5px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 2px solid rgba(255, 160, 200, 0.55);
+  box-shadow: 0 3px 12px rgba(255, 105, 180, 0.18); }
+.t-hero, .t-value { font-weight: 800; }
+""",
+    backdrop_css="""
+body { background: linear-gradient(160deg, #ffe4ef, #e8ddff 60%, #d8f1ff); }
+""",
 )
 
 

@@ -8,13 +8,13 @@ from ..const import (
     PLACEHOLDER_NAME,
     PLACEHOLDER_VALUE,
 )
+from ..htmldoc import css_rgb
+from ._card import card_html
 from .base import Widget, WidgetConfig
-from .components import Component, Panel
-from .data_card import DataCard
 from .helpers import get_binary_sensor_icon, translate_binary_state
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
 
 
@@ -49,7 +49,6 @@ class EntityWidget(Widget):
             {"key": "show_unit", "type": "boolean", "label": "Show Unit", "default": True},
             {"key": "show_icon", "type": "boolean", "label": "Show Icon", "default": True},
             {"key": "icon", "type": "icon", "label": "Icon Override"},
-            {"key": "show_panel", "type": "boolean", "label": "Panel Background", "default": False},
             {
                 "key": "precision",
                 "type": "number",
@@ -67,12 +66,11 @@ class EntityWidget(Widget):
         self.show_unit = config.options.get("show_unit", True)
         self.show_icon = config.options.get("show_icon", True)
         self.icon = config.options.get("icon")  # Explicit icon override
-        self.show_panel = config.options.get("show_panel", False)
         self.precision = config.options.get("precision")  # Decimal places for numeric values
         # Attribute to read value from (instead of state)
         self.attribute = config.options.get("attribute")
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the entity widget."""
         entity = state.entity
 
@@ -111,14 +109,14 @@ class EntityWidget(Widget):
         if not icon and self.show_icon:
             icon = _get_entity_icon(entity)
 
-        card = DataCard(
+        icon_color = css_rgb(self.config.color) if self.config.color else ctx.accent()
+
+        return card_html(
             caption=name if self.show_name else None,
             icon=icon,
-            icon_color=self.config.color or ctx.theme.get_accent_color(self.config.slot),
-            # Promote the icon to its own band (was IconValueDisplay's
-            # default look). The entity icon is the cell's primary
-            # visual identifier — chip size loses the read.
+            icon_color=icon_color,
+            # The entity icon is the cell's primary visual identifier —
+            # promote it to its own band.
             icon_role="feature",
             hero=value_text,
         )
-        return Panel(child=card) if self.show_panel else card

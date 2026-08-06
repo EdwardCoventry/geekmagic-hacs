@@ -2,158 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..const import PLACEHOLDER_NAME, PLACEHOLDER_VALUE
+from ..htmldoc import css_rgb
 from .base import Widget, WidgetConfig
-from .components import (
-    THEME_PRIMARY,
-    THEME_TEXT_PRIMARY,
-    THEME_TEXT_SECONDARY,
-    Color,
-    Column,
-    Component,
-    Text,
-    _resolve_color,
-)
+from .helpers import truncate_text
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
-
-
-@dataclass
-class LabelValueRow(Component):
-    """A row with label on the left and value on the right, with proper truncation.
-
-    This component properly allocates width between label and value,
-    ensuring text is truncated based on actual pixel measurements rather
-    than character count estimates.
-    """
-
-    label: str
-    value: str
-    label_color: Color = THEME_TEXT_SECONDARY
-    value_color: Color = THEME_PRIMARY  # Theme-aware sentinel
-    gap: int = 8  # Minimum gap between label and value
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        font = ctx.get_font("small", bold=False)
-        _, h = ctx.get_text_size("Hg", font)
-        return (max_width, h)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        label_font = ctx.get_font("small", bold=False)
-        value_font = ctx.get_font("small", bold=True)
-
-        # Measure natural sizes
-        label_width, _ = ctx.get_text_size(self.label, label_font)
-        value_width, _ = ctx.get_text_size(self.value, value_font)
-
-        # Resolve colors
-        label_color = _resolve_color(self.label_color, ctx)
-        value_color = _resolve_color(self.value_color, ctx)
-
-        available = width - self.gap
-        total_needed = label_width + value_width
-
-        if total_needed <= available:
-            # Everything fits - no truncation needed
-            display_label = self.label
-            display_value = self.value
-        elif value_width >= int(width * 0.7):
-            # Drop the label entirely if the value alone barely fits — the
-            # value carries the actual information, and "Arr… 5 m…" is worse
-            # than just "5 min".
-            display_label = ""
-            display_value = ctx.truncate_to_width(self.value, value_font, width)
-        elif value_width <= available:
-            # Value fits in full; give the rest to a truncated label.
-            display_label = ctx.truncate_to_width(self.label, label_font, available - value_width)
-            display_value = self.value
-        else:
-            # Value doesn't fit either — give value 60% of available width,
-            # label 40%, and truncate both.
-            value_max = max(int(available * 0.60), available - label_width)
-            label_max = available - value_max
-            display_label = ctx.truncate_to_width(self.label, label_font, label_max)
-            display_value = ctx.truncate_to_width(self.value, value_font, value_max)
-
-        # Draw label (left-aligned)
-        if display_label:
-            ctx.draw_text(
-                display_label,
-                (x, y + height // 2),
-                label_font,
-                label_color,
-                anchor="lm",
-            )
-
-        # Draw value (right-aligned when there's a label, else left-aligned)
-        anchor = "rm" if display_label else "lm"
-        value_x = x + width if display_label else x
-        ctx.draw_text(
-            display_value,
-            (value_x, y + height // 2),
-            value_font,
-            value_color,
-            anchor=anchor,
-        )
-
-
-@dataclass
-class AttributeListDisplay(Component):
-    """Attribute list display component."""
-
-    items: list[tuple[str, str, Color]] = field(default_factory=list)  # (label, value, color)
-    title: str | None = None
-
-    def measure(self, ctx: RenderContext, max_width: int, max_height: int) -> tuple[int, int]:
-        return (max_width, max_height)
-
-    def render(self, ctx: RenderContext, x: int, y: int, width: int, height: int) -> None:
-        """Render attribute list using component primitives."""
-        padding = max(2, int(min(width, height) * 0.05))
-
-        # At narrow widths the title eats a row that would be better spent
-        # on actual data; drop it.
-        show_title = bool(self.title) and width >= 100
-        title = self.title or ""
-
-        rows: list[Component] = []
-        if show_title:
-            rows.append(
-                Text(
-                    text=title.upper(),
-                    font="small",
-                    color=THEME_TEXT_SECONDARY,
-                    align="start",
-                    truncate=True,
-                )
-            )
-
-        for label, value, color in self.items:
-            rows.append(
-                LabelValueRow(
-                    label=label,
-                    value=str(value),
-                    label_color=THEME_TEXT_SECONDARY,
-                    value_color=color,
-                    gap=6,
-                )
-            )
-
-        # Use a tight gap so all rows have a chance to fit before the flex
-        # shrink kicks in. Column will proportionally shrink each row's
-        # height if total content exceeds the container.
-        Column(
-            children=rows,
-            gap=3 if show_title else 2,
-            padding=padding,
-            align="stretch",
-            justify="start",
-        ).render(ctx, x, y, width, height)
 
 
 class AttributeListWidget(Widget):
@@ -182,28 +41,27 @@ class AttributeListWidget(Widget):
         self.attributes = config.options.get("attributes", [])
         self.title = config.options.get("title")
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
-        """Render the attribute list widget."""
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Render key-value rows in a flex column: label left, value right."""
         entity = state.entity
-        # Per design system: list-row values default to text_primary (white)
-        # — they're "values", not gauge accents. Users (or per-attribute
-        # config) can still tint individual rows by passing an explicit
-        # `color`. self.config.color overrides the default for the whole
-        # widget; the slot accent is only used as a final fallback when
-        # the widget config explicitly marks the colour as
-        # accent-controlled (kept for backwards compat).
-        default_color: Color = self.config.color or THEME_TEXT_PRIMARY
 
-        items: list[tuple[str, str, Color]] = []
+        # Per design system: list-row values default to text_primary
+        # (white) — they're "values", not gauge accents. Per-attribute
+        # config (or config.color for the whole widget) can still tint
+        # individual rows.
+        default_color = css_rgb(self.config.color) if self.config.color else None
 
+        items: list[tuple[str, str, str | None]] = []
         for attr_config in self.attributes:
             # Support both dict format and simple string format
             if isinstance(attr_config, dict):
                 key = attr_config.get("key", "")
                 label = attr_config.get("label", key)
-                item_color = attr_config.get("color", default_color)
-                if isinstance(item_color, list):
-                    item_color = tuple(item_color)
+                item_color = attr_config.get("color")
+                if isinstance(item_color, list | tuple) and len(item_color) == 3:
+                    item_color = css_rgb(tuple(item_color))
+                else:
+                    item_color = default_color
             else:
                 # Simple string format: use attribute name as both key and label
                 key = str(attr_config)
@@ -224,14 +82,77 @@ class AttributeListWidget(Widget):
 
         # If no attributes configured, show friendly name as title
         title = self.title
-        if not title and entity:
-            title = entity.friendly_name
-        elif not title:
-            title = self.config.entity_id or PLACEHOLDER_NAME
+        if not self.attributes:
+            if not title and entity:
+                title = entity.friendly_name
+            elif not title:
+                title = self.config.entity_id or PLACEHOLDER_NAME
 
-        return AttributeListDisplay(
-            items=items,
-            title=title if not self.attributes else self.title,
+        # Blitz has no text-overflow/flex-shrink text truncation, so
+        # allocate label/value widths in Python (like the old
+        # ``LabelValueRow``) from estimated character widths.
+        vmin = min(ctx.width, ctx.height)
+        value_px = max(11.0, min(19.0, 0.12 * vmin))
+        label_px = max(10.0, min(17.0, 0.11 * vmin))
+        value_cw = value_px * 0.58  # avg bold char width
+        label_cw = label_px * 0.55
+        gap = 6
+        avail = ctx.width * 0.88 - gap  # cell padding is 6% each side
+
+        rows: list[str] = []
+        if title:
+            # At narrow widths the title eats a row better spent on data.
+            title_cw = label_px * 0.70  # caps + letter-spacing
+            title_text = truncate_text(title.upper(), max(4, int((avail + gap) // title_cw)))
+            rows.append(
+                '<div class="t-label hide-narrow" style="text-align: left">'
+                f"{escape(title_text)}</div>"
+            )
+
+        # Row text scales with the cell but stays list-sized (several
+        # rows share the cell). Values are bolder than labels.
+        label_css = (
+            "flex: 1 1 0; min-width: 0; text-align: left; color: var(--text-secondary); "
+            f"font-size: {label_px:.1f}px; font-weight: 600; line-height: 1.2;"
+        )
+        value_css = (
+            f"white-space: nowrap; font-weight: 700; line-height: 1.2; font-size: {value_px:.1f}px;"
+        )
+
+        for raw_label, raw_value, color in items:
+            label, value = str(raw_label), str(raw_value)
+            label_w = len(label) * label_cw
+            value_w = len(value) * value_cw
+
+            if label_w + value_w <= avail:
+                pass  # everything fits
+            elif value_w >= ctx.width * 0.7:
+                # Drop the label entirely if the value alone barely fits —
+                # the value carries the actual information, and "Arr… 5 m…"
+                # is worse than just "5 min".
+                label = ""
+                value = truncate_text(value, max(2, int((avail + gap) // value_cw)))
+            elif value_w <= avail:
+                # Value fits in full; give the rest to a truncated label.
+                label = truncate_text(label, max(1, int((avail - value_w) // label_cw)))
+            else:
+                # Value doesn't fit either — value gets 60%, label 40%.
+                value_max = max(avail * 0.60, avail - label_w)
+                label = truncate_text(label, max(1, int((avail - value_max) // label_cw)))
+                value = truncate_text(value, max(2, int(value_max // value_cw)))
+
+            color_css = f" color: {color};" if color else ""
+            label_html = f'<span style="{label_css}">{escape(label)}</span>' if label else ""
+            rows.append(
+                f'<div style="display: flex; align-items: center; gap: {gap}px">'
+                f"{label_html}"
+                f'<span style="{value_css}{color_css}">{escape(value)}</span>'
+                "</div>"
+            )
+
+        return (
+            '<div class="cell" style="align-items: stretch; padding: 5% 6%; gap: 2px">'
+            f"{''.join(rows)}</div>"
         )
 
     def _format_value(self, value: Any) -> str:

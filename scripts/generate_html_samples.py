@@ -19,11 +19,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from custom_components.geekmagic.htmldoc import HAS_BLITZ
 from custom_components.geekmagic.layouts.fullscreen import FullscreenLayout
 from custom_components.geekmagic.layouts.grid import Grid2x2, Grid3x3
 from custom_components.geekmagic.renderer import Renderer
 from custom_components.geekmagic.widgets import HtmlWidget, WidgetConfig
-from custom_components.geekmagic.widgets.html import HAS_BLITZ
 from custom_components.geekmagic.widgets.state import EntityState, WidgetState
 
 NOW = datetime(2026, 8, 6, 19, 42, tzinfo=UTC)

@@ -1,25 +1,41 @@
-"""Base layout class."""
+"""Base layout class.
+
+Layouts compute slot rectangles (pure geometry); rendering happens by
+rasterizing each widget's HTML fragment with the Blitz engine at the
+slot size and alpha-compositing the passes:
+
+1. fullscreen theme backdrop
+2. per-slot widget cells (transparent background)
+3. optional fullscreen theme overlay (scanlines, vignettes)
+"""
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from PIL import Image
-from PIL import ImageDraw as PILImageDraw
-
 from ..const import DISPLAY_HEIGHT, DISPLAY_WIDTH
-from ..render_context import RenderContext
-from ..widgets.components import Component
+from ..htmldoc import (
+    HAS_BLITZ,
+    CellContext,
+    build_cell_document,
+    build_fullscreen_document,
+    render_document,
+)
 from ..widgets.state import WidgetState
 from ..widgets.theme import DEFAULT_THEME, Theme
 
 if TYPE_CHECKING:
-    from PIL import ImageDraw
+    from PIL import Image, ImageDraw
 
     from ..renderer import Renderer
     from ..widgets.base import Widget
+
+_LOGGER = logging.getLogger(__name__)
+
+_ERROR_FRAGMENT = '<div class="cell"><div class="t-label">WIDGET ERROR</div></div>'
 
 
 @dataclass
@@ -157,118 +173,75 @@ class Layout(ABC):
         draw: ImageDraw.ImageDraw,
         widget_states: dict[int, WidgetState] | None = None,
     ) -> None:
-        """Render all widgets in the layout with clipping.
+        """Render the screen through the Blitz pipeline.
 
-        Each widget is rendered to a temporary image first, then pasted
-        onto the main canvas. This ensures widgets cannot overflow their
-        slot boundaries.
+        Composites the theme backdrop, each widget cell (rasterized at
+        its slot size with transparent background), and the optional
+        theme overlay onto the canvas behind ``draw``.
 
         Args:
-            renderer: Renderer instance
-            draw: ImageDraw instance
-            widget_states: Dict mapping slot index to WidgetState for each widget
+            renderer: Renderer instance (canvas scale + encoding)
+            draw: ImageDraw whose underlying image is the target canvas
+            widget_states: Dict mapping slot index to WidgetState
         """
-        # Get the main canvas from the draw object
         canvas = draw._image  # noqa: SLF001
         scale = renderer.scale
+        theme = self.theme
 
-        # Paint the canvas with the theme background so widgets gaps and
-        # uncovered areas use the correct color (not black-by-default).
-        draw.rectangle((0, 0, canvas.width, canvas.height), fill=self.theme.background)
+        if not HAS_BLITZ:
+            self._render_missing_blitz(canvas, draw)
+            return
 
-        # Default empty states dict
         if widget_states is None:
             widget_states = {}
 
+        # 1. Backdrop
+        backdrop_css = theme.backdrop_css or "body { background: var(--bg); }"
+        backdrop_doc = build_fullscreen_document(theme, backdrop_css)
+        backdrop = render_document(backdrop_doc, self.width, self.height, scale=scale)
+        if backdrop is not None:
+            canvas.paste(backdrop.convert("RGB"), (0, 0))
+
+        # 2. Widget cells
         for slot in self.slots:
             widget = slot.widget
             if widget is None:
                 continue
 
-            # Calculate slot dimensions in scaled coordinates
             x1, y1, x2, y2 = slot.rect
-            slot_width = (x2 - x1) * scale
-            slot_height = (y2 - y1) * scale
-
-            # When the theme uses surface chrome, paint the slot with a
-            # rounded card on top of the canvas background. Otherwise the
-            # slot background matches the canvas — widgets float on the
-            # background (watchOS deference principle).
-            temp_img = Image.new("RGB", (slot_width, slot_height), self.theme.background)
-            temp_draw = PILImageDraw.Draw(temp_img)
-            if self.theme.surface_chrome:
-                # Draw the rounded card chrome first; widgets render on top.
-                radius = max(0, self.theme.corner_radius * scale)
-                outline = self.theme.border if self.theme.border_width > 0 else None
-                temp_draw.rounded_rectangle(
-                    (0, 0, slot_width - 1, slot_height - 1),
-                    radius=radius,
-                    fill=self.theme.surface,
-                    outline=outline,
-                    width=max(1, self.theme.border_width * scale) if outline else 1,
-                )
-
-            # Create render context with local coordinates (0, 0 to width, height)
-            # The rect is relative to the temp image, not the main canvas
-            local_rect = (0, 0, x2 - x1, y2 - y1)
-            ctx = RenderContext(temp_draw, local_rect, renderer, theme=self.theme)
-
-            # Get widget state for this slot
+            cell_w, cell_h = x2 - x1, y2 - y1
+            ctx = CellContext(width=cell_w, height=cell_h, slot_index=slot.index, theme=theme)
             state = widget_states.get(slot.index, WidgetState())
 
-            # Call widget render - returns Component tree
-            result = widget.render(ctx, state)
+            try:
+                fragment = widget.render_html(ctx, state)
+            except Exception:
+                _LOGGER.exception("Widget %s failed to render", type(widget).__name__)
+                fragment = _ERROR_FRAGMENT
 
-            # Render the Component tree
-            if isinstance(result, Component):
-                result.render(ctx, 0, 0, x2 - x1, y2 - y1)
+            document = build_cell_document(fragment, theme)
+            cell = render_document(document, cell_w, cell_h, scale=scale)
+            if cell is not None:
+                canvas.paste(cell, (x1 * scale, y1 * scale), cell)
 
-            # Paste the widget image onto the main canvas at the slot position
-            paste_x = x1 * scale
-            paste_y = y1 * scale
-            canvas.paste(temp_img, (paste_x, paste_y))
+        # 3. Overlay
+        if theme.overlay_css:
+            overlay_doc = build_fullscreen_document(theme, theme.overlay_css)
+            overlay = render_document(overlay_doc, self.width, self.height, scale=scale)
+            if overlay is not None:
+                canvas.paste(overlay, (0, 0), overlay)
 
-        # Apply theme visual effects after all widgets are rendered
-        self._apply_theme_effects(canvas, scale)
-
-    def _apply_theme_effects(self, canvas: Image.Image, scale: int) -> None:
-        """Apply theme-specific visual effects to the rendered canvas.
-
-        Args:
-            canvas: The rendered canvas image
-            scale: Supersampling scale factor
-        """
-        if self.theme.scanlines:
-            self._apply_scanlines(canvas, scale)
-
-    def _apply_scanlines(self, canvas: Image.Image, scale: int) -> None:
-        """Apply retro scanline effect to the canvas.
-
-        Creates horizontal lines that darken every Nth row for a CRT-like effect.
-
-        Args:
-            canvas: The canvas image to modify (in-place)
-            scale: Supersampling scale factor
-        """
-        # Scanlines every 3 scaled pixels (6 pixels at 2x scale)
-        line_spacing = 3 * scale
-        darkness_factor = 0.7
-
-        # Use PIL pixel access for in-place modification
-        pixels = canvas.load()
-        if pixels is None:
-            return
-
-        for y in range(0, canvas.height, line_spacing):
-            for x in range(canvas.width):
-                pixel = pixels[x, y]
-                if isinstance(pixel, tuple) and len(pixel) >= 3:
-                    r, g, b = pixel[0], pixel[1], pixel[2]
-                    pixels[x, y] = (
-                        int(r * darkness_factor),
-                        int(g * darkness_factor),
-                        int(b * darkness_factor),
-                    )
+    def _render_missing_blitz(self, canvas: Image.Image, draw: ImageDraw.ImageDraw) -> None:
+        """Paint an instructive error screen when blitz-py is missing."""
+        draw.rectangle((0, 0, canvas.width, canvas.height), fill=(0, 0, 0))
+        message = "blitz-py required\npip install blitz-py"
+        draw.text(
+            (canvas.width // 2, canvas.height // 2),
+            message,
+            fill=(255, 159, 10),
+            anchor="mm",
+            align="center",
+        )
 
     def get_all_entities(self) -> list[str]:
         """Get all entity IDs from all widgets."""

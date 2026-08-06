@@ -5,22 +5,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from ..htmldoc import css_rgb
+from ._card import card_html, chip_html
 from .base import Widget, WidgetConfig
-from .components import THEME_TEXT_PRIMARY, Component
-from .data_card import Chip, DataCard
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
+    from ..htmldoc import CellContext
     from .state import WidgetState
 
 
 class ClockWidget(Widget):
-    """Widget that displays current time and date via ``DataCard``.
+    """Widget that displays current time and date.
 
-    Maps to ``DataCard(caption=label, hero=time_str, supporting=[Chip(date)])``
-    — the watchOS three-band pattern. AM/PM (in 12-hour mode) is appended
-    to the hero string; the legacy primary-tinted superscript is gone in
-    favour of one consistent hero treatment across all clocks.
+    The watchOS three-band pattern: caption (label), hero (time), chip
+    strip (date). AM/PM (in 12-hour mode) is appended to the hero.
     """
 
     WIDGET_TYPE: ClassVar[str] = "clock"
@@ -57,7 +55,7 @@ class ClockWidget(Widget):
         """Clock widget doesn't depend on entities."""
         return []
 
-    def render(self, ctx: RenderContext, state: WidgetState) -> Component:
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the clock widget."""
         now = state.now or datetime.now(tz=UTC)
 
@@ -68,9 +66,9 @@ class ClockWidget(Widget):
         time_str = now.strftime(fmt)
         date_str = now.strftime("%a, %b %d") if self.show_date else None
 
-        return DataCard(
+        return card_html(
             caption=self.config.label,
             hero=time_str,
-            hero_color=self.config.color or THEME_TEXT_PRIMARY,
-            supporting=[Chip(date_str)] if date_str else [],
+            hero_color=css_rgb(self.config.color) if self.config.color else None,
+            chips=[chip_html(date_str)] if date_str else None,
         )

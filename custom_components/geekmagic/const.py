@@ -12,6 +12,11 @@ MODEL_UNKNOWN = "unknown"
 DISPLAY_WIDTH = 240
 DISPLAY_HEIGHT = 240
 
+# Supersampling factor for the composite canvas: Blitz renders each
+# pass at this device-pixel ratio and the final image is downscaled
+# once with Lanczos for crisp edges.
+SUPERSAMPLE_SCALE = 2
+
 # Default settings
 DEFAULT_REFRESH_INTERVAL = 10  # seconds
 DEFAULT_JPEG_QUALITY = 92  # High quality for crisp display
