@@ -88,10 +88,14 @@ _STRIP_MIN_H = 130
 # tall enough to list the days as rows (split-v columns are 114x228).
 _LIST_MIN_H = 190
 
+# The width at which a cell stops being a tile and starts being a row:
+# wide enough for a column per forecast day, for the hi/lo pair, and for
+# the icon to sit beside the value instead of over it.
+_COMPACT_MIN_W = 100
+
 # Short-wide cells (a hero footer, a 2x3 tile) have no room for day
 # names or lows, but three tinted glyphs with their highs still read as
 # a forecast — and beat a lone temperature floating in an empty band.
-_MINI_MIN_W = 100
 _MINI_MIN_H = 58
 _MINI_DAYS = 3
 
@@ -128,7 +132,6 @@ _SOLO_STACK_RATIO = 0.8
 # Today's hi/lo chips. They run narrower than the kit's 130px so 2x2
 # tiles carry the pair; below _CHIP_ARROWS_MIN_W the ↑/↓ glyphs cost
 # more width than they add meaning and the pair reads "26° / 14°".
-_CHIPS_MIN_W = 100
 _CHIPS_MIN_H = 70
 _CHIP_ARROWS_MIN_W = 150
 
@@ -388,7 +391,9 @@ class WeatherWidget(Widget):
 
     def _is_mini(self, ctx: CellContext) -> bool:
         """True in short-wide cells, where the strip is icon + high only."""
-        return ctx.height < _STRIP_MIN_H and ctx.width >= _MINI_MIN_W and ctx.height >= _MINI_MIN_H
+        return (
+            ctx.height < _STRIP_MIN_H and ctx.width >= _COMPACT_MIN_W and ctx.height >= _MINI_MIN_H
+        )
 
     def _is_list(self, ctx: CellContext) -> bool:
         """True when the forecast is laid out as rows, not columns."""
@@ -509,13 +514,13 @@ class WeatherWidget(Widget):
     def _chips(self, ctx: CellContext, forecast: list[dict]) -> list[str]:
         """Today's hi/lo chip strip, or ``[]``.
 
-        The band runs down to 100x70 rather than the kit's 130x130: a
+        The band runs down to _COMPACT_MIN_W x 70 rather than 130x130: a
         2x2 tile has the room, and a hero floating over an empty half
         cell is the worse trade. Under _CHIP_ARROWS_MIN_W the ↑/↓ glyphs
         and the second pill cost more width than they earn, so the pair
         collapses into one arrowless "26° / 14°" chip.
         """
-        if not self.show_high_low or ctx.width < _CHIPS_MIN_W or ctx.height < _CHIPS_MIN_H:
+        if not self.show_high_low or ctx.width < _COMPACT_MIN_W or ctx.height < _CHIPS_MIN_H:
             return []
         high, low = self._today_high_low(forecast)
         if high is None and low is None:
@@ -582,7 +587,7 @@ class WeatherWidget(Widget):
         solo_stack = solo and avail_h >= avail_w * _SOLO_STACK_RATIO
         side_by_side = not solo_stack and (
             ctx.width >= _SIDE_BY_SIDE_MIN_W
-            or (ctx.width >= _CHIPS_MIN_W and ctx.height < _STACK_MIN_H)
+            or (ctx.width >= _COMPACT_MIN_W and ctx.height < _STACK_MIN_H)
         )
         if solo_stack:
             icon_px = min(avail_h * _SOLO_ICON_SHARE, avail_w * 0.55, _SOLO_ICON_MAX_PX)
