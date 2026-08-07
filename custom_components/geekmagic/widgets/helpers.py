@@ -298,9 +298,10 @@ def truncate_text(
         return text[:start_len] + ellipsis
     if style == "start":
         # Show end: "..ng text"
-        return ellipsis + text[-available:]
-    # Default: show start: "very lo.."
-    return text[:available] + ellipsis
+        return ellipsis + text[-available:].lstrip()
+    # Default: show start: "very lo.." — never "very " + ellipsis, a
+    # space before the mark reads as a floating dot-dot-dot.
+    return text[:available].rstrip() + ellipsis
 
 
 def format_number(

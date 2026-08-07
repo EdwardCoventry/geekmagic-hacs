@@ -188,6 +188,7 @@ class TestCoordinatorWidgetRegistration:
             "chart",
             "text",
             "gauge",
+            "html",
             "progress",
             "multi_progress",
             "status",
@@ -198,7 +199,7 @@ class TestCoordinatorWidgetRegistration:
         for widget_type in expected_widgets:
             assert widget_type in WIDGET_CLASSES, f"Widget {widget_type} not registered"
 
-        assert len(WIDGET_CLASSES) == 16
+        assert len(WIDGET_CLASSES) == 17
 
 
 class MockState:
@@ -896,7 +897,9 @@ class TestCoordinatorBackoff:
         )
 
         # Mock the rendering to succeed
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         # Verify backoff was reset
@@ -919,7 +922,9 @@ class TestCoordinatorBackoff:
             {**simple_options, CONF_MANAGE_PRO_ALBUM: True},
         )
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         assert result["success"] is True
@@ -943,7 +948,9 @@ class TestCoordinatorBackoff:
         backoff_device.is_builtin_theme = MagicMock(return_value=True)
         coordinator = GeekMagicCoordinator(hass, backoff_device, simple_options)
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         assert result["builtin_mode"] is True
@@ -962,7 +969,9 @@ class TestCoordinatorBackoff:
         coordinator = GeekMagicCoordinator(hass, backoff_device, simple_options)
         coordinator.set_display_mode("custom", 0)
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         assert result["success"] is True
@@ -988,7 +997,9 @@ class TestCoordinatorBackoff:
             }
         )
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         assert result["success"] is True
@@ -1005,7 +1016,9 @@ class TestCoordinatorBackoff:
             {**simple_options, CONF_MANAGE_PRO_ALBUM: True},
         )
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             await coordinator._async_update_data()
             await coordinator._async_update_data()
 
@@ -1029,7 +1042,9 @@ class TestCoordinatorBackoff:
 
         # Mock the rendering to succeed but upload fails
         with (
-            patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")),
+            patch.object(
+                coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+            ),
             pytest.raises(UpdateFailed),
         ):
             await coordinator._async_update_data()
@@ -1218,3 +1233,85 @@ class TestCoordinatorPause:
             await coordinator.async_set_active(False)
 
         mock_notify.assert_called_once()
+
+
+class TestAnimationUploadBudget:
+    """Animated GIF payloads must respect the device upload budget."""
+
+    @pytest.fixture
+    def animated_options(self):
+        """Options with animations enabled and one animated HTML widget."""
+        from custom_components.geekmagic.const import CONF_ENABLE_ANIMATIONS
+
+        return {
+            CONF_REFRESH_INTERVAL: 15,
+            CONF_ENABLE_ANIMATIONS: True,
+            CONF_SCREENS: [
+                {
+                    "name": "Anim",
+                    CONF_LAYOUT: LAYOUT_GRID_2X2,
+                    CONF_WIDGETS: [
+                        {
+                            "type": "html",
+                            "slot": 0,
+                            "options": {"html": "<div>x</div>", "animate": True},
+                        }
+                    ],
+                }
+            ],
+        }
+
+    @pytest.fixture
+    def fake_frames(self):
+        """A few supersampled canvases standing in for rendered frames."""
+        from PIL import Image
+
+        return [Image.new("RGB", (480, 480), (i * 40, 0, 0)) for i in range(3)]
+
+    def test_gif_within_budget_is_uploaded(
+        self, hass, coordinator_device, animated_options, fake_frames
+    ):
+        """An under-limit GIF goes out as dashboard.gif untouched."""
+        coordinator = GeekMagicCoordinator(hass, coordinator_device, animated_options)
+        small_gif = b"GIF89a-small"
+        with (
+            patch.object(coordinator._layouts[0], "render_animation", return_value=fake_frames),
+            patch.object(coordinator.renderer, "to_gif", return_value=small_gif),
+        ):
+            payload, png_data, filename = coordinator._render_display()
+
+        assert filename == "dashboard.gif"
+        assert payload == small_gif
+        assert png_data[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_oversized_gif_falls_back_to_still_jpeg(
+        self, hass, coordinator_device, animated_options, fake_frames
+    ):
+        """A GIF over MAX_IMAGE_SIZE is never uploaded; a still JPEG is."""
+        from custom_components.geekmagic.const import MAX_IMAGE_SIZE
+
+        coordinator = GeekMagicCoordinator(hass, coordinator_device, animated_options)
+        oversized_gif = b"G" * (MAX_IMAGE_SIZE + 1)
+        with (
+            patch.object(coordinator._layouts[0], "render_animation", return_value=fake_frames),
+            patch.object(coordinator.renderer, "to_gif", return_value=oversized_gif),
+        ):
+            payload, png_data, filename = coordinator._render_display()
+
+        assert filename == "dashboard.jpg"
+        assert len(payload) <= MAX_IMAGE_SIZE
+        assert payload[:3] == b"\xff\xd8\xff"  # JPEG magic
+        assert png_data[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_animations_disabled_renders_still(self, hass, coordinator_device, animated_options):
+        """With the Animations switch off, the still JPEG path is unchanged."""
+        from custom_components.geekmagic.const import CONF_ENABLE_ANIMATIONS
+
+        options = {**animated_options, CONF_ENABLE_ANIMATIONS: False}
+        coordinator = GeekMagicCoordinator(hass, coordinator_device, options)
+        with patch.object(coordinator.renderer, "to_gif") as mock_gif:
+            payload, _png_data, filename = coordinator._render_display()
+
+        assert filename == "dashboard.jpg"
+        assert payload[:3] == b"\xff\xd8\xff"
+        mock_gif.assert_not_called()

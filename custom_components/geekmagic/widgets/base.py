@@ -7,8 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
-    from ..render_context import RenderContext
-    from .components import Component
+    from ..htmldoc import CellContext
     from .state import EntityState, WidgetState
 
 
@@ -27,9 +26,11 @@ class WidgetConfig:
 class Widget(ABC):
     """Base class for all widgets.
 
-    Widgets render by returning a Component tree. All state needed for
-    rendering is passed via the WidgetState parameter, enabling pure
-    functional rendering.
+    Widgets render by returning an HTML fragment, rasterized by the
+    Blitz engine at the cell size. All state needed for rendering is
+    passed via the WidgetState parameter, enabling pure functional
+    rendering. Prefer the fluid kit classes (``.cell``, ``.t-hero``,
+    ``.hide-short``, ...) so one fragment adapts to every cell size.
     """
 
     WIDGET_TYPE: ClassVar[str] = ""
@@ -57,6 +58,27 @@ class Widget(ABC):
             return [self.config.entity_id]
         return []
 
+    def is_animated(self) -> bool:
+        """Whether this widget's fragment carries CSS animations.
+
+        When True — and the device's Animations switch is on — the
+        pipeline renders the view as an animated GIF: this widget's cell
+        is rasterized at several animation timestamps while static cells
+        render once. Keep it False for fragments without animations; a
+        GIF costs upload size and device decode time.
+        """
+        return False
+
+    def animation_seconds(self) -> float | None:
+        """Length of this widget's animation loop, in seconds.
+
+        None means the pipeline default. Ambient animations (breathing
+        glows, gradient drift) read best at 2-4s; the view's GIF loop is
+        the longest requested by its animated widgets, so CSS durations
+        should equal or evenly divide it for a seamless loop.
+        """
+        return None
+
     def label_for(self, entity: EntityState | None, *, fallback: str = "") -> str:
         """Resolve display label: ``config.label`` > ``entity.friendly_name`` > ``fallback``.
 
@@ -73,22 +95,23 @@ class Widget(ABC):
         return fallback
 
     @abstractmethod
-    def render(
+    def render_html(
         self,
-        ctx: RenderContext,
+        ctx: CellContext,
         state: WidgetState,
-    ) -> Component:
-        """Render the widget as a Component tree.
+    ) -> str:
+        """Render the widget as an HTML fragment.
 
-        Pure function: given the same ctx and state, returns the same Component.
-        All state needed for rendering is provided via the state parameter.
+        Pure function: given the same ctx and state, returns the same
+        fragment. The fragment is wrapped with the theme's CSS (palette
+        variables, fluid kit, chrome) and rasterized at the cell size,
+        so viewport units and media queries respond to the cell.
 
         Args:
-            ctx: RenderContext providing local coordinate system and drawing methods.
-                 Use ctx.width and ctx.height for container dimensions.
-                 All drawing coordinates are relative to widget origin (0, 0).
-            state: Pre-fetched state including entity data, history, images, time.
+            ctx: Cell geometry (width/height/slot_index) and theme.
+            state: Pre-fetched state including entity data, history,
+                images, and time.
 
         Returns:
-            Component tree to render
+            HTML fragment (no <html>/<body> wrapper).
         """

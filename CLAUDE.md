@@ -7,7 +7,8 @@ Home Assistant custom integration for GeekMagic displays (SmallTV Pro and simila
 Use `uv` for all Python operations:
 
 ```bash
-uv sync                       # Install dependencies
+uv sync                       # Install dependencies (blitz-py comes as a
+                              # prebuilt wheel from PyPI)
 uv run pytest                 # Run tests
 uv run pytest -v              # Run tests with verbose output
 uv run ruff check .           # Lint code
@@ -85,14 +86,18 @@ custom_components/geekmagic/
 ├── config_flow.py    # Device setup + options flow
 ├── coordinator.py    # Data update coordinator
 ├── device.py         # HTTP API client for GeekMagic
-├── renderer.py       # Pillow image generation
+├── htmldoc.py        # Blitz document assembly, fluid kit, SVG helpers
+├── renderer.py       # Canvas compositing + JPEG/PNG encoding
 ├── const.py          # Constants and config keys
-├── widgets/          # Widget components
-│   ├── base.py       # Widget base class
+├── fonts/            # Embedded fonts (Nunito, DejaVu, MDI)
+├── widgets/          # Widget components (HTML fragments)
+│   ├── base.py       # Widget base class (render_html contract)
+│   ├── _card.py      # card_html/chip_html three-band primitives
+│   ├── theme.py      # Themes: palette + CSS (chrome/backdrop/overlay)
 │   ├── clock.py      # Clock widget
 │   ├── entity.py     # HA entity display
 │   ├── media.py      # Media player widget
-│   ├── chart.py      # Sparkline chart
+│   ├── chart.py      # Sparkline chart (SVG)
 │   ├── helpers.py    # Widget helper functions
 │   └── text.py       # Static/dynamic text
 ├── layouts/          # Layout systems
@@ -120,30 +125,122 @@ custom_components/geekmagic/
 
 ## Key Concepts
 
-### Rendering Pipeline
+### Rendering Pipeline (Blitz engine)
+
+All drawing happens in the **Blitz HTML/CSS engine** via the `blitz-py`
+package (Stylo CSS + Taffy layout + Parley text + Vello raster — no
+browser). Pillow only composites passes and encodes JPEG/PNG.
+
 1. Coordinator triggers update on interval
-2. Layout calculates widget rectangles (slots)
-3. Each widget renders into its slot using Pillow
-4. Image converted to JPEG and uploaded to device
+2. Layout calculates widget rectangles (slots) — pure geometry
+3. **One `render_layers` call** (blitz-py >= 0.4.0) composites the
+   whole screen engine-side: the theme backdrop layer
+   (`theme.backdrop_css`), one layer per widget cell (each widget's
+   `render_html` fragment wrapped by `htmldoc.build_cell_document` —
+   theme CSS variables + fluid kit + `theme.chrome_css`), and the
+   optional `theme.overlay_css` layer (scanlines, vignettes) on top.
+   Each cell layer keeps its own CSS viewport (`vmin`/`vw` and
+   `@media` respond to the CELL size) and is CLIPPED to its rect by
+   the engine — the containment per-cell rasterization used to
+   provide. Themes with `glow_effect` (neon) paint each cell once
+   blurred beneath its sharp pass (per-layer `blur`/`opacity`).
+   On older blitz-py the pipeline falls back to per-document renders
+   + Pillow premultiplied compositing (`_render_legacy`).
+4. Image converted to JPEG and uploaded to device. Fonts are
+   registered process-wide once (`register_fonts`, htmldoc's
+   `font_param()`) — no per-call font bytes.
+
+**Animated path (opt-in):** when the device's Animations switch is on
+and a placed widget returns ``is_animated() == True``, the coordinator
+calls ``layout.render_animation`` instead: each frame is ONE
+``render_layers`` call with the frame's clock on animated layers (and
+their glow underlays) — needs blitz-py >= 0.4.1
+(``htmldoc.HAS_LAYER_CLOCK``; 0.4.0 documented per-layer ``time`` but
+ignored it). Frames are encoded with ``Renderer.to_gif`` (1.6s @
+10fps, palette quantized without dithering) and ``dashboard.gif`` is
+uploaded in place of the JPEG. Older engines fall back to
+``render_frames`` per animated cell + Pillow compositing
+(``_render_animation_legacy``).
+
+blitz-py capabilities adopted so far: ``measure_text`` (0.3.0) and
+``ellipsize`` (0.4.0) drive ``widgets/_textfit.py`` — engine-native
+shaping over the embedded fonts, including the system fallback for
+CJK; ``register_fonts`` (0.4.0) makes fonts process-wide;
+``render_layers`` (0.4.0) composites the screen engine-side. Still
+available but not yet adopted: ``fit_font_size`` / ``line_clamp`` /
+``wrap_balanced`` (the Python fitters in ``_cardfit``/``media`` carry
+extra semantics — suffix reserve, identity rules — that need mapping
+first), ``Template.get_box``/``boxes()`` (could replace the CSS-math
+mirrors like ``label_px``), the ``Template`` mutate-and-re-render fast
+path, and native ``render_layers_jpeg`` encode (encoding stays in
+``renderer.py`` while supersample-then-Lanczos remains the quality
+baseline). The true fix for truncation remains ``text-overflow:
+ellipsis`` in blitz-dom, tracked in the blitz-py repo's
+docs/UPSTREAM.md.
+
+`blitz-py` is REQUIRED for rendering — it's in `manifest.json`
+requirements (PyPI wheels for Linux glibc/musl x86_64 + aarch64, macOS,
+Windows), so HA installs it automatically. Without it the display shows
+an install-hint error screen.
+
+Blitz engine gotchas (verified, keep in mind):
+- `var(--x)` does NOT resolve inside SVG paint attributes — pass
+  concrete colors (`css_rgb(theme.x)`) to the SVG helpers.
+- No `text-overflow: ellipsis` and text ignores `overflow: hidden` —
+  truncate long strings in Python (`helpers.truncate_text`, or the
+  measured `_textfit` metrics for design-critical text).
+- Inline `style="display: flex"` beats the kit's `.hide-*` media rules —
+  put hide classes on a wrapper div without inline display.
+- Inline `<svg>` is sized from its viewBox ASPECT RATIO, not from
+  `height:100%` against a flex parent — measure the plot box in Python
+  and pass a matching `aspect`/viewBox.
+- Percentage padding resolves against the cell WIDTH on both axes —
+  use px padding when vertical space is tight.
+- `<style>` blocks inside a widget fragment work, including media
+  queries — a clean lever for widget-scoped responsive rules. But an
+  element carrying both `.hide-*` and your own breakpoint loses to the
+  kit's `display:none !important`; drop the `.hide-*` class when
+  self-managing visibility.
+- Blitz paints non-positioned subtrees BEFORE absolutely-positioned
+  siblings. A `.hide-*` wrapper around overlay text puts it under the
+  scrim unless the wrapper itself is `position:absolute; inset:0` (and
+  it must fill the cell — absolute boxes resolve against the parent, so
+  a zero-height wrapper collapses the overlay).
+- Fixed-height flex children shrink when the column overflows — give
+  bars/tracks `flex: none` or they collapse to hairlines.
+- `white-space: normal` wrapping is not clipped by `.cell`'s
+  percentage padding — engine-wrapped text bleeds into the margin.
+  Emit one block div per line (see `_cardfit`).
+- Text measured for fitting must use the theme's real face and case —
+  `widgets/_textfit.py` (`metrics_for(theme)`) is the canonical
+  measurer; `_cardfit.py` builds card geometry on top of it.
+- No container queries, no `background-clip: text`, no `text-shadow`,
+  no `filter`. Gradients (linear/radial/conic), `box-shadow`, borders,
+  `object-fit`, SVG (incl. `linearGradient`, bezier paths, `stroke-dasharray`),
+  and CSS math (`clamp`/`min`/nested) all work.
 
 ### Widget Interface
 ```python
 class Widget(ABC):
-    def render(self, ctx: RenderContext, hass) -> None:
-        """Draw widget using the render context (local coordinates)."""
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Return an HTML fragment rasterized at the cell size."""
 
     def get_entities(self) -> list[str]:
         """Return entity IDs this widget depends on."""
 ```
 
+`CellContext` (from `htmldoc.py`) carries `width`, `height`,
+`slot_index`, `theme`, plus `accent()` (slot-cycled theme accent as a
+CSS color) and `is_compact`.
+
 ### Layout Interface
 ```python
 class Layout(ABC):
     def _calculate_slots(self) -> None:
-        """Calculate slot rectangles."""
+        """Calculate slot rectangles (pure geometry)."""
 
-    def render(self, renderer, draw, hass) -> None:
-        """Render all widgets in their slots."""
+    def render(self, renderer, draw, widget_states) -> None:
+        """Composite backdrop + widget cells + overlay onto the canvas."""
 ```
 
 ## Device API
@@ -196,30 +293,36 @@ handle the same thing — they're the canonical references.
 
 ### Colour rules — pick by intent, not by RGB
 
-Widgets MUST use **theme role sentinels** from `widgets/components.py`,
-never hardcoded `SYSTEM_BLUE`/`SYSTEM_ORANGE`/etc. The sentinels resolve
-to the active theme's palette at render time.
+Widgets MUST use **theme CSS variables** in markup, never hardcoded hex
+colors. The variables resolve to the active theme's palette when the
+cell document is built.
 
-Available sentinels (resolve to `theme.<role>`):
+Available CSS variables (resolve to `theme.<role>`):
 
-| Sentinel              | Use for                                              |
-|-----------------------|------------------------------------------------------|
-| `THEME_TEXT_PRIMARY`  | Default for hero values (white-ish on dark themes)   |
-| `THEME_TEXT_SECONDARY`| Supporting info (dates, units, "Sunny" condition)    |
-| `THEME_TEXT_TERTIARY` | Caps captions, very-low-priority text                |
-| `THEME_PRIMARY`       | Brand accent — fallback for chart / progress         |
-| `THEME_SECONDARY`     | Night, lightning, less-prominent accents             |
-| `THEME_SUCCESS`       | ON / connected / wind                                |
-| `THEME_WARNING`       | Sunny / hot temp / heating / caution                 |
-| `THEME_ERROR`         | Off / disconnected / extreme / preheating            |
-| `THEME_INFO`          | Cool / cold / water / rain / cooling / humidity      |
-| `THEME_MUTED`         | Idle / off / fog / disabled                          |
+| CSS variable            | Use for                                              |
+|-------------------------|------------------------------------------------------|
+| `var(--text-primary)`   | Default for hero values (white-ish on dark themes)   |
+| `var(--text-secondary)` | Supporting info (dates, units, "Sunny" condition)    |
+| `var(--text-tertiary)`  | Caps captions, very-low-priority text                |
+| `var(--primary)`        | Brand accent — fallback for chart / progress         |
+| `var(--secondary)`      | Night, lightning, less-prominent accents             |
+| `var(--success)`        | ON / connected / wind                                |
+| `var(--warning)`        | Sunny / hot temp / heating / caution                 |
+| `var(--error)`          | Off / disconnected / extreme / preheating            |
+| `var(--info)`           | Cool / cold / water / rain / cooling / humidity      |
+| `var(--muted)`          | Idle / off / fog / disabled                          |
+
+Also: `var(--bg)`, `var(--surface)`, `var(--surface-variant)`,
+`var(--border)`, `var(--accent-0..N)`, `var(--radius)`. For the
+slot-cycled accent use `ctx.accent()`. Inside **SVG paint attributes**
+`var()` does not resolve — pass concrete colors via
+`css_rgb(ctx.theme.success)` etc.
 
 **Rule of thumb for hero value colour:**
 
-- Default: `THEME_TEXT_PRIMARY` (white). Use this for entity value, clock
-  time, weather temp, climate temp, multi-progress hero, bar-gauge compact
-  value.
+- Default: no explicit color (body text is `var(--text-primary)`). Use
+  this for entity value, clock time, weather temp, climate temp,
+  multi-progress hero.
 - Use a role tint **only** when one of these narrow exceptions applies:
   1. **Gauge family** (Bar/Ring/Arc) where the value matches the gauge's
      own accent — value + fill read as one visual unit (Apple Activity-ring
@@ -234,103 +337,67 @@ tint.** That's where the colour lives.
 
 ### Don't
 
-- Don't hardcode `SYSTEM_*` in widget code — the regression test
-  `tests/test_watchos_design_system.py::TestNoHardcodedSystemColors` guards
-  this.
-- Don't `import` directly from `widgets/theme.py` for colour values.
+- Don't hardcode `SYSTEM_*` colors or hex literals in widget code — the
+  regression test `tests/test_watchos_design_system.py` guards this.
+  (Neutral `rgba(255,255,255,0.x)` tracks/overlays are the exception.)
+- Don't `import` from `widgets/theme.py` for colour values in widgets.
 - Don't tint a hero value just because it "looks nice" — follow the rule
   above. If you're tempted, the icon should probably be tinted instead.
-- Don't use `Column(justify="center")` if the cell is taller than the
-  natural content height — content will cluster centred and waste space.
-  Default to `justify="space-evenly"` for top-to-bottom content
-  distribution: it puts equal spacing before, between, and after the
-  children, which reads better in most cells than `space-between`
-  (which pins the first/last children flush to the edges and can leave
-  them feeling crowded). Only fall back to `space-between` when the
-  cell is so short that any breathing room would push content off
-  screen, or when you specifically want the first/last items hard
-  against the cell edge. For Rows (horizontal), `space-between` is
-  still the right call (label left / value right pattern).
-- Don't use absolute `Padding(top=..., bottom=...)` for layout when child
-  heights vary with cell size — they only work at the exact tuning point.
-  Prefer flex-style Column/Row with `Spacer`.
+- Don't put `style="display: flex"` inline on an element that carries a
+  `.hide-*` class — inline styles defeat the media-query hide. Wrap it.
+- Don't rely on `text-overflow: ellipsis` or `overflow: hidden` for
+  text — Blitz doesn't clip text. Truncate long strings in Python
+  (`helpers.truncate_text`).
+- Don't use `justify-content: center` for a cell taller than its
+  content — `space-evenly` (the `.cell` default) uses the space better.
 
 ### Do
 
 - Read `tests/test_watchos_design_system.py` before adding a widget — it
   documents the contract.
-- Use `ctx.track_color(tint)` for any bar/ring/arc track — picks up the
-  theme's `tint_track` setting automatically.
-- Use `ctx.fit_text()` for hero values that should auto-scale to fill
-  their box — guarantees the value stays inside its budget.
-- Use the `BarGauge` factory's `mode="auto"` (default) — it picks
-  compact/stacked/vertical for you.
+- Use `card_html()` from `widgets/_card.py` for the standard
+  caption/hero/chips card — consistency for free.
+- Tint gauge tracks with `css_rgba(accent, theme.tint_track_opacity)`
+  when `theme.tint_track` is set (see gauge.py).
+- Attach `.hide-short` / `.hide-small` to optional bands so cells
+  degrade gracefully — that's the fluid system.
 
-## Font Sizing System
+## Typography — the fluid kit
 
-Fonts are automatically scaled based on container height. Two naming systems are supported:
+Type is CSS-driven. The fluid kit (injected into every cell document by
+`htmldoc.py`) scales text with the CELL via `clamp()` + `vmin`/`vw`
+(width-capped so ~5-char values never overflow), and sheds optional
+bands via media queries:
 
-### Semantic Sizes (Preferred)
+| Class | Role |
+|-------|------|
+| `.t-hero` | Primary value — as big as the cell allows |
+| `.t-value` | Secondary emphasized value |
+| `.t-unit` | Unit suffix (secondary color) |
+| `.t-label` | Caps caption (tertiary color, letterspaced) |
+| `.icon` + `.i-lg/.i-md/.i-sm` | MDI glyphs (embedded font) |
+| `.hide-short` | Hidden when cell < 100px tall |
+| `.hide-narrow` | Hidden when cell < 100px wide |
+| `.hide-small` | Hidden when either dimension < 130px |
+| `.cell` / `.cell.row` | Flex scaffold, space-evenly |
+| `.chips` / `.chip` / `.caption-row` | Supporting strip (see `_card.py`) |
 
-Use these for new widgets - they scale proportionally to container height:
-
-| Size | Ratio | Use Case |
-|------|-------|----------|
-| `primary` | 35% | Main value (clock time, large number) |
-| `secondary` | 20% | Supporting info (date, unit) |
-| `tertiary` | 12% | Labels, captions |
-
-```python
-# Get font with semantic size
-font = ctx.get_font("primary", bold=True)
-font = ctx.get_font("secondary")
-font = ctx.get_font("tertiary", adjust=-1)  # Slightly smaller
-```
-
-### Auto-Fit Text
-
-For text that should fill available space (like clock displays):
-
-```python
-# Get largest font that fits within bounds
-font = ctx.fit_text("12:45", max_width=ctx.width * 0.95)
-font = ctx.fit_text("Hello", max_width=100, max_height=50, bold=True)
-```
-
-### Relative Adjustments
-
-Fine-tune sizes with `adjust` parameter (-2 to +2, each step is ~15%):
-
-```python
-font = ctx.get_font("secondary", adjust=+1)  # 15% larger
-font = ctx.get_font("primary", adjust=-1)    # 15% smaller
-```
-
-### Legacy Sizes
-
-Still supported for backward compatibility:
-
-| Size Name | Use Case |
-|-----------|----------|
-| `tiny` | Small labels |
-| `small` | Labels, status |
-| `regular` | Standard text |
-| `medium` | Emphasized values |
-| `large` | Primary values |
-| `xlarge` | Hero values |
-| `huge` | Maximum emphasis |
+Fonts embedded in every render: **Nunito** (400/600/700/800),
+**DejaVu Sans**, **Material Design Icons**. Themes pick families via
+`theme.font_stack`.
 
 **Best practices:**
-- Prefer semantic sizes (`primary`, `secondary`, `tertiary`) for new code
-- Use `ctx.fit_text()` when text should fill available space
-- Add `bold=True` for values that need emphasis
-- Never specify pixel sizes directly
+- Use kit classes; add inline `style` only for widget-specific layout.
+- TEXT AS BIG AS POSSIBLE — this is a 2" display.
+- One fragment for all sizes: hide bands with `.hide-*` instead of
+  branching in Python where possible (`ctx.is_compact` exists for the
+  cases CSS can't express).
 
 ## Testing
 
 Tests are organized by component:
 - `tests/test_device.py` - HTTP client tests
-- `tests/test_renderer.py` - Pillow rendering tests
+- `tests/test_renderer.py` - Canvas/encoding tests
 - `tests/test_config_flow.py` - Config flow and options flow tests
 - `tests/test_integration.py` - Integration setup/teardown tests
 - `tests/widgets/test_widgets.py` - Widget tests
@@ -356,10 +423,10 @@ Uses `pytest-homeassistant-custom-component` for HA-specific fixtures. See:
 
 1. Create `custom_components/geekmagic/widgets/mywidget.py`
 2. Extend `Widget` base class
-3. Implement `render()` and optionally `get_entities()`
-4. Register in `widgets/__init__.py`
-5. Add to `WIDGET_CLASSES` in `coordinator.py`
-6. Add tests in `tests/widgets/`
+3. Implement `render_html()` and optionally `get_entities()`
+4. Register in `widgets/__init__.py` (`_ALL_WIDGETS` — WIDGET_CLASSES
+   and schemas derive from it)
+5. Add tests in `tests/widgets/`
 
 ### Widget Helper Functions
 
@@ -367,25 +434,25 @@ Use helper functions from `widgets/helpers.py` for common operations:
 
 ```python
 from ..widgets.helpers import (
-    truncate_text,           # Truncate long text with ellipsis
-    estimate_max_chars,      # Estimate max chars that fit in pixel width
-    format_number,           # Format with optional 1k/1M abbreviation
+    truncate_text,  # Truncate long text with ellipsis
+    estimate_max_chars,  # Estimate max chars that fit in pixel width
+    format_number,  # Format with optional 1k/1M abbreviation
     format_value_with_unit,  # Format "23°C" / "1.5k views"
-    calculate_percent,       # Clamp value to 0..100 over a min/max range
-    parse_color,             # Coerce JSON list/tuple to RGB
+    calculate_percent,  # Clamp value to 0..100 over a min/max range
+    parse_color,  # Coerce JSON list/tuple to RGB
     get_binary_sensor_icon,  # MDI icon by binary_sensor device_class
-    get_domain_state_icon,   # MDI icon by domain + state
+    get_domain_state_icon,  # MDI icon by domain + state
     translate_binary_state,  # Localized "Open"/"Closed" etc.
 )
 ```
 
-### Component Helpers
+### Markup Helpers
 
-Build widget render trees with the declarative components in
-`widgets/components.py` and the higher-level factories in
-`widgets/component_helpers.py` (`BarGauge`, `RingGauge`, `ArcGauge`,
-`IconValue`, `CenteredValue`). They auto-pick layout for the cell shape
-and pick up theme colours through the role sentinels.
+Build fragments with `card_html`/`chip_html` (`widgets/_card.py`) for
+the standard three-band card, and `mdi_span` / `svg_sparkline` /
+`svg_ring` / `svg_arc` / `image_data_uri` from `htmldoc.py`. The fluid
+kit classes handle size adaptation; themes restyle everything through
+`chrome_css`.
 
 ## Adding New Layouts
 
@@ -432,7 +499,9 @@ Entity implementations live in `entities/` subfolder for organization, but **stu
 ```python
 # custom_components/geekmagic/number.py (stub for HA discovery)
 """Number platform - re-exports from entities submodule."""
+
 from .entities.number import async_setup_entry
+
 __all__ = ["async_setup_entry"]
 ```
 
@@ -468,9 +537,8 @@ result = await hass.async_add_executor_job(blocking_function, arg1, arg2)
 
 # With keyword arguments:
 from functools import partial
-result = await hass.async_add_executor_job(
-    partial(blocking_function, kwarg1=value1), arg1
-)
+
+result = await hass.async_add_executor_job(partial(blocking_function, kwarg1=value1), arg1)
 ```
 
 ### This Integration's Blocking Operations

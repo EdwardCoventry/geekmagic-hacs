@@ -31,11 +31,12 @@ from .const import (
 from .renderer import Renderer
 from .widgets import WIDGET_TYPE_SCHEMAS
 from .widgets.base import WidgetConfig
-from .widgets.state import EntityState, WidgetState
+from .widgets.state import WidgetState, build_entity_states
 
 if TYPE_CHECKING:
     from .coordinator import GeekMagicCoordinator
     from .store import GeekMagicStore
+    from .widgets.base import Widget
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -436,6 +437,70 @@ def _resample_history(history_states: list, start: datetime, end: datetime) -> l
     return resample_history(history_states, start, end)
 
 
+def _build_preview_widget_states(
+    hass: HomeAssistant,
+    widgets: dict[int, Widget],
+    chart_history: dict[str, list[float]],
+    candlestick_data: dict[str, list[tuple[float, float, float, float]]],
+    weather_forecasts: dict[str, list[dict[str, Any]]],
+) -> dict[int, WidgetState]:
+    """Build WidgetStates for the preview from instantiated widgets.
+
+    Entity resolution goes through ``build_entity_states`` — the same
+    helper ``GeekMagicCoordinator._build_widget_states`` uses — so the
+    editor preview and the deployed dashboard resolve identical primary
+    and additional entity dependencies (options-level selectors,
+    ``states()`` / ``state_attr()`` / ``is_state()`` template
+    references, multi-entity widgets).
+    """
+    from datetime import UTC
+    from zoneinfo import ZoneInfo
+
+    widget_states: dict[int, WidgetState] = {}
+    tz = getattr(hass.config, "time_zone_obj", None) or UTC
+    now = datetime.now(tz=tz)
+
+    for slot, widget in widgets.items():
+        entity, additional = build_entity_states(hass.states.get, widget)
+        entity_id = widget.config.entity_id
+        widget_type = widget.config.widget_type
+
+        # Get chart history if available
+        history: list[float] = []
+        if widget_type == "chart" and entity_id in chart_history:
+            history = chart_history[entity_id]
+
+        # Get candlestick data if available
+        candle_data: list[tuple[float, float, float, float]] = []
+        if widget_type == "candlestick" and entity_id in candlestick_data:
+            candle_data = candlestick_data[entity_id]
+
+        # Get weather forecast if available
+        forecast: list[dict[str, Any]] = []
+        if widget_type == "weather" and entity_id in weather_forecasts:
+            forecast = weather_forecasts[entity_id]
+
+        # Handle clock widget timezone override
+        widget_now = now
+        if widget_type == "clock":
+            tz_option = widget.config.options.get("timezone")
+            if tz_option:
+                with contextlib.suppress(Exception):
+                    widget_now = datetime.now(tz=ZoneInfo(tz_option))
+
+        widget_states[slot] = WidgetState(
+            entity=entity,
+            entities=additional,
+            history=history,
+            candlestick_data=candle_data,
+            forecast=forecast,
+            image=None,
+            now=widget_now,
+        )
+
+    return widget_states
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "geekmagic/preview/render",
@@ -586,6 +651,7 @@ async def ws_preview_render(
         layout.theme = get_theme(theme_name)
 
         # Add widgets
+        widgets_by_slot: dict[int, Widget] = {}
         for widget_data in view_config.get("widgets", []):
             widget_type = widget_data.get("type")
             slot = widget_data.get("slot", 0)
@@ -612,66 +678,11 @@ async def ws_preview_render(
             )
             widget = widget_class(config)
             layout.set_widget(slot, widget)
+            widgets_by_slot[slot] = widget
 
-        # Build widget_states for rendering
-        from datetime import UTC
-        from zoneinfo import ZoneInfo
-
-        widget_states: dict[int, WidgetState] = {}
-        tz = getattr(hass.config, "time_zone_obj", None) or UTC
-        now = datetime.now(tz=tz)
-
-        for widget_data in view_config.get("widgets", []):
-            slot = widget_data.get("slot", 0)
-            if slot >= layout.get_slot_count():
-                continue
-
-            entity_id = widget_data.get("entity_id")
-            entity: EntityState | None = None
-
-            # Build entity state from hass
-            if entity_id:
-                state = hass.states.get(entity_id)
-                if state:
-                    entity = EntityState(
-                        entity_id=entity_id,
-                        state=state.state,
-                        attributes=dict(state.attributes),
-                    )
-
-            # Get chart history if available
-            history: list[float] = []
-            widget_type = widget_data.get("type")
-            if widget_type == "chart" and entity_id in chart_history:
-                history = chart_history[entity_id]
-
-            # Get candlestick data if available
-            candle_data: list[tuple[float, float, float, float]] = []
-            if widget_type == "candlestick" and entity_id in candlestick_data:
-                candle_data = candlestick_data[entity_id]
-
-            # Get weather forecast if available
-            forecast: list[dict[str, Any]] = []
-            if widget_type == "weather" and entity_id in weather_forecasts:
-                forecast = weather_forecasts[entity_id]
-
-            # Handle clock widget timezone override
-            widget_now = now
-            if widget_type == "clock":
-                tz_option = widget_data.get("options", {}).get("timezone")
-                if tz_option:
-                    with contextlib.suppress(Exception):
-                        widget_now = datetime.now(tz=ZoneInfo(tz_option))
-
-            widget_states[slot] = WidgetState(
-                entity=entity,
-                entities={},
-                history=history,
-                candlestick_data=candle_data,
-                forecast=forecast,
-                image=None,
-                now=widget_now,
-            )
+        widget_states = _build_preview_widget_states(
+            hass, widgets_by_slot, chart_history, candlestick_data, weather_forecasts
+        )
 
         # Render
         img, draw = renderer.create_canvas(background=layout.theme.background)

@@ -12,6 +12,22 @@ MODEL_UNKNOWN = "unknown"
 DISPLAY_WIDTH = 240
 DISPLAY_HEIGHT = 240
 
+# Supersampling factor for the composite canvas: Blitz renders each
+# pass at this device-pixel ratio and the final image is downscaled
+# once with Lanczos for crisp edges.
+SUPERSAMPLE_SCALE = 2
+
+# Animated widgets (opt-in via the Animations switch entity): widgets
+# that declare CSS animations are rendered at several timestamps
+# (blitz-py render_frames) and the display receives an animated GIF
+# instead of a JPEG. Loop length and rate are fixed — 1.6s at 10fps
+# (16 frames) keeps the GIF small enough for the device to store and
+# decode smoothly.
+CONF_ENABLE_ANIMATIONS = "enable_animations"
+DEFAULT_ENABLE_ANIMATIONS = False
+ANIMATION_SECONDS = 1.6
+ANIMATION_FPS = 10
+
 # Default settings
 DEFAULT_REFRESH_INTERVAL = 10  # seconds
 DEFAULT_JPEG_QUALITY = 92  # High quality for crisp display
@@ -57,6 +73,10 @@ THEME_OCEAN = "ocean"
 THEME_SUNSET = "sunset"
 THEME_FOREST = "forest"
 THEME_CANDY = "candy"
+THEME_BLUEPRINT = "blueprint"
+THEME_INK = "ink"
+THEME_AURORA = "aurora"
+THEME_BRUTAL = "brutal"
 
 # Theme display names for UI
 # watchOS is listed first so it appears at the top of the dropdown — it's
@@ -73,6 +93,10 @@ THEME_OPTIONS = {
     THEME_SUNSET: "Sunset",
     THEME_FOREST: "Forest",
     THEME_CANDY: "Candy",
+    THEME_BLUEPRINT: "Blueprint",
+    THEME_INK: "Ink",
+    THEME_AURORA: "Aurora",
+    THEME_BRUTAL: "Brutal",
 }
 
 # Layout types

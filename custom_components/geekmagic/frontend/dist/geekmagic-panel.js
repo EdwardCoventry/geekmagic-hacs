@@ -284,7 +284,7 @@ V.elementStyles = [], V.shadowRootOptions = { mode: "open" }, V[S("elementProper
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const C = globalThis, W = C.trustedTypes, ie = W ? W.createPolicy("lit-html", { createHTML: (s) => s }) : void 0, he = "$lit$", w = `lit$${Math.random().toFixed(9).slice(2)}$`, pe = "?" + w, Ee = `<${pe}>`, A = document, I = () => A.createComment(""), M = (s) => s === null || typeof s != "object" && typeof s != "function", Y = Array.isArray, ke = (s) => Y(s) || typeof (s == null ? void 0 : s[Symbol.iterator]) == "function", F = `[ 	
+const C = globalThis, z = C.trustedTypes, ie = z ? z.createPolicy("lit-html", { createHTML: (s) => s }) : void 0, he = "$lit$", w = `lit$${Math.random().toFixed(9).slice(2)}$`, pe = "?" + w, Ee = `<${pe}>`, A = document, I = () => A.createComment(""), M = (s) => s === null || typeof s != "object" && typeof s != "function", Y = Array.isArray, ke = (s) => Y(s) || typeof (s == null ? void 0 : s[Symbol.iterator]) == "function", F = `[ 	
 \f\r]`, P = /<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g, se = /-->/g, re = />/g, $ = RegExp(`>|${F}(?:([^\\s"'>=/]+)(${F}*=${F}*(?:[^ 	
 \f\r"'\`<>=]|("|')|))|$)`, "g"), ae = /'/g, oe = /"/g, ue = /^(?:script|style|textarea|title)$/i, Pe = (s) => (e, ...t) => ({ _$litType$: s, strings: e, values: t }), c = Pe(1), E = Symbol.for("lit-noChange"), p = Symbol.for("lit-nothing"), ne = /* @__PURE__ */ new WeakMap(), b = A.createTreeWalker(A, 129);
 function ge(s, e) {
@@ -317,12 +317,12 @@ class H {
       if (r.nodeType === 1) {
         if (r.hasAttributes()) for (const d of r.getAttributeNames()) if (d.endsWith(he)) {
           const f = v[o++], _ = r.getAttribute(d).split(w), U = /([.?@])?(.*)/.exec(f);
-          n.push({ type: 1, index: a, name: U[2], strings: _, ctor: U[1] === "." ? Oe : U[1] === "?" ? Ie : U[1] === "@" ? Me : z }), r.removeAttribute(d);
+          n.push({ type: 1, index: a, name: U[2], strings: _, ctor: U[1] === "." ? Oe : U[1] === "?" ? Ie : U[1] === "@" ? Me : W }), r.removeAttribute(d);
         } else d.startsWith(w) && (n.push({ type: 6, index: a }), r.removeAttribute(d));
         if (ue.test(r.tagName)) {
           const d = r.textContent.split(w), f = d.length - 1;
           if (f > 0) {
-            r.textContent = W ? W.emptyScript : "";
+            r.textContent = z ? z.emptyScript : "";
             for (let _ = 0; _ < f; _++) r.append(d[_], I()), b.nextNode(), n.push({ type: 2, index: ++a });
             r.append(d[f], I());
           }
@@ -438,7 +438,7 @@ class L {
     this._$AM === void 0 && (this._$Cv = e, (t = this._$AP) == null || t.call(this, e));
   }
 }
-class z {
+class W {
   get tagName() {
     return this.element.tagName;
   }
@@ -463,7 +463,7 @@ class z {
     e === p ? this.element.removeAttribute(this.name) : this.element.setAttribute(this.name, e ?? "");
   }
 }
-class Oe extends z {
+class Oe extends W {
   constructor() {
     super(...arguments), this.type = 3;
   }
@@ -471,7 +471,7 @@ class Oe extends z {
     this.element[this.name] = e === p ? void 0 : e;
   }
 }
-class Ie extends z {
+class Ie extends W {
   constructor() {
     super(...arguments), this.type = 4;
   }
@@ -479,7 +479,7 @@ class Ie extends z {
     this.element.toggleAttribute(this.name, !!e && e !== p);
   }
 }
-class Me extends z {
+class Me extends W {
   constructor(e, t, i, r, a) {
     super(e, t, i, r, a), this.type = 5;
   }
@@ -644,12 +644,12 @@ function ve(s) {
 function De(s, e) {
   return [{ value: "", label: s }, ...ve(e)];
 }
-var je = Object.defineProperty, We = Object.getOwnPropertyDescriptor, g = (s, e, t, i) => {
-  for (var r = i > 1 ? void 0 : i ? We(e, t) : e, a = s.length - 1, o; a >= 0; a--)
+var je = Object.defineProperty, ze = Object.getOwnPropertyDescriptor, g = (s, e, t, i) => {
+  for (var r = i > 1 ? void 0 : i ? ze(e, t) : e, a = s.length - 1, o; a >= 0; a--)
     (o = s[a]) && (r = (i ? o(e, t, r) : o(r)) || r);
   return i && r && je(e, t, r), r;
 };
-const ze = (() => {
+const We = (() => {
   try {
     return Intl.supportedValuesOf("timeZone");
   } catch {
@@ -1311,6 +1311,22 @@ let u = class extends O {
             ></ha-input>
           </div>
         `;
+      case "textarea":
+        return c`
+          <div class="option-field option-textarea">
+            <label>${t.label}</label>
+            <textarea
+              .value=${i || ""}
+              placeholder=${t.placeholder || ""}
+              spellcheck="false"
+              @input=${(o) => this._updateWidgetOption(
+          s,
+          t.key,
+          o.target.value
+        )}
+            ></textarea>
+          </div>
+        `;
       case "icon":
         return c`
           <div class="option-field">
@@ -1376,7 +1392,7 @@ let u = class extends O {
               .hass=${this.hass}
               .label=${t.label}
               .value=${i || ""}
-              .items=${ze.map((o) => ({ value: o, label: o }))}
+              .items=${We.map((o) => ({ value: o, label: o }))}
               item-value-path="value"
               item-label-path="label"
               allow-custom-value
@@ -2288,6 +2304,34 @@ u.styles = fe`
 
     .option-field:last-child {
       margin-bottom: 0;
+    }
+
+    .option-textarea label {
+      display: block;
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-bottom: 4px;
+    }
+
+    .option-textarea textarea {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 140px;
+      resize: vertical;
+      font-family: var(--code-font-family, monospace);
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--primary-text-color);
+      background: var(--card-background-color);
+      border: 1px solid var(--divider-color);
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .option-textarea textarea:focus {
+      outline: none;
+      border-color: var(--primary-color);
     }
 
     .option-row {

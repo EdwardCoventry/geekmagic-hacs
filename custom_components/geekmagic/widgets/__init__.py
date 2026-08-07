@@ -13,6 +13,7 @@ from .climate import ClimateWidget
 from .clock import ClockWidget
 from .entity import EntityWidget
 from .gauge import GaugeWidget
+from .html import HtmlWidget
 from .icon import IconWidget
 from .media import MediaWidget
 from .progress import MultiProgressWidget, ProgressWidget
@@ -31,6 +32,7 @@ __all__ = [
     "ClockWidget",
     "EntityWidget",
     "GaugeWidget",
+    "HtmlWidget",
     "IconWidget",
     "MediaWidget",
     "MultiProgressWidget",
@@ -53,6 +55,7 @@ _ALL_WIDGETS: list[type[Widget]] = [
     ClockWidget,
     EntityWidget,
     GaugeWidget,
+    HtmlWidget,
     IconWidget,
     MediaWidget,
     MultiProgressWidget,
