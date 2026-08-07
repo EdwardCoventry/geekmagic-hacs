@@ -86,6 +86,50 @@ class TestTemplateRendering:
         result = _render_template("[{{ state }}][{{ name }}]", state)
         assert result == "[][]"
 
+    def test_options_entity_id_feeds_primary_variables(self, ctx):
+        """The UI stores the selector in options.entity_id and the
+        coordinator delivers that entity in state.entities — the
+        convenience variables must resolve it as the primary entity."""
+        widget = HtmlWidget(
+            WidgetConfig(
+                widget_type="html",
+                slot=0,
+                options={
+                    "entity_id": "sensor.temp",
+                    "html": "{{ name }}|{{ state }}|{{ unit }}|{{ attributes.friendly_name }}",
+                },
+            )
+        )
+        state = WidgetState(
+            entity=None,
+            entities={
+                "sensor.temp": EntityState(
+                    entity_id="sensor.temp",
+                    state="21.5",
+                    attributes={"friendly_name": "Room", "unit_of_measurement": "°C"},
+                )
+            },
+            now=datetime.now(tz=UTC),
+        )
+        assert widget.render_html(ctx, state) == "Room|21.5|°C|Room"
+
+    def test_top_level_entity_id_still_feeds_primary_variables(self, ctx, widget_state):
+        """Traditional config.entity_id (state.entity) keeps working."""
+        widget = make_widget("{{ name }}|{{ state }}{{ unit }}")
+        assert widget.render_html(ctx, widget_state) == "Living Room|21.5°C"
+
+    def test_options_entity_missing_falls_back_to_state_entity(self, ctx, widget_state):
+        """An unresolvable options entity degrades to state.entity."""
+        widget = HtmlWidget(
+            WidgetConfig(
+                widget_type="html",
+                slot=0,
+                entity_id="sensor.temperature",
+                options={"entity_id": "sensor.gone", "html": "{{ state }}"},
+            )
+        )
+        assert widget.render_html(ctx, widget_state) == "21.5"
+
     def test_css_braces_untouched(self, widget_state):
         css = "body { color: red; }"
         assert _render_template(css, widget_state) == css
@@ -143,6 +187,25 @@ class TestGetEntities:
             )
         )
         assert widget.get_entities() == ["sensor.other"]
+
+    def test_extracts_is_state_references(self):
+        widget = make_widget("{{ is_state('light.kitchen', 'on') }}", entity_id=None)
+        assert widget.get_entities() == ["light.kitchen"]
+
+    def test_extracts_is_state_double_quotes(self):
+        widget = make_widget('{{ is_state("light.kitchen", "on") }}', entity_id=None)
+        assert widget.get_entities() == ["light.kitchen"]
+
+    def test_mixed_helpers_stable_order_deduped(self):
+        widget = make_widget(
+            "{{ states('sensor.a') }}"
+            "{{ is_state('light.b', 'on') }}"
+            "{{ state_attr('sensor.a', 'x') }}"
+            '{{ is_state("sensor.c", "wet") }}'
+            "{{ states('light.b') }}",
+            entity_id=None,
+        )
+        assert widget.get_entities() == ["sensor.a", "light.b", "sensor.c"]
 
 
 class TestRenderFragment:

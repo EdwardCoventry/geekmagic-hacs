@@ -25,14 +25,23 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Entity references inside the Jinja template, e.g. states('sensor.temp')
-# or state_attr("climate.living", "current_temperature"). Used to declare
-# entity dependencies so the coordinator pre-fetches them into WidgetState.
-_ENTITY_REF_RE = re.compile(r"""\b(?:states|state_attr)\(\s*['"]([^'"]+)['"]""")
+# Entity references inside the Jinja template, e.g. states('sensor.temp'),
+# state_attr("climate.living", "current_temperature") or
+# is_state('light.kitchen', 'on'). Used to declare entity dependencies so
+# the coordinator pre-fetches them into WidgetState.
+_ENTITY_REF_RE = re.compile(r"""\b(?:states|state_attr|is_state)\(\s*['"]([^'"]+)['"]""")
 
 
-def _build_template_context(state: WidgetState) -> dict[str, Any]:
-    """Build the Jinja context exposed to the user's HTML template."""
+def _build_template_context(
+    state: WidgetState, primary_entity_id: str | None = None
+) -> dict[str, Any]:
+    """Build the Jinja context exposed to the user's HTML template.
+
+    The convenience variables (``state``/``name``/``unit``/...) come from
+    ``primary_entity_id`` when given (the widget's "Entity (template
+    data)" selector, delivered by the coordinator in
+    ``WidgetState.entities``), falling back to ``state.entity``.
+    """
 
     def states(entity_id: str) -> str:
         entity = state.get_entity(entity_id)
@@ -45,7 +54,9 @@ def _build_template_context(state: WidgetState) -> dict[str, Any]:
     def is_state(entity_id: str, value: str) -> bool:
         return states(entity_id) == value
 
-    entity = state.entity
+    entity = state.get_entity(primary_entity_id) if primary_entity_id else None
+    if entity is None:
+        entity = state.entity
     return {
         "entity": entity,
         "state": entity.state if entity else "",
@@ -59,7 +70,7 @@ def _build_template_context(state: WidgetState) -> dict[str, Any]:
     }
 
 
-def _render_template(source: str, state: WidgetState) -> str:
+def _render_template(source: str, state: WidgetState, primary_entity_id: str | None = None) -> str:
     """Render the user's Jinja template against widget state.
 
     Uses a sandboxed environment: templates come from the user's own HA
@@ -67,7 +78,7 @@ def _render_template(source: str, state: WidgetState) -> str:
     to Python internals.
     """
     env = SandboxedEnvironment(autoescape=False)
-    return env.from_string(source).render(**_build_template_context(state))
+    return env.from_string(source).render(**_build_template_context(state, primary_entity_id))
 
 
 def _placeholder(message: str, icon: str = "code-tags") -> str:
@@ -165,7 +176,7 @@ class HtmlWidget(Widget):
             return _placeholder("No HTML configured")
 
         try:
-            return _render_template(self.html, state)
+            return _render_template(self.html, state, self.dynamic_entity_id)
         except Exception:
             _LOGGER.exception("Invalid Jinja template in HTML widget")
             return _placeholder("Template error", icon="alert-circle-outline")
@@ -174,8 +185,8 @@ class HtmlWidget(Widget):
         """Return entity IDs this widget depends on.
 
         Includes the configured entity plus every entity referenced via
-        ``states()`` / ``state_attr()`` in the template, so the
-        coordinator pre-fetches them into ``WidgetState.entities``.
+        ``states()`` / ``state_attr()`` / ``is_state()`` in the template,
+        so the coordinator pre-fetches them into ``WidgetState.entities``.
         """
         entities: list[str] = []
         if self.config.entity_id:
