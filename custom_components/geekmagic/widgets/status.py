@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..const import PLACEHOLDER_NAME
 from ..htmldoc import css_rgb, mdi_span
+from ._cardfit import CAPTION_MIN_PX, fit_caption_sized
 from ._cellkit import cell_box_px, cell_padding, hairline_css, label_px, tint_css
 from ._textfit import HERO_TRACKING, TextMetrics, metrics_for
 from .base import Widget, WidgetConfig
@@ -32,6 +33,13 @@ _CHIP_FILL_ALPHA = 0.17
 _CHIP_RING_ALPHA = 0.26
 # Same tint, used to fill the state pills in the list variant.
 _PILL_FILL_ALPHA = 0.16
+
+# Content height below which even a 10px identity row would crowd the
+# state out of the cell. Mirrors the card family's compact-identity gate.
+_IDENTITY_MIN_H = 34.0
+# The same gate for the icon-only variant, which has no hero to protect —
+# only the chip, and a chip a few pixels smaller still reads.
+_ICON_ONLY_CAPTION_MIN_H = 40.0
 
 
 def _is_entity_on(entity: EntityState | None) -> bool:
@@ -133,6 +141,24 @@ class _Row:
             f'border-radius: 50%; background: {self.color}"></span></span>'
         )
 
+    def _state_html(self, px: float, *, filled: bool) -> str:
+        """The row's state text, as a tinted pill or bare when it must be.
+
+        The pill's own padding is ~1.7em of the row's width; a narrow
+        column that cannot spare it keeps the state as bare tinted text
+        rather than losing the word.
+        """
+        if filled:
+            return (
+                f'<span class="chip" style="flex: none; font-size: {px:.1f}px; '
+                f"font-weight: 700; color: {self.color}; "
+                f'background: {self.fill}">{escape(self.state_text)}</span>'
+            )
+        return (
+            f'<span style="flex: none; font-size: {px:.1f}px; font-weight: 700; '
+            f'line-height: 1; color: {self.color}">{escape(self.state_text)}</span>'
+        )
+
     def html(
         self,
         tm: TextMetrics,
@@ -145,16 +171,11 @@ class _Row:
         icon_col: float,
         gap: float,
         pill_px: float | None,
+        pill_filled: bool = True,
         hairline: str,
     ) -> str:
         """Icon column, name, and (when it fits) the tinted state pill."""
-        pill_html = ""
-        if pill_px is not None:
-            pill_html = (
-                f'<span class="chip" style="flex: none; font-size: {pill_px:.1f}px; '
-                f"font-weight: 700; color: {self.color}; "
-                f'background: {self.fill}">{escape(self.state_text)}</span>'
-            )
+        pill_html = "" if pill_px is None else self._state_html(pill_px, filled=pill_filled)
         # A long name gets one shrink step (down to 88%) before the
         # ellipsis — "Kitchen Window" whole at 13px beats "Kitchen …"
         # at 15px. The step is bounded so rows stay visually uniform.
@@ -285,22 +306,34 @@ class StatusWidget(Widget):
     # Layouts
     # ------------------------------------------------------------------
 
+    @staticmethod
     def _caption_html(
-        self,
-        tm: TextMetrics,
+        ctx: CellContext,
         text: str,
-        px: float,
         max_width: float,
         align: str,
         *,
-        hide_short: bool = True,
+        icon_html: str = "",
+        max_px: float | None = None,
     ) -> str:
-        """A caps-tracked name band, truncated to the width it actually has."""
-        fitted = tm.truncate(
-            text.upper(), px, max_width, "bold", tracking=tm.label_tracking, min_chars=3
+        """A caps-tracked name band, shrunk to the width it actually has.
+
+        Size is given up before letters (the shared ``fit_caption_sized``
+        policy): a whole "FRONT DOOR" at 10px names the cell where
+        "FRON…" at 12px names nothing. Visibility is the caller's
+        decision, so the band never carries ``hide-short`` — the kit's
+        media rule would re-hide the row the widget shrank for.
+        """
+        fitted, px = fit_caption_sized(text, ctx, max_width, reserve_em=1.5 if icon_html else 0.0)
+        if max_px is not None:
+            px = min(px, max_px)
+        if not (fitted or icon_html):
+            return ""
+        classes = "t-label caption-row" if icon_html else "t-label"
+        return (
+            f'<div class="{classes}" style="text-align: {align}; font-size: {px:.1f}px">'
+            f"{icon_html}{escape(fitted)}</div>"
         )
-        classes = "t-label hide-short" if hide_short else "t-label"
-        return f'<div class="{classes}" style="text-align: {align}">{escape(fitted)}</div>'
 
     def _render_stack(self, ctx: CellContext, ind: _Indicator) -> str:
         """Chip / name / state, spread evenly down the cell."""
@@ -324,11 +357,15 @@ class StatusWidget(Widget):
         if slack > 0.22 * usable_h:
             chip_outer = min(chip_outer + slack * 0.45, 104.0, 0.55 * usable_w)
 
+        # No hide-short on either band: this layout only runs in cells at
+        # least 90px on their short side, which the chip and the caption
+        # were just sized against — the kit's 100px rule would blank the
+        # top two thirds of a 96px cell it has no say over.
         chip = ind.chip_html(size_class="i-md", px=chip_outer / _CHIP_SIZE_EM)
         return (
             f'<div class="cell" style="padding: {pad_y:.1f}px {pad_x:.1f}px">'
-            f'<div class="card-icon hide-short">{chip}</div>'
-            f"{self._caption_html(tm, ind.name, caption_px, usable_w, 'center')}"
+            f'<div class="card-icon">{chip}</div>'
+            f"{self._caption_html(ctx, ind.name, usable_w, 'center')}"
             f'<div class="t-hero" style="color: {ind.color}; font-size: {hero_px:.1f}px">'
             f"{escape(ind.text)}</div>"
             "</div>"
@@ -361,50 +398,64 @@ class StatusWidget(Widget):
             f"{chip}"
             '<div style="display: flex; flex-direction: column; align-items: flex-start; '
             f'justify-content: center; gap: {inner_gap:.1f}px">'
-            f"{self._caption_html(tm, ind.name, caption_px, text_w, 'left', hide_short=False)}"
+            f"{self._caption_html(ctx, ind.name, text_w, 'left')}"
             f'<div class="t-hero" style="color: {ind.color}; font-size: {hero_px:.1f}px">'
             f"{escape(ind.text)}</div>"
             "</div></div>"
         )
 
     def _render_compact(self, ctx: CellContext, ind: _Indicator) -> str:
-        """3x3-grid slot: the state, as big as the cell allows."""
+        """3x3-grid slot: an inline identity row over the state.
+
+        A bare "OPEN" says nothing about *what* is open, so the chip and
+        the name collapse into one 10px row — the compact-identity rule
+        the card widgets follow — and the state keeps the rest.
+        """
         tm = metrics_for(ctx.theme)
         pad_x, pad_y = cell_padding(ctx)
         usable_w, usable_h = cell_box_px(ctx, pad_x, pad_y)
+
+        identity = ""
+        if usable_h >= _IDENTITY_MIN_H:
+            icon_html = mdi_span(
+                ind.icon,
+                "icon",
+                f"font-size: {CAPTION_MIN_PX * 1.15:.1f}px; color: {ind.color}; flex: none",
+            )
+            identity = self._caption_html(
+                ctx, ind.name, usable_w, "center", icon_html=icon_html, max_px=CAPTION_MIN_PX
+            )
         hero_px = tm.fit_font_size(
             ind.text,
             usable_w,
-            usable_h * 0.68,
+            (usable_h - (CAPTION_MIN_PX * 1.5 if identity else 0.0)) * 0.78,
             "extrabold",
             tracking=HERO_TRACKING,
             min_px=12.0,
         )
         return (
             f'<div class="cell" style="padding: {pad_y:.1f}px {pad_x:.1f}px; '
-            'justify-content: center">'
+            f'justify-content: center; gap: {CAPTION_MIN_PX * 0.4:.1f}px">{identity}'
             f'<div class="t-hero" style="color: {ind.color}; font-size: {hero_px:.1f}px">'
             f"{escape(ind.text)}</div></div>"
         )
 
     def _render_icon_only(self, ctx: CellContext, ind: _Indicator) -> str:
         """The tinted chip *is* the state — promoted to the hero band."""
-        tm = metrics_for(ctx.theme)
         pad_x, pad_y = cell_padding(ctx)
         usable_w, usable_h = cell_box_px(ctx, pad_x, pad_y)
         caption_px = label_px(ctx)
-        show_caption = ctx.height >= 100
+        # An unnamed lozenge is a lamp with no label on it. The caption
+        # shrinks instead of disappearing, so it survives every cell with
+        # room for a chip and a 10px word above it.
+        show_caption = usable_h >= _ICON_ONLY_CAPTION_MIN_H
         chip_outer = min(
             usable_h - (caption_px * 1.9 if show_caption else 0.0),
             usable_w * 0.72,
             132.0,
         )
         chip = ind.chip_html(size_class="i-lg", px=max(14.0, chip_outer / _CHIP_SIZE_EM))
-        caption = (
-            self._caption_html(tm, ind.name, caption_px, usable_w, "center", hide_short=False)
-            if show_caption
-            else ""
-        )
+        caption = self._caption_html(ctx, ind.name, usable_w, "center") if show_caption else ""
         # Two bands only: space-evenly would fling the caption and the
         # chip to opposite ends of a tall cell. Centre them as one unit.
         return (
@@ -517,7 +568,6 @@ class StatusListWidget(Widget):
         """Render the status list widget."""
         tm = metrics_for(ctx.theme)
         rows = self._resolve_rows(ctx, state)
-        caption_px = label_px(ctx)
         pad_x, pad_y = cell_padding(ctx)
         avail, usable_h = cell_box_px(ctx, pad_x, pad_y)
 
@@ -525,15 +575,14 @@ class StatusListWidget(Widget):
         # never taller than the cell is wide would make sensible.
         row_max = min(self._ROW_MAX, ctx.width * 0.30)
 
-        # The title only earns its band when the cell is wide enough to
-        # read as a list (mirroring the kit's .hide-narrow breakpoint)
-        # and the rows it displaces stay legible without it.
-        title_h = caption_px * 1.9
-        show_title = (
-            bool(self.title)
-            and ctx.width >= 100
-            and (usable_h - title_h) / len(rows) >= self._ROW_MIN
+        # The title earns its band on the height budget alone — a narrow
+        # column still has to say what it is listing, and the title
+        # shrinks to the 10px floor before it costs a row its pitch.
+        title_text, title_px = (
+            fit_caption_sized(self.title, ctx, avail) if self.title else ("", 0.0)
         )
+        title_h = title_px * 1.9 if title_text else 0.0
+        show_title = bool(title_text) and (usable_h - title_h) / len(rows) >= self._ROW_MIN
         rows_h = usable_h - (title_h if show_title else 0.0)
 
         # Past a point there is no legible pitch left; showing fewer rows
@@ -547,15 +596,29 @@ class StatusListWidget(Widget):
         gap = max(4.0, row_h * 0.16)
         pill_px = max(9.0, min(row_h * 0.36, 14.0))
 
-        # Pills are all-or-nothing: a list where only some rows carry one
-        # loses its right-hand edge. Size the decision off the widest.
-        widest_pill = max(tm.width(r.state_text, pill_px, "bold") for r in rows) + pill_px * 1.7
+        # The state is all-or-nothing across rows — a list where only some
+        # rows carry one loses its right-hand edge — but it shrinks before
+        # it goes, so a mid-size cell keeps "Closed" instead of leaving
+        # the state to the icon's tint alone: full pill, pill at the
+        # legibility floor, then the same text without the pill's own
+        # ~1.7em of padding. Every step is sized off the widest state and
+        # kept only if the names still get a readable share.
         name_budget = avail - icon_col - gap
-        show_pills = name_budget - widest_pill - gap * 2 >= max(0.30 * avail, 55.0)
-        if show_pills:
+        keep = max(0.30 * avail, 55.0)
+        state_px: float | None = None
+        pill_filled = True
+        for px, filled in ((pill_px, True), (max(9.0, pill_px * 0.72), True), (9.0, False)):
             # Twice the gap: one the flex row consumes, one kept clear so
-            # a name that fills its budget still breathes off the pill.
-            name_budget -= widest_pill + gap * 2
+            # a name that fills its budget still breathes off the state.
+            cost = (
+                max(tm.width(r.state_text, px, "bold") for r in rows)
+                + (px * 1.7 if filled else 0.0)
+                + gap * 2
+            )
+            if name_budget - cost >= keep:
+                state_px, pill_filled = px, filled
+                name_budget -= cost
+                break
 
         name_px = self._name_px(tm, rows, row_h, name_budget)
 
@@ -569,25 +632,19 @@ class StatusListWidget(Widget):
                 icon_px=icon_px,
                 icon_col=icon_col,
                 gap=gap,
-                pill_px=pill_px if show_pills else None,
+                pill_px=state_px,
+                pill_filled=pill_filled,
                 hairline=hairline_css(ctx.theme),
             )
             for i, row in enumerate(rows)
         )
 
         title_html = ""
-        if show_title and self.title:
-            fitted = tm.truncate(
-                self.title.upper(),
-                caption_px,
-                avail,
-                "bold",
-                tracking=tm.label_tracking,
-                min_chars=3,
-            )
+        if show_title:
             title_html = (
                 '<div class="t-label" style="text-align: left; flex: none; '
-                f'padding-bottom: {caption_px * 0.55:.1f}px">{escape(fitted)}</div>'
+                f"font-size: {title_px:.1f}px; "
+                f'padding-bottom: {title_px * 0.55:.1f}px">{escape(title_text)}</div>'
             )
 
         return (

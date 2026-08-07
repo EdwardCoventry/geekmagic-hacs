@@ -72,6 +72,17 @@ def char_em(ctx: CellContext, *, caps: bool = False) -> float:
     return 0.53 if rounded else 0.62
 
 
+# A caption gives up size before it gives up letters, down to this
+# floor — the whole word at 10px beats "LIVI…" at 12px on a 2" panel.
+# Mirrors ``_cardfit.CAPTION_MIN_PX``.
+CAPTION_MIN_PX = 10.0
+
+# Characters that must survive truncation for a caption to be worth
+# drawing ("NET…" is noise, "NETW…" is not). Pass 0 when the caption is
+# the only thing the cell has left to say.
+CAPTION_MIN_KEEP = 4
+
+
 def fit_caption(
     ctx: CellContext,
     text: str,
@@ -79,6 +90,7 @@ def fit_caption(
     reserve_em: float = 0.0,
     width_px: float | None = None,
     font_px: float | None = None,
+    min_keep: int = CAPTION_MIN_KEEP,
 ) -> str:
     """Truncate a caps caption to the width it has to live in.
 
@@ -90,14 +102,82 @@ def fit_caption(
     per_char = px * char_em(ctx, caps=True)
     usable = (width_px if width_px is not None else ctx.width * 0.90) - reserve_em * px
     fitted = truncate_text(text, max(3, int(usable / per_char)))
-    # Only a truly destroyed stub ("NET…" is noise, "NETW…" is not) is
-    # worse than nothing — an unlabeled gauge is a number without a
-    # meaning. Same rule as _cardfit.fit_caption.
+    # Only a truly destroyed stub is worse than nothing — an unlabeled
+    # gauge is a number without a meaning. Same rule as
+    # _cardfit.fit_caption.
     if fitted != text:
         kept = len(fitted.rstrip("…"))
-        if kept < 4:
+        if kept < min_keep:
             return ""
     return fitted
+
+
+def fit_caption_sized(
+    ctx: CellContext,
+    text: str,
+    *,
+    reserve_em: float = 0.0,
+    width_px: float | None = None,
+    max_px: float | None = None,
+    min_keep: int = CAPTION_MIN_KEEP,
+) -> tuple[str, float]:
+    """Fit a caps caption: shrink to the whole word before truncating.
+
+    Returns ``(text, px)``. The gauge-family counterpart of
+    ``_cardfit.fit_caption_sized`` — same shrink-then-truncate contract,
+    budgeting width with :func:`char_em` (which already carries the kit's
+    label tracking) rather than the measured card metrics. ``max_px``
+    overrides the kit's ``.t-label`` size for captions that live in a
+    custom band (a ring's hole).
+    """
+    upper = text.upper()
+    top = max_px if max_px is not None else label_px(ctx)
+    usable = width_px if width_px is not None else ctx.width * 0.90
+    per_em = char_em(ctx, caps=True)
+    px_fit = usable / max(1e-6, len(upper) * per_em + reserve_em)
+    if px_fit >= CAPTION_MIN_PX:
+        return upper, max(CAPTION_MIN_PX, min(top, px_fit))
+    fitted = fit_caption(
+        ctx,
+        upper,
+        reserve_em=reserve_em,
+        width_px=usable,
+        font_px=CAPTION_MIN_PX,
+        min_keep=min_keep,
+    )
+    return fitted, CAPTION_MIN_PX
+
+
+# Below this the cell cannot hold a caption band on top of its value and
+# its bar; above it, even a hero-layout footer (~65px) has room for the
+# 10px name, and an unlabeled bar is a number without a meaning.
+CAPTION_MIN_CELL_H = 46.0
+
+
+def caption_band(
+    ctx: CellContext,
+    name: str,
+    icon_html: str = "",
+    *,
+    width_ratio: float = 1.0,
+) -> str:
+    """Caps caption band whose visibility is decided here, not by the kit.
+
+    ``hide-short`` would blank the row in every cell under 100px tall,
+    icon included — but those cells still have room for a 10px name, and
+    they are exactly the cells that most need one. The band is therefore
+    sized in Python and carries no hide class.
+    """
+    if not name or ctx.height < CAPTION_MIN_CELL_H:
+        return ""
+    reserve_em = 1.6 if icon_html else 0.0
+    text, px = fit_caption_sized(
+        ctx, name, reserve_em=reserve_em, width_px=ctx.width * 0.90 * width_ratio
+    )
+    if not (text or icon_html):
+        return ""
+    size = f' style="font-size: {px:.1f}px"' if px < label_px(ctx) - 0.25 else ""
+    return f'<div class="t-label caption-row"{size}>{icon_html}{escape(text)}</div>'
 
 
 def track_css(

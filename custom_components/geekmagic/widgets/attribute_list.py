@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..const import PLACEHOLDER_NAME, PLACEHOLDER_VALUE
 from ..htmldoc import css_rgb
-from ._cellkit import cell_box_px, cell_padding, hairline_css, label_px
+from ._cardfit import fit_caption_sized
+from ._cellkit import cell_box_px, cell_padding, hairline_css
 from ._textfit import TextMetrics, metrics_for
 from .base import Widget, WidgetConfig
 
@@ -26,6 +27,33 @@ _ROW_TRACKING = 0.06
 # sit side by side without a visible change of rhythm.
 _ROW_MIN = 10.5
 _ROW_MAX = 46.0
+
+# A row label gives up size before it gives up letters, down to this
+# floor — "HUMIDITY" at 9px names its row, "HU…" at 13px does not.
+_LABEL_MIN_PX = 9.0
+# Characters that must survive truncation for a label to be worth the
+# width ("AR…" is noise, "ARRI…" still says "arrives").
+_LABEL_MIN_KEEP = 4
+
+
+def _fit_label(tm: TextMetrics, label: str, px: float, avail: float) -> tuple[str, float]:
+    """Shrink one row's label into ``avail``, truncating below the floor.
+
+    Per row, not per widget: sizing every label off the widest one meant
+    a single long attribute name stripped the captions off the whole
+    table. An empty result means even a stub would say nothing, and the
+    caller gives the row to its value.
+    """
+    unit = tm.width(label, 1.0, "bold", _ROW_TRACKING)
+    if unit <= 0:  # pragma: no cover - labels default to the attr key
+        return label, px
+    px_fit = avail / unit
+    if px_fit >= _LABEL_MIN_PX:
+        return label, min(px, px_fit)
+    fitted = tm.truncate(label, _LABEL_MIN_PX, avail, "bold", tracking=_ROW_TRACKING, min_chars=3)
+    if fitted != label and len(fitted.rstrip("…")) < _LABEL_MIN_KEEP:
+        return "", _LABEL_MIN_PX
+    return fitted, _LABEL_MIN_PX
 
 
 @dataclass(frozen=True)
@@ -119,11 +147,14 @@ class AttributeListWidget(Widget):
 
         pad_x, pad_y = cell_padding(ctx)
         avail, usable_h = cell_box_px(ctx, pad_x, pad_y)
-        caption_px = label_px(ctx)
         count = max(1, len(items))
 
-        title_h = caption_px * 1.9
-        show_title = bool(title) and ctx.width >= 100 and (usable_h - title_h) / count >= _ROW_MIN
+        title_text, title_px = fit_caption_sized(title, ctx, avail) if title else ("", 0.0)
+        title_h = title_px * 1.9 if title_text else 0.0
+        # The title answers to the row budget it displaces, never to the
+        # cell width — a narrow column needs its heading too, and with
+        # nothing configured the title IS the widget, so it always shows.
+        show_title = bool(title_text) and (not items or (usable_h - title_h) / count >= _ROW_MIN)
         rows_h = usable_h - (title_h if show_title else 0.0)
 
         if items and rows_h / count < _ROW_MIN:
@@ -133,7 +164,7 @@ class AttributeListWidget(Widget):
 
         value_px = max(10.0, min(row_h * 0.50, 24.0))
         gap = max(5.0, row_h * 0.16)
-        item_label_px, show_labels = self._label_size(tm, items, value_px, avail - gap)
+        item_label_px = self._label_size(tm, items, value_px, avail - gap)
 
         body = "".join(
             self._row_html(
@@ -141,7 +172,7 @@ class AttributeListWidget(Widget):
                 item,
                 index=i,
                 row_h=row_h,
-                label_px_=item_label_px if show_labels else None,
+                label_px_=item_label_px,
                 value_px=value_px,
                 gap=gap,
                 avail=avail,
@@ -151,18 +182,11 @@ class AttributeListWidget(Widget):
         )
 
         title_html = ""
-        if show_title and title:
-            fitted = tm.truncate(
-                title.upper(),
-                caption_px,
-                avail,
-                "bold",
-                tracking=tm.label_tracking,
-                min_chars=3,
-            )
+        if show_title:
             title_html = (
                 '<div class="t-label" style="text-align: left; flex: none; '
-                f'padding-bottom: {caption_px * 0.55:.1f}px">{escape(fitted)}</div>'
+                f"font-size: {title_px:.1f}px; "
+                f'padding-bottom: {title_px * 0.55:.1f}px">{escape(title_text)}</div>'
             )
 
         return (
@@ -174,27 +198,22 @@ class AttributeListWidget(Widget):
         )
 
     @staticmethod
-    def _label_size(
-        tm: TextMetrics, items: list[_Item], value_px: float, budget: float
-    ) -> tuple[float, bool]:
-        """Pick one label size for every row, and whether to show labels.
+    def _label_size(tm: TextMetrics, items: list[_Item], value_px: float, budget: float) -> float:
+        """The size every row's label *starts* at.
 
         Labels are the cheap half of the row — a smaller caps label still
-        reads as a caption, whereas "ARRI…" reads as nothing. So they are
-        shrunk (not truncated) to keep the longest one whole in half the
-        row. Below the legibility floor even that fails, and a 3x3 slot
-        is better off spending its whole width on the value than on
-        "A… 5 m…" — so the labels come off entirely.
+        reads as a caption — so this keeps the longest one whole in half
+        the row where it can. Rows that still overflow shrink their own
+        label from here (:func:`_fit_label`); one long attribute name no
+        longer costs every other row its caption.
         """
-        ideal = max(9.0, min(value_px * 0.78, 14.0))
+        ideal = max(_LABEL_MIN_PX, min(value_px * 0.78, 14.0))
         if not items:
-            return ideal, True
+            return ideal
         widest = max(tm.width(i.label.upper(), 1.0, "bold", _ROW_TRACKING) for i in items)
         if widest <= 0:  # pragma: no cover - labels default to the attr key
-            return ideal, True
-        if widest * 9.0 > budget * 0.55:
-            return ideal, False
-        return max(9.0, min(ideal, budget * 0.5 / widest)), True
+            return ideal
+        return max(_LABEL_MIN_PX, min(ideal, budget * 0.5 / widest))
 
     @staticmethod
     def _row_html(
@@ -203,7 +222,7 @@ class AttributeListWidget(Widget):
         *,
         index: int,
         row_h: float,
-        label_px_: float | None,
+        label_px_: float,
         value_px: float,
         gap: float,
         avail: float,
@@ -221,53 +240,36 @@ class AttributeListWidget(Widget):
             f"font-weight: 700; line-height: 1.05;{color_css}"
         )
 
-        if label_px_ is None:
-            # No room for a caption — the value takes the whole row.
+        # The value carries the information, so it is served first — but
+        # the label only yields size, and only its own row's worth: it
+        # shrinks toward the floor before it truncates, and truncates
+        # before it goes.
+        label = item.label.upper()
+        value = item.value
+        label_w = tm.width(label, label_px_, "bold", _ROW_TRACKING)
+        value_w = tm.width(value, value_px, "bold")
+        budget = avail - gap
+
+        if label_w + value_w > budget:
+            if value_w > budget * 0.78:
+                # Pathologically long value — split the row.
+                value = tm.truncate(
+                    value, value_px, max(budget * 0.62, budget - label_w), "bold", min_chars=2
+                )
+                value_w = tm.width(value, value_px, "bold")
+            label, label_px_ = _fit_label(tm, label, label_px_, budget - value_w)
+
+        if not label:
+            # Not even a stub of a caption fits — the value takes the
+            # whole row rather than sitting next to a blank left edge.
+            # Refitted from the original: the split above reserved room
+            # for a label this row turns out not to have.
             value = tm.truncate(item.value, value_px, avail, "bold", min_chars=2)
             return (
                 f"{row_open}"
                 f'<span style="flex: 1; min-width: 0; text-align: center; {value_css}">'
                 f"{escape(value)}</span></div>"
             )
-
-        # The value carries the information, so it is served first — but
-        # never at the cost of the label disappearing, which would leave
-        # a full-width orphan breaking the table's left edge.
-        label = item.label.upper()
-        label_w = tm.width(label, label_px_, "bold", _ROW_TRACKING)
-        value_w = tm.width(item.value, value_px, "bold")
-        budget = avail - gap
-
-        if label_w + value_w > budget:
-            if value_w <= budget * 0.78:
-                # The value fits whole — it carries the information, so
-                # the LABEL yields: truncate it into what's left, or
-                # drop it entirely when not even a stub fits (a blank
-                # left edge beats "VE…" next to a mangled number).
-                value = item.value
-                label_avail = budget - value_w
-                stub_w = tm.width("AB…", label_px_, "bold", _ROW_TRACKING)
-                if label_avail < stub_w:
-                    label = ""
-                else:
-                    label = tm.truncate(
-                        label,
-                        label_px_,
-                        label_avail,
-                        "bold",
-                        tracking=_ROW_TRACKING,
-                        min_chars=2,
-                    )
-            else:
-                # Pathologically long value — split the row.
-                value_max = max(budget * 0.62, budget - label_w)
-                value = tm.truncate(item.value, value_px, value_max, "bold", min_chars=2)
-                value_w = tm.width(value, value_px, "bold")
-                label = tm.truncate(
-                    label, label_px_, budget - value_w, "bold", tracking=_ROW_TRACKING, min_chars=2
-                )
-        else:
-            value = item.value
 
         return (
             f"{row_open}"

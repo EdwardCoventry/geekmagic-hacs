@@ -9,9 +9,10 @@ from ..htmldoc import css_rgb, mdi_span
 from ._card import chip_html
 from ._gauge import (
     bar_html,
+    caption_band,
     cell_box,
     char_em,
-    fit_caption,
+    fit_caption_sized,
     hero_font_css,
     label_px,
     track_css,
@@ -36,6 +37,16 @@ _BAR_HEIGHT_CSS: dict[str, str] = {
 # Below this the multi-progress rows would be thinner than their own
 # type; extra items are dropped rather than crushed.
 _MIN_ROW_PX = 13.0
+
+# A multi-progress row label is the row's identity, so it shrinks to this
+# floor instead of vanishing — one row of a stack has far less height to
+# spend than a single-value cell.
+_ROW_LABEL_MIN_PX = 9.0
+
+# Pitch a labelled row needs: the label stacked over the bar/percent line
+# with a hair of air between them. The title only displaces rows that
+# keep at least this much.
+_LABELLED_ROW_PX = 24.0
 
 
 class ProgressWidget(Widget):
@@ -89,12 +100,10 @@ class ProgressWidget(Widget):
         bar_height = _BAR_HEIGHT_CSS.get(self.bar_height_style, _BAR_HEIGHT_CSS["normal"])
 
         icon_html = mdi_span(self.icon, "icon i-sm", f"color: {color}") if self.icon else ""
-        caption = (
-            '<div class="t-label caption-row hide-short">'
-            f"{icon_html}"
-            f"{escape(fit_caption(ctx, label.upper(), reserve_em=1.6 if icon_html else 0.0))}"
-            "</div>"
-        )
+        # The caption band carries the icon too, so ``hide-short`` would
+        # cost a footer cell both its name and its tint. ``caption_band``
+        # shrinks it to the 10px floor and decides visibility in Python.
+        caption = caption_band(ctx, label, icon_html)
         # The percent is the hero and stays theme text — the tint lives
         # in the icon and the bar fill (one accent per cell).
         hero_css, unit_css = hero_font_css(f"{percent:.0f}", "%")
@@ -157,14 +166,21 @@ class MultiProgressWidget(Widget):
         avail_w, avail_h = cell_box(ctx)
         lbl_px = label_px(ctx)
 
-        # The title is the first thing to go: rows carry the meaning.
+        # The title is the first thing to go, but it goes on the height it
+        # costs the rows — not on the cell's short side, which stripped
+        # the heading off every narrow column whatever its height. It
+        # shrinks to the 10px floor before it is dropped.
         title_html = ""
-        if self.title and min(ctx.width, ctx.height) >= 130:
-            title_html = (
-                '<div class="t-label" style="flex: none; text-align: left">'
-                f"{escape(fit_caption(ctx, self.title.upper()))}</div>"
-            )
-            avail_h -= lbl_px * 1.8
+        if self.title:
+            title_text, title_px = fit_caption_sized(ctx, self.title, width_px=avail_w)
+            count = max(1, len(self.items))
+            if title_text and (avail_h - title_px * 1.8) / count >= _LABELLED_ROW_PX:
+                size = f"font-size: {title_px:.1f}px; " if title_px < lbl_px - 0.25 else ""
+                title_html = (
+                    f'<div class="t-label" style="{size}flex: none; text-align: left">'
+                    f"{escape(title_text)}</div>"
+                )
+                avail_h -= title_px * 1.8
 
         rows_fit = max(1, int(avail_h / _MIN_ROW_PX))
         items = self.items[:rows_fit]
@@ -175,7 +191,7 @@ class MultiProgressWidget(Widget):
         # Row type is list-sized, not hero-sized: several rows share the
         # cell, so it scales with the row rather than the cell.
         text_px = max(9.0, min(20.0, 0.11 * min(ctx.width, ctx.height), row_h * 0.44))
-        label_px_row = max(8.0, min(text_px * 0.78, 0.075 * ctx.width))
+        label_px_row = max(_ROW_LABEL_MIN_PX, min(text_px * 0.78, 0.075 * ctx.width))
         bar_px = max(4.0, min(14.0, row_h * 0.22))
         # One column for every percent so the bars all end on the same
         # pixel — a ragged right edge is what makes stacked bars look
@@ -183,7 +199,10 @@ class MultiProgressWidget(Widget):
         pct_w = 4.2 * text_px * char_em(ctx)
         # The raw value column only survives in cells the kit keeps it in.
         value_shown = ctx.width >= 130 and ctx.height >= 130
-        labels_shown = ctx.height >= 100
+        # The label names the bar, so it answers to the ROW's pitch, not
+        # the cell height: a short cell drops the raw value (above) and
+        # keeps a 9px label rather than leaving a row of anonymous bars.
+        labels_shown = row_h >= label_px_row + bar_px + 3.0
 
         text_css = f"font-size: {text_px:.1f}px; font-weight: 700; line-height: 1;"
         label_css = (
@@ -284,21 +303,25 @@ class MultiProgressWidget(Widget):
             per_char = label_px_row * char_em(ctx, caps=True) * 0.92
             label_text = truncate_text(label.upper(), max(3, int(budget / per_char)))
             # Label and raw value share one size so the line reads as a
-            # pair; the percent below is the row's actual readout.
-            raw = (
-                f'<span class="hide-small" style="font-size: {label_px_row:.1f}px; '
-                "font-weight: 600; line-height: 1; flex: none; "
-                f'color: var(--text-secondary)">{escape(value_text)}</span>'
-            )
-            # .hide-short must sit on a wrapper: an inline display:flex
-            # would win over the kit's media rule.
+            # pair; the percent below is the row's actual readout. The
+            # raw value is what a short row gives up — the label names
+            # the bar, ``5000/10000`` only restates the percent.
+            raw = ""
+            if value_shown:
+                raw = (
+                    f'<span style="font-size: {label_px_row:.1f}px; '
+                    "font-weight: 600; line-height: 1; flex: none; "
+                    f'color: var(--text-secondary)">{escape(value_text)}</span>'
+                )
+            # No hide-short wrapper: the row decided for itself that it
+            # has the pitch for a label, and the kit's media rule would
+            # blank the label and its icon in every cell under 100px.
             label_row = (
-                '<div class="hide-short">'
                 '<div style="display: flex; align-items: center; gap: 5px">'
                 f"{icon_html}"
                 f'<span style="{label_css} flex: 1 1 0; min-width: 0">'
                 f"{escape(label_text)}</span>"
-                f"{raw}</div></div>"
+                f"{raw}</div>"
             )
 
         bar = bar_html(percent, color=color, track=track_css(ctx, rgb), thickness=f"{bar_px:.1f}px")
