@@ -20,6 +20,7 @@ from ..const import DISPLAY_HEIGHT, DISPLAY_WIDTH
 from ..htmldoc import (
     HAS_BLITZ,
     HAS_FRAMES,
+    HAS_LAYER_CLOCK,
     HAS_LAYERS,
     CellContext,
     build_cell_document,
@@ -361,52 +362,32 @@ class Layout(ABC):
         theme = self.theme
         cells = self._cell_documents(widget_states)
 
-        # blitz-py 0.4.0's render_layers documents a per-layer ``time``
-        # but does not apply it (animations render at t=0) — so the
-        # static base goes through one layered call and the animated
-        # cells still come from render_frames, composited per frame.
-        # Fold the per-frame compositing back into render_layers once
-        # the clock works upstream.
-        if HAS_LAYERS:
-            static_cells = [c for c in cells if not c[2]]
-            base = render_layers_image(
-                [
-                    {k: v for k, v in spec.items() if not k.startswith("_")}
-                    for spec in self._layer_specs(static_cells, scale, with_overlay=False)
-                ],
-                self.width * scale,
-                self.height * scale,
-                background=_css_hex(theme.background),
-            )
-            if base is not None:
-                animated: list[tuple[tuple[int, int], list[Image.Image]]] = []
-                for slot, document, _ in (c for c in cells if c[2]):
-                    x1, y1, x2, y2 = slot.rect
-                    frames = render_document_frames(document, x2 - x1, y2 - y1, times, scale=scale)
-                    if frames:
-                        animated.append(((x1 * scale, y1 * scale), frames))
-                        continue
-                    still = render_document(document, x2 - x1, y2 - y1, scale=scale)
-                    if still is not None:
-                        composite_premultiplied(base, still, (x1 * scale, y1 * scale))
-
-                overlay = None
-                if theme.overlay_css:
-                    overlay = render_document(
-                        build_fullscreen_document(theme, theme.overlay_css),
-                        self.width,
-                        self.height,
-                        scale=scale,
-                    )
-
-                canvases: list[Image.Image] = []
-                for i in range(len(times)):
-                    frame = base.copy()
-                    for pos, frames in animated:
-                        composite_premultiplied(frame, frames[min(i, len(frames) - 1)], pos)
-                    if overlay is not None:
-                        composite_premultiplied(frame, overlay, (0, 0))
-                    canvases.append(frame)
+        # One layered call per frame: animated layers (and their glow
+        # underlays) get the frame's clock, static layers render
+        # identically each time, and the overlay composites in the same
+        # call. Needs the per-layer time fix from blitz-py 0.4.1 —
+        # 0.4.0 documented ``time`` but ignored it.
+        if HAS_LAYERS and HAS_LAYER_CLOCK:
+            specs = self._layer_specs(cells, scale)
+            canvases: list[Image.Image] = []
+            for t in times:
+                layers = []
+                for spec in specs:
+                    layer = {k: v for k, v in spec.items() if not k.startswith("_")}
+                    if spec.get("_animated"):
+                        layer["time"] = t
+                    layers.append(layer)
+                surface = render_layers_image(
+                    layers,
+                    self.width * scale,
+                    self.height * scale,
+                    background=_css_hex(theme.background),
+                )
+                if surface is None:
+                    canvases = []
+                    break
+                canvases.append(surface)
+            if canvases:
                 return canvases
             # Engine-side compositing failed — fall through to legacy.
 

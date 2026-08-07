@@ -54,6 +54,27 @@ HAS_FRAMES = HAS_BLITZ and hasattr(blitz_py, "render_frames")
 HAS_LAYERS = HAS_BLITZ and hasattr(blitz_py, "render_layers")
 HAS_FONT_REGISTRY = HAS_BLITZ and hasattr(blitz_py, "register_fonts")
 
+
+def _has_layer_clock() -> bool:
+    """True when per-layer ``time`` actually drives animations.
+
+    0.4.0 shipped ``render_layers`` with a documented ``time`` that was
+    ignored (fixed in 0.4.1) — animated frames rendered through it would
+    silently freeze at t=0, so the animated path needs the real version.
+    """
+    if not HAS_LAYERS:
+        return False
+    try:
+        from importlib.metadata import version  # noqa: PLC0415
+
+        parts = tuple(int(p) for p in version("blitz-py").split(".")[:3])
+    except Exception:  # pragma: no cover - metadata should always resolve
+        return False
+    return parts >= (0, 4, 1)
+
+
+HAS_LAYER_CLOCK = _has_layer_clock()
+
 _LOGGER = logging.getLogger(__name__)
 
 _FONTS_DIR = Path(__file__).parent / "fonts"
