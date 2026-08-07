@@ -299,9 +299,17 @@ def hero_block(
         lines, size = (fit,), float(px or 0.0)
 
     multiline = len(lines) > 1
-    style = f"font-size: {size:.1f}px; line-height: {WRAP_LINE if multiline else HERO_LINE}"
-    if tracking is not None:
-        style += f"; letter-spacing: {tracking}em"
+    # letter-spacing MUST be restated here in em: the kit declares
+    # -0.035em on .t-hero, which computes against the CLAMP size (up to
+    # 124px → -4.3px) and inherits as that pixel value — at a fitted
+    # 20px it swallows the space glyphs entirely. Restating it on the
+    # fitted wrapper recomputes it against the real size.
+    spacing = tracking if tracking is not None else -0.035
+    style = (
+        f"font-size: {size:.1f}px; "
+        f"line-height: {WRAP_LINE if multiline else HERO_LINE}; "
+        f"letter-spacing: {spacing}em"
+    )
 
     tail = ""
     if suffix:

@@ -155,6 +155,14 @@ class _Row:
                 f"font-weight: 700; color: {self.color}; "
                 f'background: {self.fill}">{escape(self.state_text)}</span>'
             )
+        # A long name gets one shrink step (down to 88%) before the
+        # ellipsis — "Kitchen Window" whole at 13px beats "Kitchen …"
+        # at 15px. The step is bounded so rows stay visually uniform.
+        if tm.width(self.label, name_px, "semibold") > name_budget:
+            shrunk = tm.fit_font_size(
+                self.label, name_budget, name_px, "semibold", min_px=name_px * 0.88
+            )
+            name_px = shrunk
         name = tm.truncate(self.label, name_px, name_budget, "semibold", min_chars=3)
         sep = f"border-top: 1px solid {hairline}; " if index > 0 else ""
         return (
