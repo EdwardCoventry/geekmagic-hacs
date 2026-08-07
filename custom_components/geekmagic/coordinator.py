@@ -19,8 +19,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ANIMATION_FPS,
+    ANIMATION_SECONDS,
     BACKOFF_LOG_INTERVAL,
     CONF_DISPLAY_ROTATION,
+    CONF_ENABLE_ANIMATIONS,
     CONF_JPEG_QUALITY,
     CONF_LAYOUT,
     CONF_MANAGE_PRO_ALBUM,
@@ -30,6 +33,7 @@ from .const import (
     CONF_SCREENS,
     CONF_WIDGETS,
     DEFAULT_DISPLAY_ROTATION,
+    DEFAULT_ENABLE_ANIMATIONS,
     DEFAULT_JPEG_QUALITY,
     DEFAULT_REFRESH_INTERVAL,
     DEFAULT_SCREEN_CYCLE_INTERVAL,
@@ -57,6 +61,7 @@ from .const import (
     THEME_WATCHOS,
 )
 from .device import DeviceState, GeekMagicDevice, RenderedDashboardRequest, SpaceInfo
+from .htmldoc import HAS_FRAMES
 from .layouts.corner_hero import HeroCornerBL, HeroCornerBR, HeroCornerTL, HeroCornerTR
 from .layouts.fullscreen import FullscreenLayout
 from .layouts.grid import Grid2x2, Grid2x3, Grid3x2, Grid3x3
@@ -797,54 +802,57 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
         return states
 
-    def _render_display(self) -> tuple[bytes, bytes]:
+    def _render_display(self) -> tuple[bytes, bytes, str]:
         """Render the display image (runs in executor thread).
 
         Returns:
-            Tuple of (jpeg_data, png_data)
+            Tuple of (payload_bytes, png_preview, filename). The payload
+            is a JPEG for still screens, or an animated GIF when the
+            Animations switch is on and the current view contains
+            animated widgets.
         """
-        # Create canvas using the active layout's theme background, so
-        # non-black themes (light, candy, ocean) render the correct base.
-        active_layout = (
-            self._layouts[self._current_screen]
-            if self._layouts and 0 <= self._current_screen < len(self._layouts)
-            else None
-        )
-        canvas_bg = active_layout.theme.background if active_layout else (0, 0, 0)
-        img, draw = self.renderer.create_canvas(background=canvas_bg)
-
-        # Render current screen's layout
+        # Resolve the layout to render (current screen, notification
+        # override, or the welcome screen).
         if self._layouts and 0 <= self._current_screen < len(self._layouts):
             layout = self._layouts[self._current_screen]
-
-            # Check for active notification
             if time.time() < self._notification_expiry and self._notification_data:
                 _LOGGER.debug("Rendering active notification")
                 layout = self._create_notification_layout(self._notification_data)
-
-            _LOGGER.debug(
-                "Rendering layout %s with %d widgets",
-                type(layout).__name__,
-                sum(1 for s in layout.slots if s.widget is not None),
-            )
-            # Build widget states
-            widget_states = self._build_widget_states(layout)
-            layout.render(self.renderer, draw, widget_states)
         else:
-            # No screens configured - show welcome screen with live data
             _LOGGER.debug("No screens configured, rendering welcome screen")
-            # Recreate welcome layout each time to get fresh HA stats
-            welcome_layout = self._create_welcome_layout()
-            widget_states = self._build_widget_states(welcome_layout)
-            welcome_layout.render(self.renderer, draw, widget_states)
+            layout = self._create_welcome_layout()
 
-        # Encode to both formats
-        jpeg_quality = self.options.get(CONF_JPEG_QUALITY, DEFAULT_JPEG_QUALITY)
+        _LOGGER.debug(
+            "Rendering layout %s with %d widgets",
+            type(layout).__name__,
+            sum(1 for s in layout.slots if s.widget is not None),
+        )
+        widget_states = self._build_widget_states(layout)
         rotation = self.options.get(CONF_DISPLAY_ROTATION, DEFAULT_DISPLAY_ROTATION)
+
+        # Animated path (opt-in): render CSS animations to a looping GIF.
+        if (
+            self.options.get(CONF_ENABLE_ANIMATIONS, DEFAULT_ENABLE_ANIMATIONS)
+            and HAS_FRAMES
+            and layout.has_animated_widgets()
+        ):
+            frame_count = round(ANIMATION_SECONDS * ANIMATION_FPS)
+            times = [i / ANIMATION_FPS for i in range(frame_count)]
+            frames = layout.render_animation(self.renderer, widget_states, times)
+            if frames:
+                gif_data = self.renderer.to_gif(frames, fps=ANIMATION_FPS, rotation=rotation)
+                png_data = self.renderer.to_png(frames[0], rotation=rotation)
+                return gif_data, png_data, "dashboard.gif"
+            _LOGGER.warning("Animated render failed; falling back to a still frame")
+
+        img, draw = self.renderer.create_canvas(background=layout.theme.background)
+        layout.render(self.renderer, draw, widget_states)
+
+        jpeg_quality = self.options.get(CONF_JPEG_QUALITY, DEFAULT_JPEG_QUALITY)
         jpeg_data = self.renderer.to_jpeg(img, quality=jpeg_quality, rotation=rotation)
         png_data = self.renderer.to_png(img, rotation=rotation)
 
-        return jpeg_data, png_data
+        return jpeg_data, png_data, "dashboard.jpg"
 
     async def trigger_notification(self, data: dict[str, Any]) -> None:
         """Trigger a notification on this device.
@@ -1103,7 +1111,9 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
             # Render image in executor to avoid blocking the event loop
             # (Pillow image operations are CPU-intensive)
-            jpeg_data, png_data = await self.hass.async_add_executor_job(self._render_display)
+            payload, png_data, filename = await self.hass.async_add_executor_job(
+                self._render_display
+            )
 
             # Only update preview image on config changes or manual refresh
             # (prevents HA UI from refreshing during periodic updates)
@@ -1113,16 +1123,17 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
                 self._update_preview = False
 
             _LOGGER.debug(
-                "Rendered image: JPEG=%d bytes, PNG=%d bytes",
-                len(jpeg_data),
+                "Rendered %s: %d bytes (PNG preview %d bytes)",
+                filename,
+                len(payload),
                 len(png_data),
             )
 
             manage_album = bool(self.options.get(CONF_MANAGE_PRO_ALBUM, False))
             await self.device.display_rendered_dashboard(
                 RenderedDashboardRequest(
-                    image_data=jpeg_data,
-                    filename="dashboard.jpg",
+                    image_data=payload,
+                    filename=filename,
                     allow_destructive_album_management=manage_album,
                     try_menu_navigation=False,
                 )
@@ -1135,12 +1146,12 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
             _LOGGER.debug(
                 "Display update completed: screen=%s, size=%.1fKB",
                 self.current_screen_name,
-                len(jpeg_data) / 1024,
+                len(payload) / 1024,
             )
 
             return {
                 "success": True,
-                "size_kb": len(jpeg_data) / 1024,
+                "size_kb": len(payload) / 1024,
                 "current_screen": self._current_screen,
                 "screen_name": self.current_screen_name,
             }

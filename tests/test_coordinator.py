@@ -897,7 +897,9 @@ class TestCoordinatorBackoff:
         )
 
         # Mock the rendering to succeed
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         # Verify backoff was reset
@@ -920,7 +922,9 @@ class TestCoordinatorBackoff:
             {**simple_options, CONF_MANAGE_PRO_ALBUM: True},
         )
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         assert result["success"] is True
@@ -944,7 +948,9 @@ class TestCoordinatorBackoff:
         backoff_device.is_builtin_theme = MagicMock(return_value=True)
         coordinator = GeekMagicCoordinator(hass, backoff_device, simple_options)
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         assert result["builtin_mode"] is True
@@ -963,7 +969,9 @@ class TestCoordinatorBackoff:
         coordinator = GeekMagicCoordinator(hass, backoff_device, simple_options)
         coordinator.set_display_mode("custom", 0)
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         assert result["success"] is True
@@ -989,7 +997,9 @@ class TestCoordinatorBackoff:
             }
         )
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             result = await coordinator._async_update_data()
 
         assert result["success"] is True
@@ -1006,7 +1016,9 @@ class TestCoordinatorBackoff:
             {**simple_options, CONF_MANAGE_PRO_ALBUM: True},
         )
 
-        with patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")):
+        with patch.object(
+            coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+        ):
             await coordinator._async_update_data()
             await coordinator._async_update_data()
 
@@ -1030,7 +1042,9 @@ class TestCoordinatorBackoff:
 
         # Mock the rendering to succeed but upload fails
         with (
-            patch.object(coordinator, "_render_display", return_value=(b"jpeg", b"png")),
+            patch.object(
+                coordinator, "_render_display", return_value=(b"jpeg", b"png", "dashboard.jpg")
+            ),
             pytest.raises(UpdateFailed),
         ):
             await coordinator._async_update_data()

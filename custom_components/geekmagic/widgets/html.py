@@ -105,6 +105,12 @@ class HtmlWidget(Widget):
                 ),
             },
             {"key": "entity_id", "type": "entity", "label": "Entity (template data)"},
+            {
+                "key": "animate",
+                "type": "boolean",
+                "label": "Animate (render CSS animations as GIF)",
+                "default": False,
+            },
         ],
     }
 
@@ -113,6 +119,11 @@ class HtmlWidget(Widget):
         super().__init__(config)
         self.html = config.options.get("html", "")
         self.dynamic_entity_id = config.options.get("entity_id")
+        self.animate = bool(config.options.get("animate", False))
+
+    def is_animated(self) -> bool:
+        """Animated when the user opted this widget in."""
+        return self.animate
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the HTML widget fragment."""

@@ -183,6 +183,28 @@ The HTML option is a Jinja template with access to entity data:
 Limitations: no JavaScript, no network fetches (use `data:` URIs for
 images), no `background-clip: text`, no `text-shadow`.
 
+### Animated Widgets (opt-in)
+
+Turn on the device's **Animations** switch entity and any HTML widget
+with its **Animate** option enabled renders its CSS animations
+(`@keyframes`, transitions) to a looping animated GIF — 1.6s at 10fps —
+which the display plays natively. Views without animated widgets keep
+the smaller/faster JPEG path, and static cells in an animated view are
+rendered once and shared across frames.
+
+```html
+<style>
+@keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.spin { width: 50vmin; height: 50vmin; border-radius: 50%;
+        background: conic-gradient(from 0deg, rgba(48,209,88,0) 8%, #30d158 92%, rgba(48,209,88,0) 92%);
+        animation: sweep 1.6s linear infinite; }
+</style>
+```
+
+Animations are off by default: a GIF costs upload size (~100-150KB vs
+~30KB JPEG) and device decode time. Requires `blitz-py >= 0.2.0`
+(installed automatically).
+
 ## Layout Examples
 
 ### Fullscreen & Grid Layouts

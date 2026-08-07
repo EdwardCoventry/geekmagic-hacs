@@ -10,7 +10,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from ..const import CONF_SCREEN_CYCLE_INTERVAL, DOMAIN
+from ..const import (
+    CONF_ENABLE_ANIMATIONS,
+    CONF_SCREEN_CYCLE_INTERVAL,
+    DEFAULT_ENABLE_ANIMATIONS,
+    DOMAIN,
+)
 from .base import GeekMagicEntity
 
 if TYPE_CHECKING:
@@ -33,6 +38,7 @@ async def async_setup_entry(
     entities = [
         GeekMagicActiveSwitch(coordinator),
         GeekMagicViewCyclingSwitch(coordinator),
+        GeekMagicAnimationsSwitch(coordinator),
     ]
 
     async_add_entities(entities)
@@ -123,3 +129,45 @@ class GeekMagicViewCyclingSwitch(GeekMagicEntity, SwitchEntity):
         }
         self.hass.config_entries.async_update_entry(self.coordinator.entry, options=new_options)
         _LOGGER.debug("View cycling disabled (was %ds)", current_interval)
+
+
+class GeekMagicAnimationsSwitch(GeekMagicEntity, SwitchEntity):
+    """Opt-in switch for animated (GIF) rendering.
+
+    Off by default: animated GIFs cost upload size and device decode
+    time. When on, views containing widgets that declare animations
+    (e.g. an HTML widget with its Animate option enabled) are rendered
+    as looping GIFs — CSS animations evaluated frame by frame — instead
+    of a still JPEG. Views without animated widgets keep the JPEG path.
+    """
+
+    _attr_name = "Animations"
+    _attr_icon = "mdi:animation-play"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator: GeekMagicCoordinator) -> None:
+        """Initialize animations switch."""
+        super().__init__(coordinator, "animations")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when animated rendering is enabled."""
+        return bool(self.coordinator.options.get(CONF_ENABLE_ANIMATIONS, DEFAULT_ENABLE_ANIMATIONS))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable animated rendering."""
+        new_options = {
+            **self.coordinator.entry.options,
+            CONF_ENABLE_ANIMATIONS: True,
+        }
+        self.hass.config_entries.async_update_entry(self.coordinator.entry, options=new_options)
+        _LOGGER.debug("Animated rendering enabled")
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable animated rendering."""
+        new_options = {
+            **self.coordinator.entry.options,
+            CONF_ENABLE_ANIMATIONS: False,
+        }
+        self.hass.config_entries.async_update_entry(self.coordinator.entry, options=new_options)
+        _LOGGER.debug("Animated rendering disabled")

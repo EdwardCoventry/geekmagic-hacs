@@ -17,6 +17,17 @@ DISPLAY_HEIGHT = 240
 # once with Lanczos for crisp edges.
 SUPERSAMPLE_SCALE = 2
 
+# Animated widgets (opt-in via the Animations switch entity): widgets
+# that declare CSS animations are rendered at several timestamps
+# (blitz-py render_frames) and the display receives an animated GIF
+# instead of a JPEG. Loop length and rate are fixed — 1.6s at 10fps
+# (16 frames) keeps the GIF small enough for the device to store and
+# decode smoothly.
+CONF_ENABLE_ANIMATIONS = "enable_animations"
+DEFAULT_ENABLE_ANIMATIONS = False
+ANIMATION_SECONDS = 1.6
+ANIMATION_FPS = 10
+
 # Default settings
 DEFAULT_REFRESH_INTERVAL = 10  # seconds
 DEFAULT_JPEG_QUALITY = 92  # High quality for crisp display

@@ -140,3 +140,28 @@ class TestRenderer:
             png = renderer.to_png(img, rotation=rotation)
             out = Image.open(__import__("io").BytesIO(png))
             assert out.size == (DISPLAY_WIDTH, DISPLAY_HEIGHT)
+
+
+class TestGifEncoding:
+    """Animated GIF assembly from supersampled canvases."""
+
+    def test_to_gif_loops_and_sizes(self):
+        renderer = Renderer()
+        frames = []
+        for i in range(4):
+            img, draw = renderer.create_canvas()
+            draw.rectangle((i * 40, 0, i * 40 + 80, 80), fill=(255, 159, 10))
+            frames.append(img)
+        gif = renderer.to_gif(frames, fps=10)
+        assert gif[:6] in (b"GIF87a", b"GIF89a")
+        out = Image.open(__import__("io").BytesIO(gif))
+        assert out.size == (DISPLAY_WIDTH, DISPLAY_HEIGHT)
+        assert getattr(out, "n_frames", 1) == 4
+        assert out.info.get("loop") == 0
+
+    def test_to_gif_rejects_empty(self):
+        import pytest
+
+        renderer = Renderer()
+        with pytest.raises(ValueError, match="at least one frame"):
+            renderer.to_gif([])

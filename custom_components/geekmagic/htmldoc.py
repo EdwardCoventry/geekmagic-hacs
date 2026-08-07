@@ -44,6 +44,10 @@ except ImportError:  # pragma: no cover - depends on environment
     blitz_py = None
     HAS_BLITZ = False
 
+# Animation frames need blitz-py >= 0.2.0 (render_frames evaluates CSS
+# animations/transitions at given timestamps).
+HAS_FRAMES = HAS_BLITZ and hasattr(blitz_py, "render_frames")
+
 _LOGGER = logging.getLogger(__name__)
 
 _FONTS_DIR = Path(__file__).parent / "fonts"
@@ -213,6 +217,39 @@ def render_document(
         return Image.frombytes("RGBA", (w, h), data)
     except Exception:
         _LOGGER.exception("Blitz render failed")
+        return None
+
+
+def render_document_frames(
+    document: str,
+    width: int,
+    height: int,
+    times: list[float],
+    scale: float = 1.0,
+) -> list[Image.Image] | None:
+    """Rasterize a document at several animation timestamps.
+
+    CSS animations and transitions are evaluated at each instant in
+    ``times`` (seconds on the document's animation clock). Returns one
+    premultiplied-RGBA image per timestamp, or None when blitz-py lacks
+    ``render_frames`` (< 0.2.0) or rendering fails.
+    """
+    if not HAS_FRAMES:
+        return None
+    try:
+        w, h, frames = blitz_py.render_frames(
+            document,
+            width=width,
+            height=height,
+            times=times,
+            scale=scale,
+            color_scheme="dark",
+            background="#00000000",
+            fonts=list(get_font_bytes()),
+        )
+        return [Image.frombytes("RGBA", (w, h), data) for data in frames]
+    except Exception:
+        _LOGGER.exception("Blitz frame render failed")
         return None
 
 

@@ -19,11 +19,13 @@ from typing import TYPE_CHECKING
 from ..const import DISPLAY_HEIGHT, DISPLAY_WIDTH
 from ..htmldoc import (
     HAS_BLITZ,
+    HAS_FRAMES,
     CellContext,
     build_cell_document,
     build_fullscreen_document,
     composite_premultiplied,
     render_document,
+    render_document_frames,
 )
 from ..widgets.state import WidgetState
 from ..widgets.theme import DEFAULT_THEME, Theme
@@ -233,6 +235,88 @@ class Layout(ABC):
             overlay = render_document(overlay_doc, self.width, self.height, scale=scale)
             if overlay is not None:
                 composite_premultiplied(canvas, overlay, (0, 0))
+
+    def has_animated_widgets(self) -> bool:
+        """True when any placed widget opted into animation."""
+        return any(slot.widget is not None and slot.widget.is_animated() for slot in self.slots)
+
+    def render_animation(
+        self,
+        renderer: Renderer,
+        widget_states: dict[int, WidgetState] | None = None,
+        times: list[float] | None = None,
+    ) -> list[Image.Image] | None:
+        """Render the screen at several animation timestamps.
+
+        Static passes (backdrop, non-animated cells) render once and are
+        shared across frames; each animated cell renders all its frames
+        in a single ``render_frames`` call. Returns one supersampled RGB
+        canvas per timestamp (encode with :meth:`Renderer.to_gif`), or
+        None when frame rendering is unavailable — callers fall back to
+        the still pipeline.
+        """
+        if not (HAS_BLITZ and HAS_FRAMES) or not times:
+            return None
+        if widget_states is None:
+            widget_states = {}
+        scale = renderer.scale
+        theme = self.theme
+
+        # Static base: backdrop + every non-animated cell, rendered once.
+        base, _ = renderer.create_canvas(background=theme.background)
+        animated: list[tuple[tuple[int, int], list[Image.Image]]] = []
+
+        backdrop_css = theme.backdrop_css or "body { background: var(--bg); }"
+        backdrop = render_document(
+            build_fullscreen_document(theme, backdrop_css), self.width, self.height, scale=scale
+        )
+        if backdrop is not None:
+            base.paste(backdrop.convert("RGB"), (0, 0))
+
+        for slot in self.slots:
+            widget = slot.widget
+            if widget is None:
+                continue
+            x1, y1, x2, y2 = slot.rect
+            cell_w, cell_h = x2 - x1, y2 - y1
+            ctx = CellContext(width=cell_w, height=cell_h, slot_index=slot.index, theme=theme)
+            state = widget_states.get(slot.index, WidgetState())
+            try:
+                fragment = widget.render_html(ctx, state)
+            except Exception:
+                _LOGGER.exception("Widget %s failed to render", type(widget).__name__)
+                fragment = _ERROR_FRAGMENT
+            document = build_cell_document(fragment, theme)
+            pos = (x1 * scale, y1 * scale)
+            if widget.is_animated():
+                frames = render_document_frames(document, cell_w, cell_h, times, scale=scale)
+                if frames:
+                    animated.append((pos, frames))
+                    continue
+                # Frame render failed — fall through to a still cell.
+            cell = render_document(document, cell_w, cell_h, scale=scale)
+            if cell is not None:
+                composite_premultiplied(base, cell, pos)
+
+        overlay = None
+        if theme.overlay_css:
+            overlay = render_document(
+                build_fullscreen_document(theme, theme.overlay_css),
+                self.width,
+                self.height,
+                scale=scale,
+            )
+
+        canvases: list[Image.Image] = []
+        for i in range(len(times)):
+            frame = base.copy()
+            for pos, frames in animated:
+                cell_frame = frames[min(i, len(frames) - 1)]
+                composite_premultiplied(frame, cell_frame, pos)
+            if overlay is not None:
+                composite_premultiplied(frame, overlay, (0, 0))
+            canvases.append(frame)
+        return canvases
 
     def _render_missing_blitz(self, canvas: Image.Image, draw: ImageDraw.ImageDraw) -> None:
         """Paint an instructive error screen when blitz-py is missing."""

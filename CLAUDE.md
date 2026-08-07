@@ -145,6 +145,19 @@ browser). Pillow only composites passes and encodes JPEG/PNG.
    (scanlines, vignettes) composited on top
 6. Image converted to JPEG and uploaded to device
 
+**Animated path (opt-in):** when the device's Animations switch is on
+and a placed widget returns ``is_animated() == True``, the coordinator
+calls ``layout.render_animation`` instead: backdrop + static cells
+render once, each animated cell renders all timestamps in one
+``blitz_py.render_frames`` call (CSS animations evaluated per instant,
+needs blitz-py >= 0.2.0 / ``htmldoc.HAS_FRAMES``), frames are
+composited and encoded with ``Renderer.to_gif`` (1.6s @ 10fps, palette
+quantized without dithering), and ``dashboard.gif`` is uploaded in
+place of the JPEG. blitz-py 0.2.0 also ships a ``Template`` class
+(parse once, mutate by element id, ~0.4ms re-render) and ``css=`` /
+``css_vars=`` params — noted as a future optimization for the refresh
+loop; the pipeline currently rebuilds documents per update.
+
 `blitz-py` is REQUIRED for rendering — it's in `manifest.json`
 requirements (PyPI wheels for Linux glibc/musl x86_64 + aarch64, macOS,
 Windows), so HA installs it automatically. Without it the display shows

@@ -58,6 +58,17 @@ class Widget(ABC):
             return [self.config.entity_id]
         return []
 
+    def is_animated(self) -> bool:
+        """Whether this widget's fragment carries CSS animations.
+
+        When True — and the device's Animations switch is on — the
+        pipeline renders the view as an animated GIF: this widget's cell
+        is rasterized at several animation timestamps while static cells
+        render once. Keep it False for fragments without animations; a
+        GIF costs upload size and device decode time.
+        """
+        return False
+
     def label_for(self, entity: EntityState | None, *, fallback: str = "") -> str:
         """Resolve display label: ``config.label`` > ``entity.friendly_name`` > ``fallback``.
 

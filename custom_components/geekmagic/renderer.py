@@ -115,6 +115,38 @@ class Renderer:
 
         return result
 
+    def to_gif(
+        self,
+        frames: list[Image.Image],
+        fps: int = 10,
+        rotation: int = 0,
+    ) -> bytes:
+        """Encode supersampled canvases as a looping animated GIF.
+
+        Each frame is downscaled to display resolution and quantized to
+        an adaptive palette without dithering (dither speckle shimmers
+        between GIF frames and bloats the file).
+        """
+        if not frames:
+            raise ValueError("to_gif needs at least one frame")
+        processed = []
+        for frame in frames:
+            final = self.finalize(frame)
+            if rotation:
+                final = final.rotate(-rotation, expand=False)
+            processed.append(final.quantize(colors=256, dither=Image.Dither.NONE))
+        buffer = BytesIO()
+        processed[0].save(
+            buffer,
+            format="GIF",
+            save_all=True,
+            append_images=processed[1:],
+            duration=max(20, round(1000 / fps)),
+            loop=0,
+            optimize=True,
+        )
+        return buffer.getvalue()
+
     def to_png(self, img: Image.Image, rotation: int = 0) -> bytes:
         """Convert image to PNG bytes.
 

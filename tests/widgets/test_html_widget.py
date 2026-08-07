@@ -214,3 +214,42 @@ class TestBlitzRender:
             )
 
         assert content_pixels(240) > content_pixels(80) * 2
+
+
+class TestAnimatedWidgets:
+    """Opt-in animation contract (blitz-py >= 0.2.0)."""
+
+    def test_default_not_animated(self):
+        widget = make_widget("<div>static</div>")
+        assert widget.is_animated() is False
+
+    def test_animate_option_opts_in(self):
+        widget = HtmlWidget(
+            WidgetConfig(
+                widget_type="html",
+                slot=0,
+                options={"html": "<div>x</div>", "animate": True},
+            )
+        )
+        assert widget.is_animated() is True
+
+    @pytest.mark.skipif(not HAS_BLITZ, reason="blitz-py not installed")
+    def test_render_document_frames_animates(self):
+        from custom_components.geekmagic.htmldoc import (
+            HAS_FRAMES,
+            render_document_frames,
+        )
+
+        if not HAS_FRAMES:
+            pytest.skip("blitz-py < 0.2.0")
+        doc = build_cell_document(
+            "<style>@keyframes r { from { transform: rotate(0deg); } "
+            "to { transform: rotate(360deg); } }"
+            ".b { width: 48px; height: 10px; background: #f90; margin: 40px auto;"
+            " animation: r 1s linear infinite; }</style><div class='b'></div>",
+            DEFAULT_THEME,
+        )
+        frames = render_document_frames(doc, 120, 120, [0.0, 0.11, 0.29])
+        assert frames is not None
+        assert len(frames) == 3
+        assert frames[0].tobytes() != frames[1].tobytes()
