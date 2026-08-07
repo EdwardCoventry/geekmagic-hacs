@@ -165,12 +165,7 @@ class TestNotification:
         coordinator._notification_data = {"message": "Active"}
         coordinator._notification_expiry = 2000
 
-        # Mock renderer methods to avoid actual PIL calls
-        object.__setattr__(
-            coordinator.renderer,
-            "create_canvas",
-            MagicMock(return_value=(MagicMock(), MagicMock())),
-        )
+        # Real canvas (the compositor does real PIL math); mock encoding only.
         object.__setattr__(coordinator.renderer, "to_jpeg", MagicMock(return_value=b"jpeg"))
         object.__setattr__(coordinator.renderer, "to_png", MagicMock(return_value=b"png"))
 
@@ -197,12 +192,7 @@ class TestNotification:
         coordinator._notification_data = {"message": "Expired"}
         coordinator._notification_expiry = 900
 
-        # Mock renderer methods
-        object.__setattr__(
-            coordinator.renderer,
-            "create_canvas",
-            MagicMock(return_value=(MagicMock(), MagicMock())),
-        )
+        # Real canvas (the compositor does real PIL math); mock encoding only.
         object.__setattr__(coordinator.renderer, "to_jpeg", MagicMock(return_value=b"jpeg"))
         object.__setattr__(coordinator.renderer, "to_png", MagicMock(return_value=b"png"))
         object.__setattr__(coordinator, "_build_widget_states", MagicMock(return_value={}))

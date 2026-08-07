@@ -70,10 +70,6 @@ _WRAP_GAIN = 1.15
 # read as an overflow — never truncate for less than this many pixels.
 _FIT_EPS = 1.0
 
-# Wrapped lines are broken by the engine, not by us: leave it a sliver
-# of slack so a line that measures exactly full does not spill over.
-_WRAP_SAFETY = 0.985
-
 
 def cell_box(ctx: CellContext) -> tuple[float, float]:
     """Usable content box (width, height) in px inside a cell."""
