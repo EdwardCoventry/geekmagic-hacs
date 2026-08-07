@@ -38,7 +38,7 @@ _MIN_HERO_PX = 13.0
 
 # Tall, narrow slots (split-v) get the stacked watch-face treatment:
 # hours over minutes, twice the size of a single centred line.
-_STACK_ASPECT = 1.7
+_STACK_ASPECT = 1.45  # split-v/3-col cells land at ~1.5 after insets
 
 
 class ClockWidget(Widget):

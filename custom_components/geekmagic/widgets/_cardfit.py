@@ -29,11 +29,14 @@ from ._textfit import metrics_for
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
 
-# Every shipped theme paints ``.root`` with up to 6px of padding plus a
-# 1px border, and the kit's ``.cell`` adds 4% padding on all four sides
-# (CSS resolves percentage padding against the width, vertically too).
+# Chromed themes paint ``.root`` with up to 6px of padding plus a 1px
+# border; chrome-less themes (watchos) spend none of that — reserving it
+# anyway costs the hero ~7% of its size. The kit's ``.cell`` adds 3%
+# padding on all four sides (CSS resolves percentage padding against the
+# width, vertically too).
 _CHROME_INSET = 7.0
-_CELL_PADDING = 0.04
+_CHROMELESS_INSET = 1.5
+_CELL_PADDING = 0.03
 
 # Share of the free height a hero may spend. What is left becomes the
 # ``space-evenly`` gaps that give the cell its rhythm — a hero that eats
@@ -43,8 +46,8 @@ _CELL_PADDING = 0.04
 HERO_SHARE_SOLO = 0.92
 HERO_SHARE_STACKED = 0.80
 
-# Kit line-heights (.t-hero is 0.95; wrapped text needs descender room).
-HERO_LINE = 0.95
+# Kit line-heights (.t-hero is 0.85; wrapped text needs descender room).
+HERO_LINE = 0.85
 WRAP_LINE = 1.08
 
 # The secondary half of a hero (unit, AM/PM) relative to the value.
@@ -73,8 +76,11 @@ _FIT_EPS = 1.0
 
 def cell_box(ctx: CellContext) -> tuple[float, float]:
     """Usable content box (width, height) in px inside a cell."""
-    inner_w = max(12.0, ctx.width - 2 * _CHROME_INSET)
-    inner_h = max(12.0, ctx.height - 2 * _CHROME_INSET)
+    theme = ctx.theme
+    chromed = theme is not None and bool((theme.chrome_css or "").strip())
+    inset = _CHROME_INSET if chromed else _CHROMELESS_INSET
+    inner_w = max(12.0, ctx.width - 2 * inset)
+    inner_h = max(12.0, ctx.height - 2 * inset)
     pad = 2 * _CELL_PADDING * inner_w
     return max(8.0, inner_w - pad), max(8.0, inner_h - pad)
 
@@ -88,8 +94,8 @@ def label_px(ctx: CellContext) -> float:
 
 
 def chip_px(ctx: CellContext) -> float:
-    """Size the kit resolves for ``.chip`` — ``clamp(10px, 11vmin, 16px)``."""
-    return max(10.0, min(0.11 * min(ctx.width, ctx.height), 16.0))
+    """Size the kit resolves for ``.chip`` — ``clamp(10px, 11vmin, 18px)``."""
+    return max(10.0, min(0.11 * min(ctx.width, ctx.height), 18.0))
 
 
 def chip_band_px(ctx: CellContext) -> float:

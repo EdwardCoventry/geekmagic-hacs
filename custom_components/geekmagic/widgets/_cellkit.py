@@ -72,7 +72,7 @@ def cell_inner(ctx: CellContext) -> tuple[float, float]:
     return max(1.0, ctx.width - 2 * inset), max(1.0, ctx.height - 2 * inset)
 
 
-def cell_box(ctx: CellContext, pad_x: float = 0.04, pad_y: float = 0.04) -> tuple[float, float]:
+def cell_box(ctx: CellContext, pad_x: float = 0.03, pad_y: float = 0.03) -> tuple[float, float]:
     """Content box inside a ``.cell`` using *percentage* padding.
 
     ``pad_x``/``pad_y`` are the fractions in the fragment's ``padding``

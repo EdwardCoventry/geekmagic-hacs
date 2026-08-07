@@ -46,7 +46,7 @@ def cell_box(ctx: CellContext) -> tuple[float, float]:
     naive ``0.92 * height`` suggests. Geometry computed in Python (round
     gauges) has to account for that or it overflows the cell.
     """
-    pad = ctx.width * 0.04
+    pad = ctx.width * 0.03
     return ctx.width - 2 * pad, max(8.0, ctx.height - 2 * pad)
 
 

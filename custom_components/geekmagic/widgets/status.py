@@ -453,7 +453,7 @@ class StatusListWidget(Widget):
     # narrow slots (a 46px row in a 114px column reads as a poster, not
     # a list).
     _ROW_MIN = 10.5
-    _ROW_MAX = 50.0
+    _ROW_MAX = 58.0
 
     def __init__(self, config: WidgetConfig) -> None:
         """Initialize the status list widget."""
@@ -606,7 +606,7 @@ class StatusListWidget(Widget):
         long one; fitting the median keeps the common case whole and lets
         the outlier truncate, which is how a system list behaves.
         """
-        ideal = max(10.0, min(row_h * 0.50, 20.0))
+        ideal = max(10.0, min(row_h * 0.50, 24.0))
         units = sorted(tm.width(r.label, 1.0, "semibold") for r in rows)
         median = units[len(units) // 2]
         if median <= 0:  # pragma: no cover - empty labels are placeholder-filled

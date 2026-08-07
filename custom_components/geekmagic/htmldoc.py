@@ -137,7 +137,7 @@ def theme_css_variables(theme: Theme) -> str:
 FLUID_KIT_CSS = """
 .cell { height: 100%; display: flex; flex-direction: column; align-items: center;
         justify-content: space-evenly; text-align: center; box-sizing: border-box;
-        padding: 4%; }
+        padding: 3%; }
 .cell.row { flex-direction: row; }
 .t-hero { font-size: clamp(20px, min(48vmin, 30vw), 124px); font-weight: 800;
           line-height: 0.85; letter-spacing: -0.035em; white-space: nowrap; }

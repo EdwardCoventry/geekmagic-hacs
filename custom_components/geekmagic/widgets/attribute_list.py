@@ -131,7 +131,7 @@ class AttributeListWidget(Widget):
             count = len(items)
         row_h = min(rows_h / count, _ROW_MAX)
 
-        value_px = max(10.0, min(row_h * 0.46, 19.0))
+        value_px = max(10.0, min(row_h * 0.50, 24.0))
         gap = max(5.0, row_h * 0.16)
         item_label_px, show_labels = self._label_size(tm, items, value_px, avail - gap)
 

@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 CARD_CSS = """
 .chips { display: flex; gap: 5px; align-items: center; justify-content: center; }
 .chip { display: flex; gap: 0.35em; align-items: center; line-height: 1;
-        font-size: clamp(10px, 11vmin, 16px); font-weight: 600;
+        font-size: clamp(10px, 11vmin, 18px); font-weight: 600;
         color: var(--text-secondary);
         background: var(--chip-bg); border-radius: 999px;
         padding: 0.42em 0.85em; }
