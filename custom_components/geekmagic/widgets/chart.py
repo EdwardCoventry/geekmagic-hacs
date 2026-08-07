@@ -99,55 +99,100 @@ def value_header(
     value_width: float,
     m: PlotMetrics,
     tm: TextMetrics,
-) -> str:
-    """Caption (left) + value (right) sharing one baseline.
+) -> tuple[str, float]:
+    """Caption + value header, and the height it occupies.
 
-    ``value_width`` is the caller's measured width of the value group;
-    the caption is truncated to whatever is left, because Blitz draws no
-    ellipsis and does not clip overflowing text — an over-long caption
-    would push the value off the panel.
+    Wide cells set caption (left) and value (right) on one baseline.
+    When the row can't hold both without crushing the caption — narrow
+    chart columns — the header STACKS instead: the caption takes its
+    own full-width line above the value, so "BITCOIN" renders whole
+    where the shared row managed "BITC…". ``value_width`` is the
+    caller's measured width of the value group; captions never overflow
+    because Blitz draws no ellipsis and does not clip text.
     """
+    upper = caption.upper() if caption else ""
+    inline_caption_w = tm.width(upper, m.label_px, "bold", tm.label_tracking) if upper else 0.0
+    stacked = bool(upper) and value_width + inline_caption_w + 8.0 > m.inner_w
+
+    if stacked:
+        # Full width to itself: shrink toward 10px to keep the whole
+        # word, then truncate.
+        px = tm.fit_font_size(
+            upper, m.inner_w, m.label_px, "bold", tracking=tm.label_tracking, min_px=10.0
+        )
+        text = tm.truncate(upper, px, m.inner_w, "bold", tracking=tm.label_tracking, min_chars=3)
+        header = (
+            '<div class="hide-short">'
+            f'<div class="t-label" style="font-size: {px:.1f}px; text-align: left; '
+            f'padding-bottom: {px * 0.3:.0f}px">{escape(text)}</div>'
+            '<div style="display: flex; align-items: baseline; '
+            f'justify-content: flex-start">{value_html}</div></div>'
+        )
+        return header, px * 1.3 + m.value_px
+
     caption_html = ""
     available = m.inner_w - value_width - 8.0
-    if caption:
-        upper = caption.upper()
+    if upper:
         text = tm.truncate(upper, m.label_px, available, weight="bold", tracking=tm.label_tracking)
         # A caption cut down to a letter or two is noise, not a label —
         # give the row to the value instead.
         if text == upper or len(text) > 4:
             caption_html = f'<span class="t-label">{escape(text)}</span>'
     if not caption_html and not value_html:
-        return ""
+        return "", 0.0
     # With no caption the value anchors the row on its own; left-aligned
     # it reads as a heading rather than a stranded number.
     justify = "space-between" if caption_html else "flex-start"
     # Hide classes live on a plain wrapper: an inline display would
     # defeat the kit's display:none media queries.
-    return (
+    header = (
         '<div class="hide-short hide-narrow">'
         '<div style="display: flex; align-items: baseline; '
         f'justify-content: {justify}; gap: 6px">'
         f"{caption_html}{value_html}</div></div>"
     )
+    return header, max(m.value_px if value_html else 0.0, m.label_px if caption_html else 0.0)
 
 
-def compact_caption(caption: str, ctx: CellContext, m: PlotMetrics) -> tuple[str, float]:
-    """Caption-only header for compact plot cells.
+def compact_header(
+    caption: str,
+    ctx: CellContext,
+    m: PlotMetrics,
+    tm: TextMetrics,
+    *,
+    value_text: str = "",
+    value_color: str | None = None,
+) -> tuple[str, float]:
+    """Compact tile header: caption over a small tinted value.
 
-    Shrinks to keep the whole word before truncating (the shared
-    ``fit_caption_sized`` policy), centred so it reads as the tile's
-    title rather than a stranded table cell.
+    Compact plot cells shed the full value row, but a tile should still
+    say BOTH what it tracks and where it stands — the caption shrinks
+    to keep the whole word (shared ``fit_caption_sized`` policy) and
+    the value renders one step below it, small and tinted, leaving the
+    rest of the tile to the plot.
     """
-    if not caption:
+    bands: list[str] = []
+    height = 0.0
+    if caption:
+        text, px = fit_caption_sized(caption, ctx, m.inner_w)
+        if text:
+            bands.append(
+                f'<div class="t-label" style="font-size: {px:.1f}px; text-align: center">'
+                f"{escape(text)}</div>"
+            )
+            height += px * 1.15
+    if value_text:
+        vpx = tm.fit_font_size(value_text, m.inner_w, min(16.0, m.value_px), "bold", min_px=10.0)
+        fitted = tm.truncate(value_text, vpx, m.inner_w, "bold", min_chars=2)
+        color = f" color: {value_color};" if value_color else ""
+        bands.append(
+            f'<div style="font-size: {vpx:.1f}px; font-weight: 700; line-height: 1.05; '
+            f'text-align: center; white-space: nowrap;{color}">{escape(fitted)}</div>'
+        )
+        height += vpx * 1.15
+    if not bands:
         return "", 0.0
-    text, px = fit_caption_sized(caption, ctx, m.inner_w)
-    if not text:
-        return "", 0.0
-    return (
-        f'<div class="t-label" style="font-size: {px:.1f}px; text-align: center">'
-        f"{escape(text)}</div>",
-        px,
-    )
+    return "".join(bands), height
 
 
 def empty_plot(m: PlotMetrics, plot_h: float) -> str:
@@ -251,26 +296,21 @@ class ChartWidget(Widget):
                 data, self.show_range and has_data and not binary, m, tm
             )
         else:
-            # Compact tiles keep the caption: an unlabeled trace is a
-            # squiggle, not data. The range rows stay dropped.
-            header, header_h = compact_caption(self.label_for(entity), ctx, m)
-            # Narrow-but-TALL plots (69x108 columns) also keep the
-            # reading — stacked under the caption, since the one-row
-            # caption+value header has no width to live in.
-            if self.show_value and current_value is not None and ctx.height >= 100:
-                value_text = f"{current_value:.1f}"
-                unit_html = (
-                    f'<span class="t-unit" style="font-size: {m.unit_px * 0.8:.1f}px; '
-                    f'color: {color}">{escape(unit)}</span>'
-                    if unit
-                    else ""
-                )
-                header += (
-                    f'<div class="t-value" style="font-size: {m.value_px:.1f}px; '
-                    f'color: {color}; text-align: center">'
-                    f"{escape(value_text)}{unit_html}</div>"
-                )
-                header_h += m.value_px
+            # Compact tiles keep the caption AND a small tinted value:
+            # an unlabeled trace is a squiggle, and a labeled one with
+            # no reading only says "something changed". The range rows
+            # stay dropped.
+            value_text = ""
+            if self.show_value and current_value is not None:
+                value_text = f"{current_value:.1f}{unit}"
+            header, header_h = compact_header(
+                self.label_for(entity),
+                ctx,
+                m,
+                tm,
+                value_text=value_text,
+                value_color=color,
+            )
 
         bands = 1 + bool(header) + bool(footer)
         plot_h = max(16.0, m.inner_h - header_h - footer_h - m.gap * (bands - 1))
@@ -338,10 +378,7 @@ class ChartWidget(Widget):
                 f"{escape(value_text)}{unit_html}</span>"
             )
 
-        html = value_header(caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm)
-        if not html:
-            return "", 0.0
-        return html, max(m.value_px if value_html else 0.0, m.label_px if caption else 0.0)
+        return value_header(caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm)
 
     def _footer(
         self,

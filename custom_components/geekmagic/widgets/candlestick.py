@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from ..htmldoc import css_rgb, css_rgba, mdi_span
 from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
-from .chart import PlotMetrics, compact_caption, empty_plot, fit_px, plot_metrics, value_header
+from .chart import PlotMetrics, compact_header, empty_plot, fit_px, plot_metrics, value_header
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -329,9 +329,20 @@ class CandlestickWidget(Widget):
                 caret=caret,
             )
         else:
-            # Compact tiles keep the caption — unlabeled candles are
-            # noise. The value row stays dropped.
-            header, header_h = compact_caption(self.label_for(entity), ctx, m)
+            # Compact tiles keep the caption AND a small tinted value —
+            # unlabeled candles are noise, and a labeled tile without
+            # its price only says "it moved".
+            value_text = ""
+            if current_value is not None:
+                value_text = f"{current_value:.1f}{unit}"
+            header, header_h = compact_header(
+                self.label_for(entity),
+                ctx,
+                m,
+                tm,
+                value_text=value_text,
+                value_color=value_color,
+            )
 
         bands = 1 + bool(header)
         plot_h = max(16.0, m.inner_h - header_h - m.gap * (bands - 1))
@@ -407,7 +418,4 @@ class CandlestickWidget(Widget):
                 f"{caret_html}{escape(value_text)}{unit_html}</span>"
             )
 
-        html = value_header(caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm)
-        if not html:
-            return "", 0.0
-        return html, max(m.value_px if value_html else 0.0, m.label_px if caption else 0.0)
+        return value_header(caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm)
