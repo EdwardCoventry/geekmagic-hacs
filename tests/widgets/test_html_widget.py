@@ -253,3 +253,23 @@ class TestAnimatedWidgets:
         assert frames is not None
         assert len(frames) == 3
         assert frames[0].tobytes() != frames[1].tobytes()
+
+    def test_loop_seconds_option(self):
+        widget = HtmlWidget(
+            WidgetConfig(
+                widget_type="html",
+                slot=0,
+                options={"html": "<div>x</div>", "animate": True, "loop_seconds": 3.2},
+            )
+        )
+        assert widget.animation_seconds() == 3.2
+
+    def test_loop_seconds_ignored_when_static(self):
+        widget = HtmlWidget(
+            WidgetConfig(
+                widget_type="html",
+                slot=0,
+                options={"html": "<div>x</div>", "loop_seconds": 3.2},
+            )
+        )
+        assert widget.animation_seconds() is None

@@ -129,12 +129,24 @@ class Renderer:
         """
         if not frames:
             raise ValueError("to_gif needs at least one frame")
-        processed = []
+        finals = []
         for frame in frames:
             final = self.finalize(frame)
             if rotation:
                 final = final.rotate(-rotation, expand=False)
-            processed.append(final.quantize(colors=256, dither=Image.Dither.NONE))
+            finals.append(final)
+        # One palette for the whole loop: per-frame adaptive palettes
+        # bloat the file and shimmer between frames. Sample a handful of
+        # frames spread across the loop so animated hues are represented.
+        sample_idx = sorted({0, len(finals) // 3, 2 * len(finals) // 3, len(finals) - 1})
+        sampler = Image.new("RGB", (self.width, self.height * len(sample_idx)))
+        for row, idx in enumerate(sample_idx):
+            sampler.paste(finals[idx], (0, row * self.height))
+        palette = sampler.quantize(colors=256, dither=Image.Dither.NONE)
+        processed = [
+            final.quantize(colors=256, palette=palette, dither=Image.Dither.NONE)
+            for final in finals
+        ]
         buffer = BytesIO()
         processed[0].save(
             buffer,

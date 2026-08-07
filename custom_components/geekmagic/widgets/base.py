@@ -69,6 +69,16 @@ class Widget(ABC):
         """
         return False
 
+    def animation_seconds(self) -> float | None:
+        """Length of this widget's animation loop, in seconds.
+
+        None means the pipeline default. Ambient animations (breathing
+        glows, gradient drift) read best at 2-4s; the view's GIF loop is
+        the longest requested by its animated widgets, so CSS durations
+        should equal or evenly divide it for a seamless loop.
+        """
+        return None
+
     def label_for(self, entity: EntityState | None, *, fallback: str = "") -> str:
         """Resolve display label: ``config.label`` > ``entity.friendly_name`` > ``fallback``.
 

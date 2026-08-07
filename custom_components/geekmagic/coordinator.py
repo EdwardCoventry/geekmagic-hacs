@@ -836,11 +836,24 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
             and HAS_FRAMES
             and layout.has_animated_widgets()
         ):
-            frame_count = round(ANIMATION_SECONDS * ANIMATION_FPS)
-            times = [i / ANIMATION_FPS for i in range(frame_count)]
+            # The loop is the longest any animated widget asks for
+            # (ambient animations want 2-4s; a short loop would visibly
+            # jump). Frame count is capped to bound GIF size.
+            requested = [
+                slot.widget.animation_seconds()
+                for slot in layout.slots
+                if slot.widget is not None and slot.widget.is_animated()
+            ]
+            loop = max((s for s in requested if s), default=ANIMATION_SECONDS)
+            loop = min(4.0, max(0.8, loop))
+            # Slow ambient loops don't need full temporal resolution —
+            # drop the rate so long loops stay within the size budget.
+            fps = ANIMATION_FPS if loop <= 2.0 else 7
+            frame_count = min(32, round(loop * fps))
+            times = [i / fps for i in range(frame_count)]
             frames = layout.render_animation(self.renderer, widget_states, times)
             if frames:
-                gif_data = self.renderer.to_gif(frames, fps=ANIMATION_FPS, rotation=rotation)
+                gif_data = self.renderer.to_gif(frames, fps=fps, rotation=rotation)
                 png_data = self.renderer.to_png(frames[0], rotation=rotation)
                 return gif_data, png_data, "dashboard.gif"
             _LOGGER.warning("Animated render failed; falling back to a still frame")

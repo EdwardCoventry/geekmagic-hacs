@@ -187,21 +187,48 @@ images), no `background-clip: text`, no `text-shadow`.
 
 Turn on the device's **Animations** switch entity and any HTML widget
 with its **Animate** option enabled renders its CSS animations
-(`@keyframes`, transitions) to a looping animated GIF — 1.6s at 10fps —
-which the display plays natively. Views without animated widgets keep
-the smaller/faster JPEG path, and static cells in an animated view are
-rendered once and shared across frames.
+(`@keyframes`, transitions) to a looping animated GIF which the display
+plays natively. Views without animated widgets keep the smaller/faster
+JPEG path, and static cells in an animated view are rendered once and
+shared across frames. The **Animation Loop** option sets the loop
+length (0.8–4s; the view uses the longest loop among its widgets, at
+10fps up to 2s and 7fps beyond).
+
+**Favor ambient motion over movement** — glows that breathe, gradients
+that drift, colors that shift. Opacity, `background-color`, text
+`color`, `box-shadow`, and `background-position` all interpolate:
 
 ```html
+<!-- Breathing glow (presence lamp) -->
 <style>
-@keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.spin { width: 50vmin; height: 50vmin; border-radius: 50%;
-        background: conic-gradient(from 0deg, rgba(48,209,88,0) 8%, #30d158 92%, rgba(48,209,88,0) 92%);
-        animation: sweep 1.6s linear infinite; }
+@keyframes breathe { 0%,100% { box-shadow: 0 0 10px 1px rgba(48,209,88,0.18); }
+                     50% { box-shadow: 0 0 30px 7px rgba(48,209,88,0.45); } }
+.lamp { width: 34vmin; height: 34vmin; border-radius: 50%;
+        animation: breathe 3.2s ease-in-out infinite; }
+</style>
+
+<!-- Aurora drift behind a value -->
+<style>
+@keyframes drift { 0% { background-position: 0% 0%; } 100% { background-position: -300% 0%; } }
+.sky { background: linear-gradient(90deg, rgba(10,132,255,0.24) 0%,
+         rgba(191,90,242,0.20) 33%, rgba(90,200,245,0.16) 66%,
+         rgba(10,132,255,0.24) 100%);
+       background-size: 300% 100%; animation: drift 3.2s linear infinite; }
+</style>
+
+<!-- Color-breathing value -->
+<style>
+@keyframes warm { 0%,100% { color: #ff9f0a; } 50% { color: #ff453a; } }
+.v { animation: warm 3.2s ease-in-out infinite; }
 </style>
 ```
 
-Animations are off by default: a GIF costs upload size (~100-150KB vs
+Seamless-loop rules: animation durations should equal (or evenly
+divide) the loop length, and drifting gradients must tile — use a 90°
+gradient whose first and last color stops match (diagonal gradients
+show a seam when the tile repeats).
+
+Animations are off by default: a GIF costs upload size (~100KB vs
 ~30KB JPEG) and device decode time. Requires `blitz-py >= 0.2.0`
 (installed automatically).
 

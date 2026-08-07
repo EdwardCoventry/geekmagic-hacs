@@ -111,6 +111,14 @@ class HtmlWidget(Widget):
                 "label": "Animate (render CSS animations as GIF)",
                 "default": False,
             },
+            {
+                "key": "loop_seconds",
+                "type": "number",
+                "label": "Animation Loop (seconds)",
+                "min": 0.8,
+                "max": 4,
+                "default": 1.6,
+            },
         ],
     }
 
@@ -120,10 +128,18 @@ class HtmlWidget(Widget):
         self.html = config.options.get("html", "")
         self.dynamic_entity_id = config.options.get("entity_id")
         self.animate = bool(config.options.get("animate", False))
+        try:
+            self.loop_seconds = float(config.options.get("loop_seconds") or 0) or None
+        except (TypeError, ValueError):
+            self.loop_seconds = None
 
     def is_animated(self) -> bool:
         """Animated when the user opted this widget in."""
         return self.animate
+
+    def animation_seconds(self) -> float | None:
+        """User-tuned loop length (slow ambient loops read best)."""
+        return self.loop_seconds if self.animate else None
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the HTML widget fragment."""
