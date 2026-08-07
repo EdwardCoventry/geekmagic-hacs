@@ -645,6 +645,18 @@ class TestEntityWidgetCompactIdentity:
         fragment = self._widget().render_html(tiny, make_state(entity))
         assert "LIVING" not in fragment
 
+    def test_compact_stacked_icon_is_not_hidden_by_the_kit(self):
+        """A 3x3 tile's stacked feature icon must not carry hide-short —
+        Python decided the stack fits; the kit would blank it below
+        100px and leave icon-less cells."""
+        tile = CellContext(width=72, height=72, slot_index=0, theme=DEFAULT_THEME)
+        entity = make_entity("sensor.temp", "23.5", {"icon": "mdi:thermometer"})
+        fragment = EntityWidget(
+            WidgetConfig(widget_type="entity", slot=0, entity_id="sensor.temp", label="Temp")
+        ).render_html(tile, make_state(entity))
+        assert '<div class="card-icon">' in fragment
+        assert "hide-short" not in fragment
+
     def test_caption_shrinks_before_truncating(self):
         """A whole word at 10px beats "ONLIN…" at the kit size."""
         widget = EntityWidget(

@@ -78,6 +78,7 @@ def card_html(
     caption_hide: str = "hide-short",
     icon: str | None = None,
     icon_color: str | None = None,
+    icon_hide: str = "hide-short",
     icon_role: str = "chip",
     icon_size: float | None = None,
     hero: str = "",
@@ -98,6 +99,10 @@ def card_html(
             itself).
         icon: MDI icon name.
         icon_color: CSS color for the icon.
+        icon_hide: Which kit breakpoint sheds a feature icon band
+            ("hide-short" by default, or "" when the widget decided in
+            Python that a short cell keeps its stacked icon — the kit
+            must not re-hide it).
         icon_role: "feature" renders the icon as its own band above the
             caption; "chip" keeps it inline beside the caption.
         icon_size: Explicit glyph size in px for a feature icon
@@ -121,8 +126,9 @@ def card_html(
         if icon_size is not None:
             glyph_style = f"{icon_style}; font-size: {icon_size:.0f}px".strip("; ")
             glyph_classes = "icon"
+        hide = f" {icon_hide}" if icon_hide else ""
         bands.append(
-            f'<div class="card-icon hide-short">{mdi_span(icon, glyph_classes, glyph_style)}</div>'
+            f'<div class="card-icon{hide}">{mdi_span(icon, glyph_classes, glyph_style)}</div>'
         )
 
     if caption:

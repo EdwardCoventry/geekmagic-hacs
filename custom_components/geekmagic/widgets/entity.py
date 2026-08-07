@@ -218,6 +218,9 @@ class EntityWidget(Widget):
             caption_hide="hide-short" if bands_kept else "",
             icon=icon if show_icon else None,
             icon_color=tint,
+            # Python decided a short cell keeps its stacked icon — the
+            # kit's hide-short must not re-hide that band.
+            icon_hide="hide-short" if bands_kept else "",
             icon_size=icon_px if feature_icon else None,
             # The entity icon is the cell's primary visual identifier —
             # its own band when there's room, inline with the caption in
