@@ -252,8 +252,25 @@ class ChartWidget(Widget):
             )
         else:
             # Compact tiles keep the caption: an unlabeled trace is a
-            # squiggle, not data. The value/range rows stay dropped.
+            # squiggle, not data. The range rows stay dropped.
             header, header_h = compact_caption(self.label_for(entity), ctx, m)
+            # Narrow-but-TALL plots (69x108 columns) also keep the
+            # reading — stacked under the caption, since the one-row
+            # caption+value header has no width to live in.
+            if self.show_value and current_value is not None and ctx.height >= 100:
+                value_text = f"{current_value:.1f}"
+                unit_html = (
+                    f'<span class="t-unit" style="font-size: {m.unit_px * 0.8:.1f}px; '
+                    f'color: {color}">{escape(unit)}</span>'
+                    if unit
+                    else ""
+                )
+                header += (
+                    f'<div class="t-value" style="font-size: {m.value_px:.1f}px; '
+                    f'color: {color}; text-align: center">'
+                    f"{escape(value_text)}{unit_html}</div>"
+                )
+                header_h += m.value_px
 
         bands = 1 + bool(header) + bool(footer)
         plot_h = max(16.0, m.inner_h - header_h - footer_h - m.gap * (bands - 1))
@@ -268,7 +285,9 @@ class ChartWidget(Widget):
             spark = svg_sparkline(
                 data,
                 stroke=color,
-                fill_opacity=0.20 if self.fill else 0.0,
+                # A wash you can actually see from across the room — the
+                # gradient still fades to nothing at the baseline.
+                fill_opacity=0.50 if self.fill else 0.0,
                 stroke_width=stroke_w,
                 aspect=aspect,
                 # Bezier smoothing overshoots on square binary traces.

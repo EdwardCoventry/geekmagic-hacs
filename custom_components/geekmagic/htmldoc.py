@@ -325,7 +325,7 @@ def _smooth_path(pts: list[tuple[float, float]]) -> str:
 def svg_sparkline(
     values: list[float],
     stroke: str = "var(--primary)",
-    fill_opacity: float = 0.40,
+    fill_opacity: float = 0.50,
     stroke_width: float = 2.6,
     *,
     aspect: float = 2.0,
