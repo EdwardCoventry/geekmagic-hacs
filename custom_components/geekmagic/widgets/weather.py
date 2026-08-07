@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..htmldoc import mdi_span
 from ._cardfit import (
+    HERO_SHARE_SOLO,
     HERO_SHARE_STACKED,
     caption_visible,
     cell_box,
@@ -17,7 +18,6 @@ from ._cardfit import (
     hero_block,
     label_px,
 )
-from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
 
 if TYPE_CHECKING:
@@ -88,10 +88,66 @@ _STRIP_MIN_H = 130
 # tall enough to list the days as rows (split-v columns are 114x228).
 _LIST_MIN_H = 190
 
+# Short-wide cells (a hero footer, a 2x3 tile) have no room for day
+# names or lows, but three tinted glyphs with their highs still read as
+# a forecast — and beat a lone temperature floating in an empty band.
+_MINI_MIN_W = 100
+_MINI_MIN_H = 58
+_MINI_DAYS = 3
+
+# DAY + icon + hi + lo needs ~86px on one row. Narrower than this the
+# columns collide: the day wraps under the icon and the low bleeds past
+# the cell edge (Blitz clips neither), so the row tightens and sheds the
+# low instead.
+_LIST_MIN_W = 88
+
 # Cells at least this wide put the condition icon *beside* the hero
 # instead of above it — the icon then reads at poster size and the
 # temperature still owns the middle of the cell.
 _SIDE_BY_SIDE_MIN_W = 170
+# ...and cells too short to stack do the same whatever their width: a
+# 111x72 tile has no vertical room for icon over value.
+_STACK_MIN_H = 95
+
+# Icon geometry, mirroring .wx-icon's clamp so Python can reserve for it.
+_ICON_MIN_PX = 15.0
+_ICON_MAX_PX = 78.0
+_ICON_VMIN = 0.33
+# Stacked, the icon may take at most half the pair's band. The CSS clamp
+# alone knows nothing about what sits underneath, so in a 148px cell
+# carrying a forecast strip it claims 49px of a 40px band and pushes the
+# strip's bottom row off the cell.
+_STACK_ICON_SHARE = 0.5
+# With nothing under it the hero is sized from the free HEIGHT instead:
+# side by side, icon + value saturate the cell's WIDTH at about a third
+# of its height and strand the rest.
+_SOLO_ICON_SHARE = 0.42
+_SOLO_ICON_MAX_PX = 132.0
+_SOLO_STACK_RATIO = 0.8
+
+# Today's hi/lo chips. They run narrower than the kit's 130px so 2x2
+# tiles carry the pair; below _CHIP_ARROWS_MIN_W the ↑/↓ glyphs cost
+# more width than they add meaning and the pair reads "26° / 14°".
+_CHIPS_MIN_W = 100
+_CHIPS_MIN_H = 70
+_CHIP_ARROWS_MIN_W = 150
+
+# Humidity rides along in the caption only while the pair still renders
+# at nearly the kit's label size.
+_CAPTION_PAIR_SHARE = 0.85
+
+# Strip geometry: .wx-col's 0.2em and .wx-block's 0.45em gaps resolve
+# against the inherited 16px body size, and the hairline rule adds 1px.
+# The clamps are modelled below; the slack covers rounding in the
+# engine's line boxes — under-reserving clips the strip's last row.
+_EM_GAP = 3.2
+_BLOCK_GAP = 7.2
+_RULE_H = 1.0
+_LIST_GAP = 5.0
+_STRIP_SLACK = 1.08
+# Below this the icon + value pair stops reading as a glance, so the
+# strip sheds its low row to give the band back.
+_HERO_MIN_BAND = 40.0
 
 # Width safety margin handed to ``fit_hero``: it solves for the size at
 # which value+suffix exactly fills the budget, so its own truncation
@@ -196,9 +252,16 @@ _WEATHER_CSS = """
 .wx-row .wx-day { flex: 1 1 0; min-width: 0; text-align: left; }
 .wx-temps { display: flex; align-items: baseline; gap: 4px; }
 .wx-temps .wx-hi, .wx-temps .wx-lo { min-width: 2.1em; text-align: right; }
+.wx-list.tight .wx-row { gap: 2px; }
+.wx-list.tight .wx-day { font-size: 10px; letter-spacing: 0.03em; }
+.wx-list.tight .icon { font-size: 11px; }
+.wx-list.tight .wx-hi { font-size: 11px; min-width: 0; }
 .wx-col { display: flex; flex: 1 1 0; min-width: 0; flex-direction: column;
           align-items: center; gap: 0.2em; }
 .wx-col .icon { font-size: clamp(11px, 9.5vmin, 22px); }
+.wx-strip.mini .wx-col { gap: 0.1em; }
+.wx-strip.mini .icon { font-size: clamp(11px, 16vmin, 22px); }
+.wx-strip.mini .wx-hi { font-size: clamp(10px, 14vmin, 19px); }
 .wx-hi { font-size: clamp(11px, 8.5vmin, 19px); font-weight: 700; line-height: 1.05;
          color: var(--text-primary); }
 .wx-lo { font-size: clamp(10px, 7vmin, 16px); font-weight: 600; line-height: 1.05;
@@ -209,10 +272,26 @@ _WEATHER_CSS = """
 """
 
 
-def _weather_placeholder() -> str:
-    """Placeholder fragment when no weather data is available."""
-    icon = mdi_span("weather-cloudy", "icon i-md", "color: var(--text-secondary)")
-    return f'<div class="cell">{icon}<div class="t-label hide-short">NO WEATHER DATA</div></div>'
+def _weather_placeholder(ctx: CellContext) -> str:
+    """Placeholder fragment when no weather data is available.
+
+    An alert glyph, not a cloud: a grey cloudy icon in a cell too short
+    for its caption impersonates a real reading. The caption shrinks —
+    and shortens to "NO DATA" — instead of hiding, so the cell always
+    says why it is empty.
+    """
+    icon = mdi_span("alert-circle-outline", "icon i-md", "color: var(--muted)")
+    avail_w = cell_box(ctx)[0]
+    full = "NO WEATHER DATA"
+    text, px = fit_caption_sized(full, ctx, avail_w)
+    if text != full:
+        text, px = fit_caption_sized("NO DATA", ctx, avail_w)
+    if not text:
+        return f'<div class="cell">{icon}</div>'
+    return (
+        f'<div class="cell">{icon}'
+        f'<div class="t-label" style="font-size: {px:.1f}px">{escape(text)}</div></div>'
+    )
 
 
 class WeatherWidget(Widget):
@@ -295,18 +374,25 @@ class WeatherWidget(Widget):
         """
         if not self.show_forecast:
             return []
-        if ctx.height < _STRIP_MIN_H:
-            return []
         items = self._visible_forecast(forecast)
+        if ctx.height < _STRIP_MIN_H:
+            # Short cells have no room for day names or lows, but a
+            # tomorrow-and-after glance still beats a lone temperature —
+            # they get the mini strip (tinted icon over the high).
+            return items[:_MINI_DAYS] if self._is_mini(ctx) else []
         if ctx.width < _STRIP_MIN_W:
             # Too narrow for side-by-side columns, but a tall split-v cell
             # has the height to list the same days as rows instead.
             return items[:3] if ctx.height >= _LIST_MIN_H else []
         return items[: max(1, int(ctx.width * 0.94 // 42))]
 
+    def _is_mini(self, ctx: CellContext) -> bool:
+        """True in short-wide cells, where the strip is icon + high only."""
+        return ctx.height < _STRIP_MIN_H and ctx.width >= _MINI_MIN_W and ctx.height >= _MINI_MIN_H
+
     def _is_list(self, ctx: CellContext) -> bool:
         """True when the forecast is laid out as rows, not columns."""
-        return ctx.width < _STRIP_MIN_W
+        return ctx.width < _STRIP_MIN_W and not self._is_mini(ctx)
 
     # ------------------------------------------------------------------
     # Fragment builders
@@ -333,7 +419,25 @@ class WeatherWidget(Widget):
             f"{temps}</div>"
         )
 
-    def _forecast_row(self, day: dict, index: int) -> str:
+    @staticmethod
+    def _mini_column(day: dict) -> str:
+        """Short-cell column: tinted condition icon over the high, nothing else.
+
+        A 69px-tall cell cannot carry a day name and a hi/lo pair, but
+        three tinted glyphs with their highs still read as a forecast at
+        arm's length — which is what the row is for.
+        """
+        day_condition = day.get("condition", "sunny")
+        day_icon = WEATHER_ICONS.get(day_condition, "weather-sunny")
+        day_tint = WEATHER_COLORS.get(day_condition, "var(--warning)")
+        hi = escape(_temp_str(_fmt_num(day.get("temperature", "--"))))
+        return (
+            '<div class="wx-col">'
+            f"{mdi_span(day_icon, 'icon', f'color: {day_tint}')}"
+            f'<div class="wx-hi">{hi}</div></div>'
+        )
+
+    def _forecast_row(self, day: dict, index: int, *, tight: bool = False) -> str:
         """One day as a row: ``DAY`` · icon · hi · lo, for narrow cells."""
         day_condition = day.get("condition", "sunny")
         day_icon = WEATHER_ICONS.get(day_condition, "weather-sunny")
@@ -343,7 +447,7 @@ class WeatherWidget(Widget):
 
         hi = escape(_temp_str(_fmt_num(day.get("temperature", "--"))))
         lo_html = ""
-        if self.show_high_low and day_low is not None:
+        if self.show_high_low and day_low is not None and not tight:
             lo_html = f'<span class="wx-lo">{escape(_temp_str(_fmt_num(day_low)))}</span>'
         return (
             '<div class="wx-row">'
@@ -353,17 +457,32 @@ class WeatherWidget(Widget):
         )
 
     def _strip_height(self, ctx: CellContext, count: int, *, high_only: bool) -> float:
-        """Height the forecast block occupies, mirroring its CSS clamps."""
+        """Height the forecast block occupies, mirroring its CSS clamps.
+
+        Under-reserving here is what clips the strip's last row against
+        the cell's bottom edge, so the flex gaps and the hairline are
+        counted explicitly rather than folded into one fudge factor.
+        """
         vmin = min(ctx.width, ctx.height)
         day = max(11.0, min(0.075 * vmin, 15.0))
         icon = max(11.0, min(0.095 * vmin, 22.0))
         hi = max(11.0, min(0.085 * vmin, 19.0))
         lo = 0.0 if high_only else max(10.0, min(0.07 * vmin, 16.0))
+        if self._is_mini(ctx):
+            # Icon over high, no rule and no day name (see .wx-strip.mini).
+            mini_icon = max(11.0, min(0.16 * vmin, 22.0))
+            mini_hi = max(10.0, min(0.14 * vmin, 19.0))
+            return (mini_icon + mini_hi * 1.05 + 0.1 * 16) * _STRIP_SLACK
         if self._is_list(ctx):
-            return count * max(icon, hi) * 1.5 + 8.0
-        return (day + icon + hi + lo) * 1.12 + 8.0
+            rows = count * max(icon, hi) * 1.35 + max(0, count - 1) * _LIST_GAP
+            return (rows + _BLOCK_GAP + _RULE_H) * _STRIP_SLACK
+        # .wx-hi/.wx-lo carry line-height 1.05; the column has one gap
+        # between each of its bands.
+        bands = day + icon + (hi + lo) * 1.05
+        gaps = (3 if lo else 2) * _EM_GAP
+        return (bands + gaps + _BLOCK_GAP + _RULE_H) * _STRIP_SLACK
 
-    def _forecast_strip(self, ctx: CellContext, items: list[dict]) -> str:
+    def _forecast_strip(self, ctx: CellContext, items: list[dict], *, high_only: bool) -> str:
         """Hairline rule plus the day columns (or rows in narrow cells).
 
         Rule and days share one wrapper so ``space-evenly`` treats them
@@ -372,16 +491,44 @@ class WeatherWidget(Widget):
         """
         if not items:
             return ""
+        if self._is_mini(ctx):
+            # No hairline: at this height the rule costs more than the
+            # separation it buys.
+            body = "".join(self._mini_column(day) for day in items)
+            return f'<div class="wx-strip mini">{body}</div>'
         if self._is_list(ctx):
-            body = "".join(self._forecast_row(day, i) for i, day in enumerate(items))
-            inner = f'<div class="wx-list">{body}</div>'
+            tight = ctx.width < _LIST_MIN_W
+            body = "".join(self._forecast_row(day, i, tight=tight) for i, day in enumerate(items))
+            klass = "wx-list tight" if tight else "wx-list"
+            inner = f'<div class="{klass}">{body}</div>'
         else:
-            # Four or more columns leave under ~50px each; dropping the low
-            # keeps the remaining numerals big instead of shrinking them.
-            high_only = len(items) > 3
             body = "".join(self._forecast_column(day, i, high_only) for i, day in enumerate(items))
             inner = f'<div class="wx-strip">{body}</div>'
         return f'<div class="wx-block"><div class="wx-rule"></div>{inner}</div>'
+
+    def _chips(self, ctx: CellContext, forecast: list[dict]) -> list[str]:
+        """Today's hi/lo chip strip, or ``[]``.
+
+        The band runs down to 100x70 rather than the kit's 130x130: a
+        2x2 tile has the room, and a hero floating over an empty half
+        cell is the worse trade. Under _CHIP_ARROWS_MIN_W the ↑/↓ glyphs
+        and the second pill cost more width than they earn, so the pair
+        collapses into one arrowless "26° / 14°" chip.
+        """
+        if not self.show_high_low or ctx.width < _CHIPS_MIN_W or ctx.height < _CHIPS_MIN_H:
+            return []
+        high, low = self._today_high_low(forecast)
+        if high is None and low is None:
+            return []
+        if ctx.width < _CHIP_ARROWS_MIN_W:
+            pair = " / ".join(f"{_fmt_num(t)}°" for t in (high, low) if t is not None)
+            return [f'<span class="chip">{escape(pair)}</span>']
+        chips: list[str] = []
+        if high is not None:
+            chips.append(_tinted_chip(f"{_fmt_num(high)}°", "arrow-up-thin", "var(--warning)"))
+        if low is not None:
+            chips.append(_tinted_chip(f"{_fmt_num(low)}°", "arrow-down-thin", "var(--info)"))
+        return chips
 
     @staticmethod
     def _caption_html(ctx: CellContext, condition: str, humidity: str | None) -> str:
@@ -390,17 +537,20 @@ class WeatherWidget(Widget):
         Humidity is the lower-priority datum, so it is dropped whole
         rather than allowed to push the condition into an ellipsis — a
         caption reading "PARTLY CL… · 62%" trades the useful word for
-        the ornamental number.
+        the ornamental number. Measuring the pair at the *kit* size alone
+        dropped it from the cells with the most room (a 240px cell fits
+        "PARTLY CLOUDY · 62%" at 17.5px, a hair under the kit's 18), so
+        the pair goes through the same shrink-then-truncate fit as the
+        condition and rides along while it stays near full size.
         """
         avail_w = cell_box(ctx)[0]
         px = label_px(ctx)
-        metrics = metrics_for(ctx.theme)
-        text = condition.upper()
+        upper = condition.upper()
+        fitted, fit_px = fit_caption_sized(upper, ctx, avail_w)
         if humidity:
-            combined = f"{text}  ·  {humidity}"
-            if metrics.width(combined, px, "bold", tracking=metrics.label_tracking) <= avail_w:
-                text = combined
-        fitted, fit_px = fit_caption_sized(text, ctx, avail_w)
+            pair, pair_px = fit_caption_sized(f"{upper}  ·  {humidity}", ctx, avail_w)
+            if pair.startswith(upper) and pair_px >= px * _CAPTION_PAIR_SHARE:
+                fitted, fit_px = pair, pair_px
         size = f' style="font-size: {fit_px:.1f}px"' if fit_px < px - 0.25 else ""
         return f'<div class="t-label caption-row hide-short"{size}>{escape(fitted)}</div>'
 
@@ -411,18 +561,36 @@ class WeatherWidget(Widget):
         temp: Any,
         avail_w: float,
         avail_h: float,
+        *,
+        solo: bool,
     ) -> str:
         """Condition icon + whole-degree temperature, side by side or stacked.
 
         Wide cells set the icon beside the value so both read at poster
         size; narrow ones stack it above, where the value keeps the full
-        cell width to itself.
+        cell width to itself. ``solo`` means nothing follows the pair —
+        then the cell's height is theirs to spend.
+
+        The icon size is always resolved here rather than by .wx-icon's
+        clamp: the clamp knows the cell but not what shares it, so it
+        claims a band the strip below it needs.
         """
         icon, tint = condition_icon
-        icon_html = mdi_span(icon, "wx-icon", f"color: {tint}")
-        side_by_side = ctx.width >= _SIDE_BY_SIDE_MIN_W
-        # The icon's clamp mirrors .wx-icon in the stylesheet below.
-        icon_px = max(15.0, min(0.33 * min(ctx.width, ctx.height), 78.0))
+        # Squarish cells with nothing underneath stack: side by side the
+        # pair is width-bound, saturating the cell at a third of its
+        # height. Short cells do the opposite for the same reason.
+        solo_stack = solo and avail_h >= avail_w * _SOLO_STACK_RATIO
+        side_by_side = not solo_stack and (
+            ctx.width >= _SIDE_BY_SIDE_MIN_W
+            or (ctx.width >= _CHIPS_MIN_W and ctx.height < _STACK_MIN_H)
+        )
+        if solo_stack:
+            icon_px = min(avail_h * _SOLO_ICON_SHARE, avail_w * 0.55, _SOLO_ICON_MAX_PX)
+        else:
+            icon_px = max(_ICON_MIN_PX, min(_ICON_VMIN * min(ctx.width, ctx.height), _ICON_MAX_PX))
+            icon_px = min(icon_px, avail_h * (0.95 if side_by_side else _STACK_ICON_SHARE))
+        icon_px = max(_ICON_MIN_PX, icon_px)
+        icon_html = mdi_span(icon, "wx-icon", f"color: {tint}; font-size: {icon_px:.1f}px")
         hero_w = avail_w - icon_px * 1.15 if side_by_side else avail_w
         hero_h = avail_h if side_by_side else max(20.0, avail_h - icon_px)
 
@@ -445,7 +613,7 @@ class WeatherWidget(Widget):
         """Render the weather widget."""
         entity = state.entity
         if entity is None:
-            return _weather_placeholder()
+            return _weather_placeholder(ctx)
 
         condition = entity.state
         icon_name = WEATHER_ICONS.get(condition, "weather-sunny")
@@ -459,15 +627,7 @@ class WeatherWidget(Widget):
 
         # Today's hi/lo only earns a chip row when the forecast strip is
         # absent — with the strip up, its first column already says it.
-        # Chips run to 150x70 rather than the kit's 130x130 so wide,
-        # short cells carry the pair instead of a lone floating hero.
-        chips: list[str] = []
-        if not columns and self.show_high_low and ctx.width >= 150 and ctx.height >= 70:
-            high, low = self._today_high_low(state.forecast)
-            if high is not None:
-                chips.append(_tinted_chip(f"{_fmt_num(high)}°", "arrow-up-thin", "var(--warning)"))
-            if low is not None:
-                chips.append(_tinted_chip(f"{_fmt_num(low)}°", "arrow-down-thin", "var(--info)"))
+        chips = self._chips(ctx, state.forecast) if not columns else []
 
         avail_w, avail_h = cell_box(ctx)
         spent = 0.0
@@ -476,9 +636,17 @@ class WeatherWidget(Widget):
             spent += label_px(ctx)
         if chips:
             spent += chip_band_px(ctx)
+        high_only = len(columns) > 3
         if columns:
-            spent += self._strip_height(ctx, len(columns), high_only=len(columns) > 3)
+            strip_h = self._strip_height(ctx, len(columns), high_only=high_only)
+            if not high_only and avail_h - spent - strip_h < _HERO_MIN_BAND:
+                # The low row is the first thing to go: three highs read
+                # better than a hi/lo pair with its bottom line clipped.
+                high_only = True
+                strip_h = self._strip_height(ctx, len(columns), high_only=True)
+            spent += strip_h
 
+        share = HERO_SHARE_SOLO if not (chips or columns) else HERO_SHARE_STACKED
         bands: list[str] = []
         if show_caption:
             bands.append(self._caption_html(ctx, _condition_label(condition), humidity_text))
@@ -488,10 +656,11 @@ class WeatherWidget(Widget):
                 (icon_name, icon_tint),
                 entity.get("temperature", "--"),
                 avail_w,
-                max(24.0, avail_h - spent) * HERO_SHARE_STACKED,
+                max(24.0, avail_h - spent) * share,
+                solo=not (chips or columns),
             )
         )
         if chips:
             bands.append(f'<div class="chips">{"".join(chips)}</div>')
-        bands.append(self._forecast_strip(ctx, columns))
+        bands.append(self._forecast_strip(ctx, columns, high_only=high_only))
         return f'{_WEATHER_CSS}<div class="cell">{"".join(bands)}</div>'

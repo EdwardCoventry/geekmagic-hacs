@@ -8,11 +8,12 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..htmldoc import css_rgb, mdi_span, svg_arc, svg_ring
 from ._gauge import (
+    CAPTION_MIN_KEEP,
+    CAPTION_MIN_PX,
     STROKE_UNITS,
     bar_html,
     cell_box,
-    char_em,
-    fit_caption,
+    fit_caption_sized,
     hero_font_css,
     hero_font_px,
     hero_metrics,
@@ -37,9 +38,22 @@ _VBAR_THICKNESS = "clamp(12px, 17vmin, 30px)"
 # as the value, so the caption moves above it (or sheds entirely).
 _CAPTION_INSIDE_MIN = 132.0
 _ROUND_MIN = 44.0
+# ...but a gauge whose only reading is its caption may shrink to a token
+# rather than push the word out of the cell.
+_ROUND_TINY = 20.0
+# Height a caption band really costs: the kit's .t-label is line-height 1,
+# plus the breathing room space-evenly puts under it.
+_CAPTION_BAND = 1.35
 # Past this width/height ratio a centered round gauge strands the cell's
 # sides, so the gauge moves left and the text stacks beside it.
 _ROW_RATIO = 1.5
+# ...and past its transpose the gauge is width-bound, so the value comes
+# out of the hole and stands under the circle instead.
+_COLUMN_RATIO = 1.6
+# Smallest value type a row/column readout is worth keeping.
+_VALUE_MIN = 18.0
+# Share of a tall cell's height the standalone value may spend.
+_COLUMN_VALUE_SHARE = 0.30
 
 
 class GaugeWidget(Widget):
@@ -191,25 +205,30 @@ class GaugeWidget(Widget):
         collides with the stroke.
         """
         avail_w, avail_h = cell_box(ctx)
-        lbl = label_px(ctx)
 
         if ctx.width > ctx.height * _ROW_RATIO:
             return self._render_round_row(
                 ctx, name, digits, unit, percent=percent, color=color, track=track
             )
+        if ctx.height > ctx.width * _COLUMN_RATIO:
+            return self._render_round_column(
+                ctx, name, digits, unit, percent=percent, color=color, track=track
+            )
 
+        # A gauge with nothing to read is its caption: it can never be
+        # dropped, however tight the cell.
+        no_value = not (digits or unit)
         # Big gauges hold the caption inside, under the value (Activity
         # style) — that buys the ring the whole cell. Smaller ones put it
-        # above; the smallest drop it entirely.
+        # above, shrinking it rather than shedding it.
         inside = bool(name) and min(avail_w, avail_h) >= _CAPTION_INSIDE_MIN
-        above = bool(name) and not inside and ctx.height >= 92
-        reserve = lbl * 1.9 if above else 0.0
-        diameter = min(avail_w, avail_h - reserve)
-        if diameter < _ROUND_MIN and above:
-            # Not enough room for both — the gauge wins.
-            above = False
-            diameter = min(avail_w, avail_h)
-        diameter = max(_ROUND_MIN, diameter)
+        caption, reserve = "", 0.0
+        if not inside:
+            caption, reserve = self._caption_band(
+                ctx, name, avail_w, reserve_h=_ROUND_MIN, avail_h=avail_h, no_value=no_value
+            )
+        floor = _ROUND_TINY if no_value else _ROUND_MIN
+        diameter = max(floor, min(avail_w, avail_h - reserve))
 
         hole = diameter - 2 * diameter * STROKE_UNITS / 100
         label_html = ""
@@ -220,26 +239,25 @@ class GaugeWidget(Widget):
                 value_px *= 0.82
             label_html = self._value_html(digits, unit, value_px, color)
         if inside:
-            if value_px:
-                caption_px = max(9.0, min(lbl, value_px * 0.30))
-            else:
-                # Without a value the caption owns the hole: size it so
-                # the whole word fits rather than truncating it.
-                widest = hole * 0.86 / max(1, len(name)) / char_em(ctx, caps=True)
-                caption_px = max(10.0, min(hole * 0.20, 26.0, widest))
-            gap = f"margin-top: {value_px * 0.16:.1f}px" if value_px else ""
-            caption_text = fit_caption(ctx, name.upper(), width_px=hole * 0.86, font_px=caption_px)
-            label_html += (
-                f'<div class="t-label" style="font-size: {caption_px:.1f}px; {gap}">'
-                f"{escape(caption_text)}</div>"
+            # Inside the hole the caption is capped by the value it sits
+            # under (or by the hole itself when there is no value); the
+            # width budget is the hole, not the cell.
+            cap_px = min(label_px(ctx), value_px * 0.30) if value_px else min(hole * 0.20, 26.0)
+            text, caption_px = fit_caption_sized(
+                ctx,
+                name,
+                width_px=hole * 0.86,
+                max_px=max(CAPTION_MIN_PX, cap_px),
+                min_keep=0 if no_value else CAPTION_MIN_KEEP,
             )
+            if text:
+                gap = f"margin-top: {value_px * 0.16:.1f}px" if value_px else ""
+                label_html += (
+                    f'<div class="t-label" style="font-size: {caption_px:.1f}px; {gap}">'
+                    f"{escape(text)}</div>"
+                )
 
         box = self._gauge_box(diameter, percent, color, track, label_html)
-        caption = ""
-        if above:
-            caption = (
-                f'<div class="t-label caption-row">{escape(fit_caption(ctx, name.upper()))}</div>'
-            )
         return f'<div class="cell">{caption}{box}</div>'
 
     def _render_round_row(
@@ -264,12 +282,10 @@ class GaugeWidget(Widget):
         gap = avail_w * 0.05
         diameter = max(_ROUND_MIN, min(avail_h, avail_w * 0.46))
         text_w = max(24.0, avail_w - diameter - gap)
-        caption = ""
-        if name and ctx.height >= 60:
-            caption = (
-                f'<div class="t-label" style="font-size: {label_px(ctx):.1f}px">'
-                f"{escape(fit_caption(ctx, name.upper(), width_px=text_w))}</div>"
-            )
+        no_value = not (digits or unit)
+        caption, _band = self._caption_band(
+            ctx, name, text_w, reserve_h=_VALUE_MIN, avail_h=avail_h, no_value=no_value
+        )
         label_html = ""
         if digits or unit:
             hero_px = min(
@@ -286,6 +302,80 @@ class GaugeWidget(Widget):
             f"{caption}{label_html}</div>"
             "</div>"
         )
+
+    def _render_round_column(
+        self,
+        ctx: CellContext,
+        name: str,
+        digits: str,
+        unit: str,
+        *,
+        percent: float,
+        color: str,
+        track: str,
+    ) -> str:
+        """Tall cell: caption above, gauge, value beneath — the row's transpose.
+
+        A circle in a 1:3 cell is bound by the *width*, so centering it
+        strands most of the column and buries the value in a hole barely
+        wider than the stroke. Lifting the value out from under the ring
+        spends the spare height on type instead of air.
+        """
+        avail_w, avail_h = cell_box(ctx)
+        no_value = not (digits or unit)
+        caption, band = self._caption_band(
+            ctx, name, avail_w, reserve_h=_ROUND_MIN, avail_h=avail_h, no_value=no_value
+        )
+        label_html = ""
+        hero_band = 0.0
+        if not no_value:
+            hero_px = min(hero_font_px(digits, unit, avail_w), avail_h * _COLUMN_VALUE_SHARE)
+            hero_band = hero_px * 1.1
+            label_html = self._value_html(digits, unit, hero_px, color)
+        # The remainder is the gauge's, minus a share left for the
+        # space-evenly gaps that keep the three bands reading as bands.
+        diameter = max(_ROUND_MIN, min(avail_w, (avail_h - band - hero_band) * 0.92))
+        box = self._gauge_box(diameter, percent, color, track, "")
+        return f'<div class="cell">{caption}{box}{label_html}</div>'
+
+    @staticmethod
+    def _caption_band(
+        ctx: CellContext,
+        name: str,
+        width_px: float,
+        *,
+        reserve_h: float,
+        avail_h: float,
+        no_value: bool,
+    ) -> tuple[str, float]:
+        """Fitted caption markup plus the height band it costs.
+
+        Visibility is decided here rather than by a pixel cliff or the
+        kit's ``hide-short``: the caption shrinks toward its 10px floor
+        first, and only a cell that cannot hold ``reserve_h`` (the gauge,
+        or the value beside it) *and* a 10px label goes anonymous. A
+        gauge with no value to show keeps its caption at any size — an
+        unlabeled empty ring says nothing at all.
+        """
+        if not name:
+            return "", 0.0
+        room = (avail_h - reserve_h) / _CAPTION_BAND
+        if not no_value and room < CAPTION_MIN_PX:
+            return "", 0.0
+        cap_px = label_px(ctx) if no_value else min(label_px(ctx), room)
+        text, px = fit_caption_sized(
+            ctx,
+            name,
+            width_px=width_px,
+            max_px=max(CAPTION_MIN_PX, cap_px),
+            min_keep=0 if no_value else CAPTION_MIN_KEEP,
+        )
+        if not text:
+            return "", 0.0
+        html = (
+            f'<div class="t-label caption-row" style="font-size: {px:.1f}px">{escape(text)}</div>'
+        )
+        return html, px * _CAPTION_BAND
 
     @staticmethod
     def _hole_font_px(diameter: float, digits: str, unit: str) -> float:
@@ -429,22 +519,15 @@ class GaugeWidget(Widget):
         """
         if not name or ctx.height < 46:
             return ""
-        upper = name.upper()
         top = label_px(ctx)
-        per_em = char_em(ctx, caps=True)
-        reserve_em = 1.6 if icon_html else 0.0
-        width_px = ctx.width * 0.90 * width_ratio
         # Shrink to keep the whole word before truncating — "MEMORY" at
         # 10px beats "MEMO…" at 12px on a panel this small.
-        px_fit = width_px / max(1e-6, len(upper) * per_em + reserve_em)
-        if px_fit >= 10.0:
-            size_px = min(top, px_fit)
-            text = upper
-        else:
-            size_px = 10.0
-            text = fit_caption(
-                ctx, upper, reserve_em=reserve_em, width_px=width_px, font_px=size_px
-            )
+        text, size_px = fit_caption_sized(
+            ctx,
+            name,
+            reserve_em=1.6 if icon_html else 0.0,
+            width_px=ctx.width * 0.90 * width_ratio,
+        )
         if not (text or icon_html):
             return ""
         size = f' style="font-size: {size_px:.1f}px"' if size_px < top - 0.25 else ""
