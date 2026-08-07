@@ -183,17 +183,28 @@ class TestRoundGaugeIdentity:
         fragment = gauge("ring").render_html(cell(200, 56), gauge_state())
         assert "CPU" in fragment
 
-    def test_tall_cell_lifts_the_value_out_of_the_hole(self):
-        """A 1:3 column stacks caption / ring / a big standalone value."""
+    def test_tall_cell_keeps_the_value_in_the_hole(self):
+        """A gauge's reading lives INSIDE the ring (user contract) — a
+        ring with an empty hole and its number floating elsewhere reads
+        as two broken widgets. The tall column grows the ring to the
+        full width, and the hole value grows with it."""
         ctx = cell(71, 228)
         fragment = gauge("ring").render_html(ctx, gauge_state())
         assert "CPU" in fragment
-        # The value stands under the gauge, not overlaid inside its hole.
-        assert "position: absolute" not in fragment
+        assert "position: absolute" in fragment  # the in-hole overlay
         hero = font_px(fragment, "t-hero")
         square = font_px(gauge("ring").render_html(cell(71, 71), gauge_state()), "t-hero")
-        assert hero > square * 1.5
-        assert hero < cell_box(ctx)[1]
+        # Width-bound in both shapes: the tall column's reading is at
+        # least as large as the square tile's.
+        assert hero >= square * 0.9
+
+    def test_wide_row_keeps_the_value_in_the_hole(self):
+        """Same contract for the Fitness-row treatment: value in the
+        hole, the caption beside the ring."""
+        fragment = gauge("ring").render_html(cell(228, 71), gauge_state())
+        assert "CPU" in fragment
+        assert "position: absolute" in fragment
+        assert ">73<" in fragment
 
 
 # ============================================================================

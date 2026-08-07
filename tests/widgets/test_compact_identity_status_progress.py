@@ -350,10 +350,14 @@ class TestAttributeListCompactRows:
         assert "ROUTE" in fragment
         assert ">42<" in fragment
 
-    def test_row_whose_label_is_dropped_keeps_a_whole_value(self):
-        """The split reserved room for a label that row turned out to lack."""
-        fragment = self._widget().render_html(cell(*GRID_3X3), make_state(self._entity()))
+    def test_narrow_cell_stacks_label_over_whole_value(self):
+        """Narrow cells stack the label ABOVE the value, each taking the
+        full width — "Downtown" renders whole at the size the width
+        affords instead of truncating beside a cramped label."""
+        fragment = self._widget().render_html(cell(111, 108), make_state(self._entity()))
         assert "Downtown" in fragment
+        assert "Dow…" not in fragment
+        assert "DESTINATION" in fragment
 
     def test_title_survives_a_narrow_cell(self):
         fragment = self._widget().render_html(cell(*GRID_3X3), make_state(self._entity()))

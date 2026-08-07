@@ -1652,7 +1652,10 @@ class TestClimateWidget:
         tile = CellContext(width=69, height=108, slot_index=0, theme=DEFAULT_THEME)
         fragment = widget.render_html(tile, make_state(entity))
         assert "THERM" in fragment  # room caption survives (maybe truncated)
-        assert "icon i-sm" in fragment  # tinted state icon present
+        # Narrow cells STACK the tinted state icon on its own band above
+        # the name (inline, its reserve starved the caption to stubs).
+        assert "card-icon" in fragment
+        assert "icon i-md" in fragment
 
     def test_short_cell_keeps_caption_row(self):
         """Short non-strip cells keep a shrunk caption instead of an
