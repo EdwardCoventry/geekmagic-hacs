@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from jinja2.sandbox import SandboxedEnvironment
 
+from ..htmldoc import mdi_span
 from .base import Widget, WidgetConfig
 
 if TYPE_CHECKING:
@@ -69,9 +70,26 @@ def _render_template(source: str, state: WidgetState) -> str:
     return env.from_string(source).render(**_build_template_context(state))
 
 
-def _placeholder(message: str) -> str:
-    """Placeholder fragment for empty or broken templates."""
-    return f'<div class="cell"><div class="t-label">{escape(message.upper())}</div></div>'
+def _placeholder(message: str, icon: str = "code-tags") -> str:
+    """Placeholder fragment for empty or broken templates.
+
+    ``.t-label`` is nowrap and Blitz neither clips nor ellipsizes, so an
+    unmeasured caption bleeds past the panel edges — keep the words
+    short and let them wrap per-word instead (one nowrap span per word;
+    the flex column stacks what doesn't fit on one line).
+    """
+    words = "".join(
+        f'<span style="white-space: nowrap">{escape(word)}</span>'
+        for word in message.upper().split()
+    )
+    glyph = mdi_span(icon, "icon i-md", "color: var(--text-tertiary)")
+    return (
+        '<div class="cell" style="justify-content: center; gap: 2.5vmin">'
+        f"{glyph}"
+        '<div class="t-label" style="display: flex; flex-wrap: wrap; '
+        f'justify-content: center; gap: 0.35em; max-width: 100%">{words}</div>'
+        "</div>"
+    )
 
 
 class HtmlWidget(Widget):
@@ -150,7 +168,7 @@ class HtmlWidget(Widget):
             return _render_template(self.html, state)
         except Exception:
             _LOGGER.exception("Invalid Jinja template in HTML widget")
-            return _placeholder("Template error")
+            return _placeholder("Template error", icon="alert-circle-outline")
 
     def get_entities(self) -> list[str]:
         """Return entity IDs this widget depends on.

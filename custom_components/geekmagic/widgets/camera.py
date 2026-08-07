@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ._textfit import TextMetrics
     from .state import WidgetState
 
+from ._cardfit import fit_caption_sized
 from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
 
@@ -63,12 +64,14 @@ class CameraWidget(Widget):
         """Initialize the camera widget."""
         super().__init__(config)
         self.show_label = config.options.get("show_label", False)
-        self.fit = config.options.get("fit", "contain")
+        # Default matches the SCHEMA: a fresh camera fills its cell
+        # instead of letterboxing non-square cells with black bands.
+        self.fit = config.options.get("fit", "cover")
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         """Render the camera widget."""
         if state.image is None:
-            return self._render_placeholder(ctx)
+            return self._render_placeholder(ctx, state)
 
         image = state.image.convert("RGB") if state.image.mode != "RGB" else state.image
         uri = image_data_uri(image)
@@ -88,23 +91,26 @@ class CameraWidget(Widget):
             "</div>"
         )
 
-    def _render_placeholder(self, ctx: CellContext) -> str:
-        """Offline / no-snapshot state — a quiet caption, not an alarm."""
-        # Mirrors the kit's .t-label sizing, clamp(12px, min(12vmin,
-        # 9vw), 18px), so the caption is measured as it will be drawn.
-        font_px = max(12.0, min(0.12 * min(ctx.width, ctx.height), 0.09 * ctx.width, 18.0))
-        label = _caps_metrics(ctx).truncate(
-            self.config.label or "No Image",
-            font_px,
-            ctx.width * 0.88 - _CHROME_PX,
-            _LABEL_WEIGHT,
-            tracking=_caps_metrics(ctx).label_tracking,
-        )
+    def _render_placeholder(self, ctx: CellContext, state: WidgetState) -> str:
+        """Offline / no-snapshot state — a quiet caption, not an alarm.
+
+        The caption names the CAMERA (an offline "Front Door" must not
+        render identically to an offline "Backyard"), and survives short
+        cells at a shrunk size instead of hiding — a bare grey camera
+        glyph says nothing.
+        """
+        name = self.label_for(state.entity, fallback="No Image")
+        label, font_px = fit_caption_sized(name, ctx, ctx.width * 0.88 - _CHROME_PX)
+        caption = ""
+        if label and ctx.height >= 44:
+            caption = (
+                f'<div class="t-label" style="font-size: {font_px:.1f}px; '
+                f'text-transform: uppercase">{escape(label)}</div>'
+            )
         return (
             '<div class="cell" style="justify-content: center; gap: 3.5vmin">'
             f"{mdi_span('camera', 'icon i-md', 'color: var(--text-secondary)')}"
-            '<div class="t-label hide-short" style="text-transform: uppercase">'
-            f"{escape(label)}</div>"
+            f"{caption}"
             "</div>"
         )
 

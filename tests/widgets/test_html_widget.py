@@ -153,12 +153,15 @@ class TestRenderFragment:
         assert widget.render_html(ctx, widget_state) == '<div class="t-hero">21.5</div>'
 
     def test_empty_html_placeholder(self, ctx, widget_state):
-        widget = make_widget("")
-        assert "NO HTML CONFIGURED" in widget.render_html(ctx, widget_state)
+        """Placeholder words wrap per-word so they never bleed off panel."""
+        fragment = make_widget("").render_html(ctx, widget_state)
+        for word in ("NO", "HTML", "CONFIGURED"):
+            assert f">{word}</span>" in fragment
 
     def test_invalid_template_placeholder(self, ctx, widget_state):
-        widget = make_widget("{{ unclosed")
-        assert "TEMPLATE ERROR" in widget.render_html(ctx, widget_state)
+        fragment = make_widget("{{ unclosed").render_html(ctx, widget_state)
+        for word in ("TEMPLATE", "ERROR"):
+            assert f">{word}</span>" in fragment
 
 
 @pytest.mark.skipif(not HAS_BLITZ, reason="blitz-py not installed")

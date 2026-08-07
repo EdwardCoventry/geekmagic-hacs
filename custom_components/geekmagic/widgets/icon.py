@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
+from html import escape
+
 from ..htmldoc import css_rgb, mdi_span
-from ._cardfit import cell_box
+from ._cardfit import cell_box, fit_caption_sized, label_px
 from .base import Widget, WidgetConfig
 
 if TYPE_CHECKING:
@@ -44,11 +46,26 @@ class IconWidget(Widget):
         # theme tint the icon via the slot's accent.
         color = css_rgb(self.config.color) if self.config.color else ctx.accent()
 
-        # Size the glyph to the cell it actually got: the same fragment
-        # spans a 74px grid slot and a 240px fullscreen cell.
+        # A user-set label captions the glyph — the panel offers one for
+        # every widget, and silently discarding it leaves a naked glyph.
         box_w, box_h = cell_box(ctx)
+        caption = ""
+        if self.config.label and box_h >= 44:
+            text, px = fit_caption_sized(self.config.label, ctx, box_w)
+            if text:
+                caption = (
+                    f'<div class="t-label" style="font-size: {px:.1f}px">{escape(text)}</div>'
+                )
+                box_h -= label_px(ctx) * 1.6
+
+        # Size the glyph to the cell it actually got: the same fragment
+        # spans a 74px grid slot and a 240px fullscreen cell. Tall
+        # columns get a wider share so the glyph does not strand the
+        # extra height (the width cap still binds).
         fill = min(box_h / _INK_HEIGHT, box_w / _INK_WIDTH)
         share = _SIZE_SHARES.get(self.size_mode, _SIZE_SHARES["regular"])
+        if box_h > 1.4 * box_w and self.size_mode != "huge":
+            share = min(0.94, share + 0.2)
         size_px = max(_MIN_PX, fill * share)
 
         style = f"color: {color}; font-size: {size_px:.1f}px"
@@ -65,4 +82,8 @@ class IconWidget(Widget):
             if self.show_panel
             else ""
         )
-        return f'<div class="cell" style="{panel_style}justify-content: center">{icon_html}</div>'
+        justify = "space-evenly" if caption else "center"
+        return (
+            f'<div class="cell" style="{panel_style}justify-content: {justify}">'
+            f"{caption}{icon_html}</div>"
+        )

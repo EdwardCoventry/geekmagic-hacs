@@ -1901,6 +1901,46 @@ class TestMediaWidget:
         fragment = widget.render_html(ctx, make_state(entity))
         assert "PAUSED" in fragment
 
+    def test_idle_names_the_player(self, ctx):
+        """Two idle players in one grid must not render identically."""
+        widget = self._widget()
+        entity = self._player("idle", friendly_name="Kitchen Speaker")
+        fragment = widget.render_html(ctx, make_state(entity))
+        assert "KITCHEN" in fragment
+
+    def test_off_distinct_from_idle(self, ctx):
+        widget = self._widget()
+        fragment = widget.render_html(ctx, make_state(self._player("off")))
+        assert "OFF" in fragment
+        assert "NO MEDIA" not in fragment
+
+    def test_short_cell_keeps_paused_caption(self):
+        """PAUSED must survive short cells — without it, paused and
+        playing render identically in the text-only path."""
+        widget = self._widget()
+        entity = self._player(
+            "paused", media_title="Song", media_artist="Artist", media_duration=300
+        )
+        short = CellContext(width=108, height=69, slot_index=0, theme=DEFAULT_THEME)
+        fragment = widget.render_html(short, make_state(entity))
+        assert "PAUSED" in fragment
+        assert 'class="t-label" style=' in fragment  # Python-sized, no hide-short
+
+    def test_narrow_art_cell_keeps_title(self):
+        """Narrow album-art cells keep the fitted title — art plus an
+        anonymous bar says nothing."""
+        from PIL import Image as PILImage
+
+        widget = self._widget()
+        entity = self._player(
+            "playing", media_title="Song Name", media_duration=300, media_position=10
+        )
+        art = PILImage.new("RGB", (64, 64), (40, 40, 80))
+        narrow = CellContext(width=69, height=224, slot_index=0, theme=DEFAULT_THEME)
+        fragment = widget.render_html(narrow, make_state(entity, image=art))
+        assert "hide-narrow" not in fragment
+        assert "Song" in fragment
+
     def test_render_playing_now_playing_card(self, ctx):
         widget = self._widget()
         entity = self._player(
@@ -1976,14 +2016,14 @@ class TestCameraWidget:
     def test_render_without_image(self, ctx):
         widget = self._widget()
         fragment = widget.render_html(ctx, make_state())
-        assert "No Image" in fragment
+        assert "NO IMAGE" in fragment
 
     def test_render_with_image_embeds_data_uri(self, ctx):
         widget = self._widget()
         snapshot = Image.new("RGB", (32, 32), (200, 100, 50))
         fragment = widget.render_html(ctx, make_state(image=snapshot))
         assert "data:image/png;base64," in fragment
-        assert "object-fit: contain" in fragment  # default fit
+        assert "object-fit: cover" in fragment  # default fit matches SCHEMA
 
     def test_fit_cover_option(self, ctx):
         widget = self._widget(fit="cover")

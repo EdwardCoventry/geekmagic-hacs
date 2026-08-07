@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from ._textfit import TextMetrics
     from .state import EntityState, WidgetState
 
+from ._cardfit import cell_box, fit_caption_sized
 from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
 from .helpers import truncate_text
@@ -315,7 +316,7 @@ class MediaWidget(Widget):
             or entity.state in ("off", "unavailable", "unknown", "idle")
             or (paused and not has_track)
         ):
-            return self._render_idle(entity)
+            return self._render_idle(ctx, entity)
 
         # Calculate current position (accounts for elapsed playback time)
         position = _calculate_media_position(entity, state.now)
@@ -331,19 +332,46 @@ class MediaWidget(Widget):
 
         return self._render_now_playing(ctx, entity, position, duration, accent)
 
-    def _render_idle(self, entity: EntityState | None) -> str:
-        """Idle / paused / off placeholder — quiet, centered, never loud."""
-        if entity is not None and entity.state == "paused":
+    def _render_idle(self, ctx: CellContext, entity: EntityState | None) -> str:
+        """Idle / paused / off placeholder — quiet, centered, never loud.
+
+        Still an identity-bearing cell: the player's NAME captions the
+        card (two idle speakers in one grid must not render identically),
+        the state keeps its own glyph + word, and the label survives
+        short cells at a shrunk size instead of hiding — a lone grey
+        glyph says nothing.
+        """
+        state = entity.state if entity is not None else ""
+        if state == "paused":
             icon, label = "pause", "PAUSED"
+        elif state == "off":
+            icon, label = "power", "OFF"
+        elif state in ("unavailable", "unknown"):
+            icon, label = "music-off", "UNAVAILABLE"
         else:
             icon, label = "music", "NO MEDIA"
+
+        avail_w, avail_h = cell_box(ctx)
+        bands: list[str] = []
+        name = self.label_for(entity, fallback="") if entity is not None else ""
+        if name and avail_h >= 60:
+            text, px = fit_caption_sized(name, ctx, avail_w)
+            if text:
+                bands.append(
+                    f'<div class="t-label" style="font-size: {px:.1f}px">{escape(text)}</div>'
+                )
+        bands.append(mdi_span(icon, "icon i-md", "color: var(--text-secondary)"))
+        if avail_h >= 40:
+            text, px = fit_caption_sized(label, ctx, avail_w)
+            bands.append(
+                '<div class="t-label" style="color: var(--text-secondary); '
+                f'font-size: {px:.1f}px">{escape(text or label[:3])}</div>'
+            )
         # A medium glyph in secondary over a tertiary caption: present but
         # recessive, so an idle cell reads as resting rather than broken.
         return (
             '<div class="cell" style="justify-content: center; gap: 3.5vmin">'
-            f"{mdi_span(icon, 'icon i-md', 'color: var(--text-secondary)')}"
-            f'<div class="t-label hide-short">{escape(label)}</div>'
-            "</div>"
+            f"{''.join(bands)}</div>"
         )
 
     def _render_album_art(
@@ -410,8 +438,17 @@ class MediaWidget(Widget):
                 'line-height: 1.16; letter-spacing: -0.01em; color: rgba(255,255,255,0.98)">'
                 f"{pause_glyph}{escape(title)}</div>"
             )
+        if paused and not raw_title:
+            # No title line to carry the pause glyph — the state still
+            # needs a visible carrier over the art.
+            badge_px = _clamp_px(12.0, 0.12, 22.0, vmin)
+            block_px += badge_px * 1.1
+            lines.append(
+                f'<span class="icon" style="font-size: {badge_px:.0f}px; '
+                'color: rgba(255,255,255,0.85)">&#xF03E4;</span>'
+            )
         artist = entity.get("media_artist", "")
-        if artist and self.show_artist and ctx.height >= 120:
+        if artist and self.show_artist and ctx.height >= 100 and ctx.width >= 100:
             artist_px = _clamp_px(9.0, 0.072, 15.0, vmin)
             artist = _fit_width(metrics, artist, artist_px, text_width, _SUPPORT_WEIGHT)
             block_px += artist_px * 1.2 + gap_px
@@ -423,7 +460,7 @@ class MediaWidget(Widget):
         # The bar already shows elapsed position graphically, so the
         # numeric readout only earns its place when the title is a single
         # line and there is real room left.
-        if duration > 0 and ctx.height >= 190 and title_lines <= 1:
+        if duration > 0 and ctx.height >= 190 and ctx.width >= 100 and title_lines <= 1:
             time_px = _clamp_px(9.0, 0.055, 12.0, vmin)
             time_str = f"{_format_time(position)} / {_format_time(duration)}"
             block_px += time_px * 1.2 + gap_px
@@ -435,8 +472,6 @@ class MediaWidget(Widget):
             )
 
         bar_zone = _inset_px(ctx) + (_clamp_px(2.0, 0.014, 4.0, vmin) + 6.0 if show_bar else 0.0)
-        if ctx.width < 100:
-            block_px = 0.0  # .hide-narrow drops the text block entirely
 
         text_block = ""
         if lines:
@@ -448,9 +483,12 @@ class MediaWidget(Widget):
             # zero-height wrapper would collapse the overlay away), and it
             # paints non-positioned subtrees before positioned siblings (a
             # static wrapper would put the text UNDER the scrim). So the
-            # hide-* wrapper is itself absolute and fills the cell.
+            # wrapper is itself absolute and fills the cell. It carries NO
+            # hide-narrow: narrow cells keep the title (fitted to their
+            # real width) — art with an anonymous progress bar says
+            # nothing, and paused would be indistinguishable from playing.
             text_block = (
-                '<div class="hide-narrow" style="position: absolute; inset: 0">'
+                '<div style="position: absolute; inset: 0">'
                 f'<div style="position: absolute; left: {_INSET}; right: {_INSET}; '
                 f"bottom: {bottom}; display: flex; flex-direction: column; "
                 'align-items: flex-start; gap: 0.2em; text-align: left">'
@@ -496,8 +534,9 @@ class MediaWidget(Widget):
         available = ctx.height * 0.90 - _CHROME_PX  # 5% padding top and bottom
 
         reserved = 0.10 * ctx.height  # space-evenly needs slack to breathe
-        if not short:  # the NOW PLAYING caption (.t-label, line-height 1)
-            reserved += max(12.0, min(0.12 * vmin, 0.09 * ctx.width, 18.0))
+        # The caption survives every height (it names the play state) —
+        # shrunk to the 10px floor in short cells.
+        reserved += 10.0 if short else max(12.0, min(0.12 * vmin, 0.09 * ctx.width, 18.0))
         if not short and self.show_artist and entity.get("media_artist", ""):
             reserved += _artist_px(vmin) * 1.2
         if not small and self.show_album and entity.get("media_album_name", ""):
@@ -522,8 +561,17 @@ class MediaWidget(Widget):
         metrics = _title_metrics(ctx)
         text_width = ctx.width * 0.88 - _CHROME_PX  # 6% padding each side
 
-        caption = "PAUSED" if entity.state == "paused" else "NOW PLAYING"
-        bands: list[str] = [f'<div class="t-label hide-short">{caption}</div>']
+        # The caption is the only carrier of the play state in this path —
+        # it survives short cells at a shrunk size instead of hiding
+        # ("PAUSED" gone means paused and playing render identically).
+        # Narrow cells get the shorter word so it fits whole.
+        paused = entity.state == "paused"
+        caption = "PAUSED" if paused else ("PLAYING" if ctx.width < 100 else "NOW PLAYING")
+        cap_text, cap_px = fit_caption_sized(caption, ctx, text_width)
+        bands: list[str] = [
+            f'<div class="t-label" style="font-size: {cap_px:.1f}px">'
+            f"{escape(cap_text or caption[:3])}</div>"
+        ]
 
         # Title / artist / album are one unit: they read as a single
         # block of "what is playing", so they get a tight internal gap and
