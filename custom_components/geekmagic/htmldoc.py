@@ -48,6 +48,12 @@ except ImportError:  # pragma: no cover - depends on environment
 # animations/transitions at given timestamps).
 HAS_FRAMES = HAS_BLITZ and hasattr(blitz_py, "render_frames")
 
+# Engine-side layered compositing and process-wide font registration
+# need blitz-py >= 0.4.0. Without them the pipeline falls back to
+# per-document rendering + Pillow compositing.
+HAS_LAYERS = HAS_BLITZ and hasattr(blitz_py, "render_layers")
+HAS_FONT_REGISTRY = HAS_BLITZ and hasattr(blitz_py, "register_fonts")
+
 _LOGGER = logging.getLogger(__name__)
 
 _FONTS_DIR = Path(__file__).parent / "fonts"
@@ -76,6 +82,33 @@ def get_font_bytes() -> tuple[bytes, ...]:
         except OSError:
             _LOGGER.warning("Font file missing: %s", path)
     return tuple(fonts)
+
+
+@lru_cache(maxsize=1)
+def _fonts_registered() -> bool:
+    """Register the embedded faces process-wide (blitz-py >= 0.4.0).
+
+    Registration happens once, before any render or measurement, so
+    every later call sees the same collection deterministically. Returns
+    False on older blitz-py, where callers pass bytes per call instead.
+    """
+    if not HAS_FONT_REGISTRY:
+        return False
+    try:
+        blitz_py.register_fonts(list(get_font_bytes()), default_family="Nunito")
+    except Exception:  # pragma: no cover - registration is best-effort
+        _LOGGER.exception("Font registration failed; falling back to per-call fonts")
+        return False
+    return True
+
+
+def font_param() -> list[bytes] | None:
+    """The ``fonts=`` argument for engine calls.
+
+    ``None`` once the process-wide registry holds the embedded faces;
+    the explicit byte list on older blitz-py.
+    """
+    return None if _fonts_registered() else list(get_font_bytes())
 
 
 def css_rgb(color: tuple[int, int, int]) -> str:
@@ -212,7 +245,7 @@ def render_document(
             scale=scale,
             color_scheme="dark",
             background="#00000000",
-            fonts=list(get_font_bytes()),
+            fonts=font_param(),
         )
         return Image.frombytes("RGBA", (w, h), data)
     except Exception:
@@ -245,11 +278,41 @@ def render_document_frames(
             scale=scale,
             color_scheme="dark",
             background="#00000000",
-            fonts=list(get_font_bytes()),
+            fonts=font_param(),
         )
         return [Image.frombytes("RGBA", (w, h), data) for data in frames]
     except Exception:
         _LOGGER.exception("Blitz frame render failed")
+        return None
+
+
+def render_layers_image(
+    layers: list[dict[str, Any]],
+    width: int,
+    height: int,
+    background: str = "#000000",
+) -> Image.Image | None:
+    """Composite documents into one surface engine-side (blitz-py >= 0.4).
+
+    ``layers`` follow the ``blitz_py.render_layers`` contract: ``html``
+    (+ ``width``/``height`` in CSS px), device-px ``x``/``y``, optional
+    ``scale``, ``opacity``, ``blur``, ``tint`` and ``time``. Layers paint
+    in list order and are clipped to their rects — the same containment
+    per-cell rasterization used to provide. ``width``/``height`` here are
+    the surface size in device px. Returns an RGB image, or None when
+    layered rendering is unavailable or fails (callers fall back to the
+    per-document + Pillow path).
+    """
+    if not HAS_LAYERS:
+        return None
+    try:
+        _fonts_registered()
+        w, h, data = blitz_py.render_layers(
+            layers, width=width, height=height, background=background
+        )
+        return Image.frombytes("RGBA", (w, h), data).convert("RGB")
+    except Exception:
+        _LOGGER.exception("Blitz layered render failed")
         return None
 
 

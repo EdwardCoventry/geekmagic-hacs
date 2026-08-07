@@ -27,14 +27,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .helpers import truncate_text
 
 try:
-    from blitz_py import measure_text as _measure_text
+    import blitz_py as _blitz
+
+    _measure_text: Any = _blitz.measure_text
+    _ellipsize: Any = getattr(_blitz, "ellipsize", None)  # >= 0.4.0
 except ImportError:  # pragma: no cover - blitz-py is a hard requirement
     _measure_text = None
+    _ellipsize = None
 
 if TYPE_CHECKING:
     from .theme import Theme
@@ -56,12 +60,11 @@ _REF_PX = 200
 _FALLBACK_EM = 0.60
 
 
-@lru_cache(maxsize=1)
-def _font_collection() -> tuple[bytes, ...]:
-    """The embedded faces, as the engine's ``fonts=`` parameter."""
-    from ..htmldoc import get_font_bytes  # noqa: PLC0415 (avoid import cycle at module load)
+def _fonts() -> list[bytes] | None:
+    """Per-call fonts, or None once the process-wide registry is live."""
+    from ..htmldoc import font_param  # noqa: PLC0415 (avoid import cycle at module load)
 
-    return get_font_bytes()
+    return font_param()
 
 
 # Letter-spacing assumptions for the kit's .t-label. The kit ships
@@ -90,7 +93,7 @@ def _ref_width(text: str, family: str, weight: str) -> float:
         font_size=float(_REF_PX),
         font_family=_FAMILY_CSS.get(family, "Nunito"),
         font_weight=_WEIGHT_NUM.get(weight, 600.0),
-        fonts=_font_collection(),
+        fonts=_fonts(),
     )
     return float(width)
 
@@ -157,11 +160,32 @@ class TextMetrics:
     ) -> str:
         """Shorten ``text`` until it fits ``max_width`` at ``px``.
 
-        Delegates the ellipsis to :func:`~.helpers.truncate_text` so the
-        style stays consistent with the rest of the widgets.
+        End-truncation goes through the engine's ``ellipsize`` (>= 0.4.0)
+        — one shaper pass, exact for rendering. Middle/start styles keep
+        the measured loop, delegating the ellipsis to
+        :func:`~.helpers.truncate_text` so the style stays consistent.
         """
         if not text or self.width(text, px, weight, tracking) <= max_width:
             return text
+        if style == "end" and _ellipsize is not None:
+            fitted = _ellipsize(
+                self._measured(text),
+                max_width=max_width,
+                font_size=px,
+                font_family=_FAMILY_CSS.get(self.family, "Nunito"),
+                font_weight=_WEIGHT_NUM.get(weight, 600.0),
+                # CSS letter-spacing in px (the engine's unit).
+                letter_spacing=tracking * px,
+                fonts=_fonts(),
+            )
+            # Map the kept length back onto the ORIGINAL string so the
+            # caller's casing survives (the measurer may have uppercased
+            # for measurement only), and never leave a space hanging
+            # before the mark.
+            kept = len(fitted.rstrip("…"))
+            if kept >= min_chars:
+                return text[: min(kept, len(text))].rstrip() + "…"
+            return truncate_text(text, min_chars + 1, style=style)
         for n in range(len(text) - 1, min_chars, -1):
             candidate = truncate_text(text, n, style=style)
             if self.width(candidate, px, weight, tracking) <= max_width:
