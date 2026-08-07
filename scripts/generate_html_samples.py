@@ -80,9 +80,11 @@ body { background: radial-gradient(circle at 50% -20%, #1d2836, #0a0c10 65%); }
 .chip { border-radius: 14px; padding: 8px 2px 9px; text-align: center;
         line-height: 1; background: rgba(255, 255, 255, 0.06);
         border: 1px solid rgba(255, 255, 255, 0.10); }
-.chip .l { font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+.chip .l { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
            color: var(--text-tertiary); }
-.chip .n { font-size: 25px; font-weight: 700; margin-top: 6px; }
+/* 20px keeps "HEAT" inside a ~72px grid column — Blitz doesn't clip,
+   so an oversized value bleeds off the panel edge. */
+.chip .n { display: block; font-size: 20px; font-weight: 700; margin-top: 6px; }
 .ok { color: var(--success); } .warn { color: var(--warning); } .info { color: var(--info); }
 </style>
 <div class="wrap">

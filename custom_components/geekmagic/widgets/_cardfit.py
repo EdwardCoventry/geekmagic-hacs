@@ -20,7 +20,7 @@ Everything here is geometry and structure; colour stays with the theme.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import escape
 from typing import TYPE_CHECKING
 
@@ -118,6 +118,18 @@ def small_visible(ctx: CellContext) -> bool:
 CAPTION_MIN_PX = 10.0
 
 
+def _kept_weight(stub: str) -> float:
+    """Identity carried by a truncated stub, in Latin-character units.
+
+    Fullwidth (CJK) glyphs carry roughly a word each — "リビ" says as
+    much as "LIVING" — so the Latin-centric "4 characters" survival rule
+    counts them double.
+    """
+    from unicodedata import east_asian_width  # noqa: PLC0415 (stdlib, hot path)
+
+    return sum(2.0 if east_asian_width(ch) in ("W", "F") else 1.0 for ch in stub.rstrip("…"))
+
+
 def fit_caption_sized(
     text: str,
     ctx: CellContext,
@@ -147,18 +159,37 @@ def fit_caption_sized(
         px_fit = avail_w / width_em
         if px_fit >= CAPTION_MIN_PX:
             return upper, min(top, px_fit)
+    budget = avail_w - reserve_em * CAPTION_MIN_PX
     fitted = metrics.truncate(
         upper,
         CAPTION_MIN_PX,
-        avail_w - reserve_em * CAPTION_MIN_PX,
+        budget,
         "bold",
         tracking=metrics.label_tracking,
         style="end",
         min_chars=3,
     )
     if fitted != upper:
-        kept = len(fitted.rstrip("…"))
-        if kept < 4:
+        # End-truncation can cut exactly the discriminating token —
+        # "SWITCH ON" and "SWITCH OFF" both become "SWITCH…". When the
+        # last word is a short discriminator, keep it and truncate the
+        # head instead: "SWI… ON" / "SWI… OFF".
+        words = upper.split()
+        if len(words) >= 2 and len(words[-1]) <= 4:
+            tail = words[-1]
+            tail_w = metrics.width(f" {tail}", CAPTION_MIN_PX, "bold", metrics.label_tracking)
+            head = metrics.truncate(
+                " ".join(words[:-1]),
+                CAPTION_MIN_PX,
+                budget - tail_w,
+                "bold",
+                tracking=metrics.label_tracking,
+                style="end",
+                min_chars=3,
+            )
+            if _kept_weight(head) >= 3:
+                return f"{head} {tail}", CAPTION_MIN_PX
+        if _kept_weight(fitted) < 4:
             return "", CAPTION_MIN_PX
     return fitted, CAPTION_MIN_PX
 
@@ -180,10 +211,8 @@ def fit_caption(text: str, ctx: CellContext, avail_w: float) -> str:
         style="end",
         min_chars=3,
     )
-    if fitted != upper:
-        kept = len(fitted.rstrip("…"))
-        if kept < 4:
-            return ""
+    if fitted != upper and _kept_weight(fitted) < 4:
+        return ""
     return fitted
 
 
@@ -264,7 +293,10 @@ def fit_hero(
     Anything that still does not fit at ``min_px`` is truncated, because
     Blitz would draw the overflow straight over the panel edge.
     """
-    metrics = metrics_for(ctx.theme)
+    # Heroes render mixed-case even on themes whose chrome uppercases the
+    # LABELS (retro's text-transform sits on .t-label only) — measuring
+    # them uppercased costs 9-14% of the size for nothing.
+    metrics = replace(metrics_for(ctx.theme), uppercase=False)
     if not text:
         return HeroFit(min_px, (text,))
 
@@ -296,23 +328,28 @@ def fit_hero(
                 px, layout = candidate, parts
 
     px = max(min_px, px)
-    if len(layout) == 1:
-        # The min_px floor can push a lone line back over the budget.
-        budget = avail_w - reserve * px
-        if metrics.width(text, px, _HERO_WEIGHT, tracking) > budget + _FIT_EPS:
-            layout = [
-                metrics.truncate(
-                    text, px, budget, _HERO_WEIGHT, tracking=tracking, style="end", min_chars=2
-                )
-            ]
-    return HeroFit(px, tuple(layout))
+    # The min_px floor can push lines back over the budget — EVERY line,
+    # not just a lone one: Blitz draws the overflow straight over the
+    # panel edge, and a wrapped sentence at the floor clips mid-glyph on
+    # both sides. The suffix rides the last line only.
+    fitted: list[str] = []
+    for i, line in enumerate(layout):
+        budget = avail_w - (reserve * px if i == len(layout) - 1 else 0.0)
+        cut = line
+        if metrics.width(line, px, _HERO_WEIGHT, tracking) > budget + _FIT_EPS:
+            cut = metrics.truncate(
+                line, px, budget, _HERO_WEIGHT, tracking=tracking, style="end", min_chars=2
+            )
+        fitted.append(cut)
+    return HeroFit(px, tuple(fitted))
 
 
 def suffix_width_em(suffix: str, ctx: CellContext, *, scale: float = SUFFIX_SCALE) -> float:
     """Width a hero suffix adds, in hero-em (0 when there is none)."""
     if not suffix:
         return 0.0
-    metrics = metrics_for(ctx.theme)
+    # Suffixes ride the hero's band and render mixed-case (see fit_hero).
+    metrics = replace(metrics_for(ctx.theme), uppercase=False)
     gap = _SUFFIX_GAP_WORD if suffix[0].isalnum() else _SUFFIX_GAP_TIGHT
     return metrics.width(suffix, 1.0, "bold") * scale + gap
 

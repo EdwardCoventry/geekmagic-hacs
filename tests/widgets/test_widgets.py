@@ -417,6 +417,34 @@ class TestClockWidget:
         fragment = widget.render_html(compact_ctx, make_state())
         assert "13:45" in fragment
 
+    def test_short_cell_keeps_label(self):
+        """A 'Tokyo' and a 'London' clock in one grid must not render
+        identically — the label survives short cells at a shrunk size."""
+        footer = CellContext(width=228, height=76, slot_index=0, theme=DEFAULT_THEME)
+        widget = ClockWidget(WidgetConfig(widget_type="clock", slot=0, label="Tokyo"))
+        fragment = widget.render_html(footer, make_state())
+        assert "TOKYO" in fragment
+        assert "hide-short" not in fragment
+
+    def test_tall_column_keeps_meridiem(self):
+        """A 71x228 column has height to spare — a 12h clock without
+        AM/PM is unreadable as a 12h clock."""
+        column = CellContext(width=71, height=228, slot_index=0, theme=DEFAULT_THEME)
+        widget = ClockWidget(
+            WidgetConfig(widget_type="clock", slot=0, options={"time_format": "12h"})
+        )
+        fragment = widget.render_html(column, make_state())
+        assert "PM" in fragment
+
+    def test_seconds_stack_in_tall_cells(self):
+        """HH/MM/SS stack in tall columns instead of one collapsed line."""
+        column = CellContext(width=111, height=228, slot_index=0, theme=DEFAULT_THEME)
+        widget = ClockWidget(
+            WidgetConfig(widget_type="clock", slot=0, options={"show_seconds": True})
+        )
+        fragment = widget.render_html(column, make_state())
+        assert fragment.count("<div>") >= 3  # one block per stacked line
+
 
 # ============================================================================
 # EntityWidget

@@ -39,6 +39,10 @@ _MIN_HERO_PX = 13.0
 # hours over minutes, twice the size of a single centred line.
 _STACK_ASPECT = 1.45  # split-v/3-col cells land at ~1.5 after insets
 
+# Below this content height even a compact caption row would crowd the
+# time out entirely (matches entity.py).
+_COMPACT_MIN_H = 40.0
+
 
 class ClockWidget(Widget):
     """Widget that displays current time and date.
@@ -93,8 +97,10 @@ class ClockWidget(Widget):
             fmt = "%I:%M:%S" if seconds else "%I:%M"
             # Compact 3x3 tiles drop the meridiem; wide strips keep it —
             # "07:42" without PM reads as morning on a 228x74 slot with
-            # plenty of horizontal room.
-            drop_meridiem = ctx.is_compact and ctx.width < 170
+            # plenty of horizontal room. Tall narrow columns keep it too:
+            # the stacked layout has height to spare, and a 12h clock
+            # without AM/PM is unreadable as a 12h clock.
+            drop_meridiem = ctx.height < 100 and ctx.width < 170
             meridiem = "" if drop_meridiem else now.strftime("%p")
         else:
             fmt = "%H:%M:%S" if seconds else "%H:%M"
@@ -104,7 +110,11 @@ class ClockWidget(Widget):
 
         box_w, box_h = cell_box(ctx)
         bands_kept = caption_visible(ctx)
-        show_caption = bool(self.config.label) and bands_kept
+        # Short cells keep a shrunk label row instead of an anonymous
+        # time — a "Tokyo" and a "London" clock in one grid must not
+        # render identically (same compact-identity rule as entity).
+        compact_identity = not bands_kept and box_h >= _COMPACT_MIN_H
+        show_caption = bool(self.config.label) and (bands_kept or compact_identity)
         # The date is the clock's supporting band, so it follows the
         # caption breakpoint rather than the chip strip's: a tall 114px
         # column has plenty of room for it.
@@ -115,9 +125,11 @@ class ClockWidget(Widget):
         share = HERO_SHARE_SOLO if not (show_caption or show_date) else HERO_SHARE_STACKED
 
         # A tall column can't spend its height on one line of digits, so
-        # stack hours over minutes instead of stranding half the cell.
+        # stack hours over minutes (over seconds) instead of stranding
+        # half the cell — one line of HH:MM:SS collapses to ~23px in a
+        # 111x228 column.
         stack = None
-        if not seconds and box_h >= _STACK_ASPECT * box_w:
+        if box_h >= _STACK_ASPECT * box_w:
             stack = time_str.split(":")
 
         hero = fit_hero(
@@ -136,6 +148,7 @@ class ClockWidget(Widget):
         return card_html(
             # card_html measures, shrinks, and truncates the caption.
             caption=self.config.label if show_caption else None,
+            caption_hide="hide-short" if bands_kept else "",
             hero=hero_block(
                 hero,
                 suffix=meridiem,

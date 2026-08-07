@@ -86,6 +86,7 @@ class EntityWidget(Widget):
                 "min": 0,
                 "max": 5,
             },
+            {"key": "attribute", "type": "text", "label": "Entity Attribute"},
         ],
     }
 
@@ -112,7 +113,14 @@ class EntityWidget(Widget):
             # Get value from attribute or state
             if self.attribute:
                 raw_value = entity.get(self.attribute)
-                value = str(raw_value) if raw_value is not None else PLACEHOLDER_VALUE
+                # Containers must not headline their Python repr —
+                # lists join readably, mappings read as absent.
+                if isinstance(raw_value, list | tuple):
+                    value = ", ".join(map(str, raw_value)) or PLACEHOLDER_VALUE
+                elif isinstance(raw_value, dict) or raw_value is None:
+                    value = PLACEHOLDER_VALUE
+                else:
+                    value = str(raw_value)
             else:
                 value = entity.state
                 if value in ("unavailable", "unknown", "none", ""):
@@ -129,7 +137,11 @@ class EntityWidget(Widget):
             if self.precision is not None:
                 try:
                     numeric_value = float(value)
-                    value = f"{numeric_value:.{self.precision}f}"
+                    formatted = f"{numeric_value:.{self.precision}f}"
+                    # "1e-9" at precision 3 rounds to "0.000", which reads
+                    # as zero — keep the original for tiny non-zero values.
+                    if numeric_value == 0.0 or float(formatted) != 0.0:
+                        value = formatted
                 except (ValueError, TypeError):
                     pass  # Keep original value if not numeric
             unit = entity.unit if self.show_unit else ""

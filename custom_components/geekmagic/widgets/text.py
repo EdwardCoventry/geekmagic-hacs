@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from ..const import PLACEHOLDER_VALUE
 from ..htmldoc import css_rgb
 from ._card import card_html
 from ._cardfit import (
@@ -73,12 +74,18 @@ class TextWidget(Widget):
         caption_band = label_px(ctx) * 1.25 if show_caption else 0.0
         share = HERO_SHARE_STACKED if show_caption else HERO_SHARE_SOLO
 
+        # "--" is the absence of a value, not a value (matches entity.py).
+        missing = text == PLACEHOLDER_VALUE
+
         hero = fit_hero(
             text,
             ctx,
             box_w,
             max(16.0, (box_h - caption_band) * share),
-            allow_wrap=min(ctx.width, ctx.height) >= _WRAP_MIN_CELL,
+            # Wrapping needs WIDTH for its lines — the height cost is
+            # already enforced by the band budget, so a 228x76 footer may
+            # take two ~20px lines instead of one truncated 12px line.
+            allow_wrap=ctx.width >= _WRAP_MIN_CELL,
             # A tall column would otherwise strand its height below two
             # short lines; a wide cell reads better in two.
             max_lines=3 if box_h > 1.5 * box_w else 2,
@@ -86,28 +93,35 @@ class TextWidget(Widget):
             min_px=_MIN_HERO_PX,
         )
 
+        hero_color = css_rgb(self.config.color) if self.config.color else None
         return card_html(
             # card_html measures, shrinks, and truncates the caption.
             caption=self.config.label if show_caption else None,
             caption_hide="hide-short" if bands_kept else "",
             hero=hero_block(hero),
             hero_is_html=True,
-            hero_color=css_rgb(self.config.color) if self.config.color else None,
+            hero_color="var(--text-tertiary)" if missing else hero_color,
             ctx=ctx,
         )
 
     def _get_text(self, state: WidgetState) -> str:
         """Get the text to display.
 
-        If entity_id is set (from options or widget config), returns the entity state.
-        Otherwise returns the configured text.
+        If entity_id is set (from options or widget config), returns the
+        entity state — with absence states mapped to a dimmed "--" like
+        entity.py, so a dead sensor never headlines the literal word
+        "unavailable". Otherwise returns the configured static text.
         """
+
+        def entity_text(value: str) -> str:
+            return PLACEHOLDER_VALUE if value in ("unavailable", "unknown", "none", "") else value
+
         if state.entity:
-            return state.entity.state
+            return entity_text(state.entity.state)
         if self.dynamic_entity_id:
             entity = state.get_entity(self.dynamic_entity_id)
             if entity:
-                return entity.state
+                return entity_text(entity.state)
         return self.text
 
     def get_entities(self) -> list[str]:
