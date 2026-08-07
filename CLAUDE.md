@@ -133,38 +133,52 @@ browser). Pillow only composites passes and encodes JPEG/PNG.
 
 1. Coordinator triggers update on interval
 2. Layout calculates widget rectangles (slots) — pure geometry
-3. **Backdrop pass**: fullscreen document with the theme's background
-   (`theme.backdrop_css`)
-4. **Cell passes**: each widget returns an HTML fragment
-   (`render_html`), wrapped by `htmldoc.build_cell_document` (theme CSS
-   variables + fluid kit + `theme.chrome_css`) and rasterized at the
-   cell size with a transparent background, then alpha-composited.
-   Each cell is its own CSS viewport, so `vmin`/`vw` units and
-   `@media` queries respond to the CELL size.
-5. **Overlay pass** (optional): fullscreen `theme.overlay_css` effects
-   (scanlines, vignettes) composited on top
-6. Image converted to JPEG and uploaded to device
+3. **One `render_layers` call** (blitz-py >= 0.4.0) composites the
+   whole screen engine-side: the theme backdrop layer
+   (`theme.backdrop_css`), one layer per widget cell (each widget's
+   `render_html` fragment wrapped by `htmldoc.build_cell_document` —
+   theme CSS variables + fluid kit + `theme.chrome_css`), and the
+   optional `theme.overlay_css` layer (scanlines, vignettes) on top.
+   Each cell layer keeps its own CSS viewport (`vmin`/`vw` and
+   `@media` respond to the CELL size) and is CLIPPED to its rect by
+   the engine — the containment per-cell rasterization used to
+   provide. Themes with `glow_effect` (neon) paint each cell once
+   blurred beneath its sharp pass (per-layer `blur`/`opacity`).
+   On older blitz-py the pipeline falls back to per-document renders
+   + Pillow premultiplied compositing (`_render_legacy`).
+4. Image converted to JPEG and uploaded to device. Fonts are
+   registered process-wide once (`register_fonts`, htmldoc's
+   `font_param()`) — no per-call font bytes.
 
 **Animated path (opt-in):** when the device's Animations switch is on
 and a placed widget returns ``is_animated() == True``, the coordinator
-calls ``layout.render_animation`` instead: backdrop + static cells
-render once, each animated cell renders all timestamps in one
-``blitz_py.render_frames`` call (CSS animations evaluated per instant,
-needs blitz-py >= 0.2.0 / ``htmldoc.HAS_FRAMES``), frames are
-composited and encoded with ``Renderer.to_gif`` (1.6s @ 10fps, palette
-quantized without dithering), and ``dashboard.gif`` is uploaded in
-place of the JPEG. blitz-py 0.2.0 also ships a ``Template`` class
-(parse once, mutate by element id, ~0.4ms re-render) and ``css=`` /
-``css_vars=`` params — noted as a future optimization for the refresh
-loop; the pipeline currently rebuilds documents per update. blitz-py
-0.3.0 ships ``blitz_py.measure_text(...)`` — ``widgets/_textfit.py``
-measures through it (engine-native shaping over the embedded fonts,
-including the system fallback for CJK), replacing the old PIL metrics.
-Native ``render_jpeg``/``render_gif`` exist but the multi-pass
-composite (backdrop + per-cell viewports + overlay) still needs Pillow
-for assembly, so encoding stays in ``renderer.py``. The true fix for
-truncation remains ``text-overflow: ellipsis`` in blitz-dom, tracked in
-the blitz-py repo's docs/UPSTREAM.md.
+calls ``layout.render_animation`` instead: the static base (backdrop +
+non-animated cells) renders in one ``render_layers`` call, each
+animated cell renders all timestamps in one ``blitz_py.render_frames``
+call (CSS animations evaluated per instant, needs blitz-py >= 0.2.0 /
+``htmldoc.HAS_FRAMES``), frames are composited and encoded with
+``Renderer.to_gif`` (1.6s @ 10fps, palette quantized without
+dithering), and ``dashboard.gif`` is uploaded in place of the JPEG.
+KNOWN UPSTREAM BUG (blitz-py 0.4.0): ``render_layers`` documents a
+per-layer ``time`` but does not apply it — that's why animated cells
+still go through ``render_frames`` + Pillow compositing; fold them
+into the layered call once the clock works.
+
+blitz-py capabilities adopted so far: ``measure_text`` (0.3.0) and
+``ellipsize`` (0.4.0) drive ``widgets/_textfit.py`` — engine-native
+shaping over the embedded fonts, including the system fallback for
+CJK; ``register_fonts`` (0.4.0) makes fonts process-wide;
+``render_layers`` (0.4.0) composites the screen engine-side. Still
+available but not yet adopted: ``fit_font_size`` / ``line_clamp`` /
+``wrap_balanced`` (the Python fitters in ``_cardfit``/``media`` carry
+extra semantics — suffix reserve, identity rules — that need mapping
+first), ``Template.get_box``/``boxes()`` (could replace the CSS-math
+mirrors like ``label_px``), the ``Template`` mutate-and-re-render fast
+path, and native ``render_layers_jpeg`` encode (encoding stays in
+``renderer.py`` while supersample-then-Lanczos remains the quality
+baseline). The true fix for truncation remains ``text-overflow:
+ellipsis`` in blitz-dom, tracked in the blitz-py repo's
+docs/UPSTREAM.md.
 
 `blitz-py` is REQUIRED for rendering — it's in `manifest.json`
 requirements (PyPI wheels for Linux glibc/musl x86_64 + aarch64, macOS,
