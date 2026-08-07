@@ -44,19 +44,23 @@ CARD_CSS = """
 """
 
 
-def caption_fit(ctx: CellContext | None, text: str, *, reserve_em: float = 0.0) -> str:
-    """Truncate a caps caption to the width it actually has.
+def caption_fit(
+    ctx: CellContext | None, text: str, *, reserve_em: float = 0.0
+) -> tuple[str, float | None]:
+    """Fit a caps caption to the width it actually has.
 
     Measures with the embedded font metrics (theme-aware family,
-    tracking, and case) rather than an average glyph estimate. Returns
-    the text unchanged when no context is available.
+    tracking, and case) rather than an average glyph estimate, shrinking
+    to keep the whole word before truncating. Returns ``(text, px)``
+    where ``px`` is ``None`` when the kit's ``.t-label`` size applies
+    unchanged (or when no context is available).
     """
     if ctx is None:
-        return text
-    from ._cardfit import cell_box, fit_caption, label_px  # noqa: PLC0415 (cycle-free, lazy)
+        return text, None
+    from ._cardfit import cell_box, fit_caption_sized, label_px  # noqa: PLC0415 (lazy)
 
-    avail_w = cell_box(ctx)[0] - reserve_em * label_px(ctx)
-    return fit_caption(text, ctx, avail_w)
+    fitted, px = fit_caption_sized(text, ctx, cell_box(ctx)[0], reserve_em=reserve_em)
+    return fitted, (px if px < label_px(ctx) - 0.25 else None)
 
 
 def chip_html(text: str, icon: str | None = None, color: str | None = None) -> str:
@@ -121,13 +125,14 @@ def card_html(
 
     if caption:
         reserve = 1.5 if (icon and icon_role == "chip") else 0.0
-        text = caption_fit(ctx, caption.upper(), reserve_em=reserve)
+        text, fitted_px = caption_fit(ctx, caption.upper(), reserve_em=reserve)
         if text or (icon and icon_role == "chip"):
             caption_inner = escape(text)
             if icon and icon_role == "chip":
                 caption_inner = mdi_span(icon, "icon i-sm", icon_style) + caption_inner
             hide = f" {caption_hide}" if caption_hide else ""
-            bands.append(f'<div class="t-label caption-row{hide}">{caption_inner}</div>')
+            size = f' style="font-size: {fitted_px:.1f}px"' if fitted_px else ""
+            bands.append(f'<div class="t-label caption-row{hide}"{size}>{caption_inner}</div>')
 
     hero_html = hero if hero_is_html else escape(hero)
     hero_style = f' style="color: {hero_color}"' if hero_color else ""

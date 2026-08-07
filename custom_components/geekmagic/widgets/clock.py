@@ -13,7 +13,6 @@ from ._cardfit import (
     caption_visible,
     cell_box,
     chip_band_px,
-    fit_caption,
     fit_hero,
     hero_block,
     label_px,
@@ -135,7 +134,8 @@ class ClockWidget(Widget):
         )
 
         return card_html(
-            caption=fit_caption(self.config.label or "", ctx, box_w) if show_caption else None,
+            # card_html measures, shrinks, and truncates the caption.
+            caption=self.config.label if show_caption else None,
             hero=hero_block(
                 hero,
                 suffix=meridiem,

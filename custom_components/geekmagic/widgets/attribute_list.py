@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 # explicitly (no theme can override an inline style), so it is also what
 # they get measured at — unlike the title, which rides ``.t-label`` and
 # has to assume the widest tracking any theme applies.
-_ROW_TRACKING = 0.14
+_ROW_TRACKING = 0.06
 
 # Row pitch bounds, matching StatusListWidget so the two list widgets
 # sit side by side without a visible change of rhythm.

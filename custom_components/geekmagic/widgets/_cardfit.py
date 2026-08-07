@@ -88,9 +88,9 @@ def cell_box(ctx: CellContext) -> tuple[float, float]:
 def label_px(ctx: CellContext) -> float:
     """Size the kit resolves for ``.t-label`` in this cell.
 
-    Mirrors ``clamp(10px, min(10vmin, 7.5vw), 15px)``.
+    Mirrors ``clamp(12px, min(12vmin, 9vw), 18px)``.
     """
-    return max(10.0, min(0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width, 15.0))
+    return max(12.0, min(0.12 * min(ctx.width, ctx.height), 0.09 * ctx.width, 18.0))
 
 
 def chip_px(ctx: CellContext) -> float:
@@ -113,18 +113,61 @@ def small_visible(ctx: CellContext) -> bool:
     return ctx.width >= HIDE_SMALL and ctx.height >= HIDE_SMALL
 
 
-def fit_caption(text: str, ctx: CellContext, avail_w: float) -> str:
-    """Truncate a caps caption to the width it actually has.
+# A caption may shrink this far below the kit size before truncating —
+# a whole word at 10px beats "LIVI…" at 12px on a panel this small.
+CAPTION_MIN_PX = 10.0
 
-    ``card_html`` also truncates when given ``ctx``, but from an average
-    glyph width; measuring the real caps string is what keeps long entity
-    names from bleeding off the panel.
+
+def fit_caption_sized(
+    text: str,
+    ctx: CellContext,
+    avail_w: float,
+    *,
+    reserve_em: float = 0.0,
+) -> tuple[str, float]:
+    """Fit a caps caption: shrink to the full word before truncating.
+
+    Returns ``(text, px)``. The caption starts at the kit's ``.t-label``
+    size and gives up size before it gives up letters, down to
+    ``CAPTION_MIN_PX``; only below that is it ellipsized. ``reserve_em``
+    is width spent beside the caption (an inline chip icon), in caption
+    ems, so it scales down with the type.
 
     A stub is worse than nothing — but only a genuinely destroyed stub:
     "TEMPERA…" still identifies a temperature, and even "GARAG…" says
     which room, while "GAR…" says nothing. A caption survives when at
     least 4 characters make it through; below that the cell spends the
     room on the value instead.
+    """
+    metrics = metrics_for(ctx.theme)
+    upper = text.upper()
+    top = label_px(ctx)
+    width_em = metrics.width(upper, 1.0, "bold", metrics.label_tracking) + reserve_em
+    if width_em > 0:
+        px_fit = avail_w / width_em
+        if px_fit >= CAPTION_MIN_PX:
+            return upper, min(top, px_fit)
+    fitted = metrics.truncate(
+        upper,
+        CAPTION_MIN_PX,
+        avail_w - reserve_em * CAPTION_MIN_PX,
+        "bold",
+        tracking=metrics.label_tracking,
+        style="end",
+        min_chars=3,
+    )
+    if fitted != upper:
+        kept = len(fitted.rstrip("…"))
+        if kept < 4:
+            return "", CAPTION_MIN_PX
+    return fitted, CAPTION_MIN_PX
+
+
+def fit_caption(text: str, ctx: CellContext, avail_w: float) -> str:
+    """Truncate a caps caption to the width it actually has.
+
+    Text-only variant of :func:`fit_caption_sized` for callers that keep
+    the kit's ``.t-label`` size: measures at that size and truncates.
     """
     metrics = metrics_for(ctx.theme)
     upper = text.upper()

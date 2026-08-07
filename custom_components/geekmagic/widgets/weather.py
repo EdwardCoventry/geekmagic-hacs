@@ -12,7 +12,7 @@ from ._cardfit import (
     caption_visible,
     cell_box,
     chip_band_px,
-    fit_caption,
+    fit_caption_sized,
     fit_hero,
     hero_block,
     label_px,
@@ -203,7 +203,7 @@ _WEATHER_CSS = """
          color: var(--text-primary); }
 .wx-lo { font-size: clamp(10px, 7vmin, 16px); font-weight: 600; line-height: 1.05;
          color: var(--text-tertiary); }
-.wx-day { font-size: clamp(9px, 6.5vmin, 13px); font-weight: 700; line-height: 1;
+.wx-day { font-size: clamp(11px, 7.5vmin, 15px); font-weight: 700; line-height: 1;
           letter-spacing: 0.1em; color: var(--text-tertiary); }
 </style>
 """
@@ -355,7 +355,7 @@ class WeatherWidget(Widget):
     def _strip_height(self, ctx: CellContext, count: int, *, high_only: bool) -> float:
         """Height the forecast block occupies, mirroring its CSS clamps."""
         vmin = min(ctx.width, ctx.height)
-        day = max(9.0, min(0.065 * vmin, 13.0))
+        day = max(11.0, min(0.075 * vmin, 15.0))
         icon = max(11.0, min(0.095 * vmin, 22.0))
         hi = max(11.0, min(0.085 * vmin, 19.0))
         lo = 0.0 if high_only else max(10.0, min(0.07 * vmin, 16.0))
@@ -400,8 +400,9 @@ class WeatherWidget(Widget):
             combined = f"{text}  ·  {humidity}"
             if metrics.width(combined, px, "bold", tracking=metrics.label_tracking) <= avail_w:
                 text = combined
-        fitted = escape(fit_caption(text, ctx, avail_w))
-        return f'<div class="t-label caption-row hide-short">{fitted}</div>'
+        fitted, fit_px = fit_caption_sized(text, ctx, avail_w)
+        size = f' style="font-size: {fit_px:.1f}px"' if fit_px < px - 0.25 else ""
+        return f'<div class="t-label caption-row hide-short"{size}>{escape(fitted)}</div>'
 
     def _hero_html(
         self,

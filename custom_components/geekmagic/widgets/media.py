@@ -497,7 +497,7 @@ class MediaWidget(Widget):
 
         reserved = 0.10 * ctx.height  # space-evenly needs slack to breathe
         if not short:  # the NOW PLAYING caption (.t-label, line-height 1)
-            reserved += min(15.0, max(10.0, min(0.10 * vmin, 0.075 * ctx.width)))
+            reserved += max(12.0, min(0.12 * vmin, 0.09 * ctx.width, 18.0))
         if not short and self.show_artist and entity.get("media_artist", ""):
             reserved += _artist_px(vmin) * 1.2
         if not small and self.show_album and entity.get("media_album_name", ""):

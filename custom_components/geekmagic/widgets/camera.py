@@ -90,9 +90,9 @@ class CameraWidget(Widget):
 
     def _render_placeholder(self, ctx: CellContext) -> str:
         """Offline / no-snapshot state — a quiet caption, not an alarm."""
-        # Mirrors the kit's .t-label sizing, clamp(10px, min(10vmin,
-        # 7.5vw), 15px), so the caption is measured as it will be drawn.
-        font_px = min(15.0, max(10.0, 0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width))
+        # Mirrors the kit's .t-label sizing, clamp(12px, min(12vmin,
+        # 9vw), 18px), so the caption is measured as it will be drawn.
+        font_px = max(12.0, min(0.12 * min(ctx.width, ctx.height), 0.09 * ctx.width, 18.0))
         label = _caps_metrics(ctx).truncate(
             self.config.label or "No Image",
             font_px,

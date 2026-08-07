@@ -82,7 +82,7 @@ def plot_metrics(ctx: CellContext) -> PlotMetrics:
         pad_y=pad_y,
         inner_w=max(24.0, w - 2.0 * pad_x),
         inner_h=max(24.0, h - 2.0 * pad_y),
-        label_px=fit_px(10.0, min(0.10 * min(w, h), 0.075 * w), 15.0),
+        label_px=fit_px(12.0, min(0.12 * min(w, h), 0.09 * w), 18.0),
         value_px=value_px,
         unit_px=value_px * 0.64,
         detail_px=fit_px(10.0, min(0.115 * min(w, h), 0.085 * w), 17.0),

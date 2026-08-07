@@ -257,7 +257,7 @@ THEME_CLASSIC = Theme(
   background: linear-gradient(180deg, rgba(255,255,255,0.062), rgba(255,255,255,0.026));
   border: 1px solid rgba(255,255,255,0.075);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 1px 3px rgba(0,0,0,0.55); }
-.t-label { letter-spacing: 0.15em; }
+.t-label { letter-spacing: 0.06em; }
 """,
     backdrop_css="""
 body { background: linear-gradient(180deg, #0f1015 0%, #08090c 62%, #050609 100%); }
@@ -303,7 +303,7 @@ THEME_MINIMAL = Theme(
 .root { border-top: 1px solid rgba(255,255,255,0.26); padding: 5px 3px 3px; }
 .t-hero, .t-value { font-weight: 400; letter-spacing: -0.005em; }
 .t-unit { font-weight: 400; }
-.t-label { font-weight: 400; letter-spacing: 0.24em; }
+.t-label { font-weight: 400; letter-spacing: 0.12em; }
 .chip { border-radius: 0; background: transparent; border: 1px solid var(--hairline); }
 """,
     backdrop_css="body { background: #000; }",
@@ -350,7 +350,7 @@ THEME_NEON = Theme(
               0 0 20px rgba(45,226,255,0.10),
               inset 0 0 18px rgba(45,226,255,0.06),
               inset 0 1px 0 rgba(190,240,255,0.12); }
-.t-label { color: rgb(255,79,216); letter-spacing: 0.18em; }
+.t-label { color: rgb(255,79,216); letter-spacing: 0.08em; }
 .chip { background: rgba(45,226,255,0.10); }
 """,
     backdrop_css="""
@@ -407,7 +407,7 @@ THEME_RETRO = Theme(
 .root { border: 1px solid rgba(126,255,150,0.28); padding: 5px;
   background: linear-gradient(180deg, rgba(12,48,24,0.40), rgba(4,20,10,0.26));
   box-shadow: inset 0 0 18px rgba(126,255,150,0.06); }
-.t-label { text-transform: uppercase; letter-spacing: 0.24em; }
+.t-label { text-transform: uppercase; letter-spacing: 0.12em; }
 .chip { border-radius: 2px; background: rgba(126,255,150,0.10); }
 """,
     backdrop_css="""

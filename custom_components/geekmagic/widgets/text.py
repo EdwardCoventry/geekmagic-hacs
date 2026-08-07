@@ -11,7 +11,6 @@ from ._cardfit import (
     HERO_SHARE_STACKED,
     caption_visible,
     cell_box,
-    fit_caption,
     fit_hero,
     hero_block,
     label_px,
@@ -88,7 +87,8 @@ class TextWidget(Widget):
         )
 
         return card_html(
-            caption=fit_caption(self.config.label or "", ctx, box_w) if show_caption else None,
+            # card_html measures, shrinks, and truncates the caption.
+            caption=self.config.label if show_caption else None,
             caption_hide="hide-short" if bands_kept else "",
             hero=hero_block(hero),
             hero_is_html=True,

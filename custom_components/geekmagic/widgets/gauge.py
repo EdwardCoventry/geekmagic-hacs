@@ -429,12 +429,23 @@ class GaugeWidget(Widget):
         """
         if not name or ctx.height < 46:
             return ""
-        text = fit_caption(
-            ctx,
-            name.upper(),
-            reserve_em=1.6 if icon_html else 0.0,
-            width_px=ctx.width * 0.90 * width_ratio,
-        )
+        upper = name.upper()
+        top = label_px(ctx)
+        per_em = char_em(ctx, caps=True)
+        reserve_em = 1.6 if icon_html else 0.0
+        width_px = ctx.width * 0.90 * width_ratio
+        # Shrink to keep the whole word before truncating — "MEMORY" at
+        # 10px beats "MEMO…" at 12px on a panel this small.
+        px_fit = width_px / max(1e-6, len(upper) * per_em + reserve_em)
+        if px_fit >= 10.0:
+            size_px = min(top, px_fit)
+            text = upper
+        else:
+            size_px = 10.0
+            text = fit_caption(
+                ctx, upper, reserve_em=reserve_em, width_px=width_px, font_px=size_px
+            )
         if not (text or icon_html):
             return ""
-        return f'<div class="t-label caption-row">{icon_html}{escape(text)}</div>'
+        size = f' style="font-size: {size_px:.1f}px"' if size_px < top - 0.25 else ""
+        return f'<div class="t-label caption-row"{size}>{icon_html}{escape(text)}</div>'

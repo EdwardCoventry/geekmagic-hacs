@@ -613,6 +613,16 @@ class TestEntityWidgetCompactIdentity:
         fragment = self._widget().render_html(tiny, make_state(entity))
         assert "LIVING" not in fragment
 
+    def test_caption_shrinks_before_truncating(self):
+        """A whole word at 10px beats "ONLIN…" at the kit size."""
+        widget = EntityWidget(
+            WidgetConfig(widget_type="entity", slot=0, entity_id="sensor.online", label="Online")
+        )
+        entity = make_entity("sensor.online", "12")
+        fragment = widget.render_html(self.FOOTER, make_state(entity))
+        assert "ONLINE" in fragment
+        assert "…" not in fragment
+
     def test_grid_icons_same_size_across_values(self):
         """Neighbouring grid cells carry equal icons regardless of value length."""
         cell = CellContext(width=108, height=108, slot_index=0, theme=DEFAULT_THEME)

@@ -16,6 +16,13 @@ panel.
 The module also answers the inverse question — "how big can this string
 be and still fit?" — which is how hero values get sized to their cell
 instead of to a one-size-fits-all ``clamp()``.
+
+.. note:: blitz-py >= 0.3.0 (unpublished as of 0.2.0) is slated to ship
+   ``blitz_py.measure_text(...)`` — measurement by the engine's own text
+   stack. Once it lands, replace the PIL measurements here (and the CJK
+   fullwidth-em reservation in :meth:`TextMetrics.width`) with it. The
+   true fix remains native ``text-overflow: ellipsis`` in blitz-dom,
+   tracked upstream in the blitz-py repo (docs/UPSTREAM.md there).
 """
 
 from __future__ import annotations
@@ -57,13 +64,13 @@ _REF_PX = 200
 _FALLBACK_EM = 0.60
 
 # Letter-spacing assumptions for the kit's .t-label. The kit ships
-# 0.14em; the Swiss/CRT themes (DejaVu and/or uppercase chrome) widen it
-# to ~0.24em. Prefer ``TextMetrics.label_tracking`` (theme-aware) —
-# measuring every theme at the widest override costs Nunito themes a
-# caption character per ~10 (that's how "LIVING ROOM" became
-# "LIVING RO…" on watchos).
-LABEL_TRACKING = 0.24  # worst case, kept for callers without a theme
-KIT_LABEL_TRACKING = 0.14
+# 0.06em (tight on purpose: tracking is horizontal space that could be
+# letters on a 240px panel); the Swiss/CRT themes (DejaVu and/or
+# uppercase chrome) widen it to 0.12em. Prefer
+# ``TextMetrics.label_tracking`` (theme-aware) — measuring every theme
+# at the widest override costs Nunito themes caption characters.
+LABEL_TRACKING = 0.12  # worst case, kept for callers without a theme
+KIT_LABEL_TRACKING = 0.06
 HERO_TRACKING = 0.0  # minimal resets the kit's -0.035em to 0
 
 # East-Asian wide/fullwidth glyphs (CJK, Kana, Hangul) are not covered by

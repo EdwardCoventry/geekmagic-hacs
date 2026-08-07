@@ -52,7 +52,7 @@ def cell_box(ctx: CellContext) -> tuple[float, float]:
 
 def label_px(ctx: CellContext) -> float:
     """Rendered size of the kit's ``.t-label`` at this cell size."""
-    return max(10.0, min(0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width, 15.0))
+    return max(12.0, min(0.12 * min(ctx.width, ctx.height), 0.09 * ctx.width, 18.0))
 
 
 def char_em(ctx: CellContext, *, caps: bool = False) -> float:
@@ -66,7 +66,9 @@ def char_em(ctx: CellContext, *, caps: bool = False) -> float:
     """
     rounded = getattr(ctx.theme, "rounded_font", True) if ctx.theme is not None else True
     if caps:
-        return 0.78 if rounded else 0.95
+        # Includes the kit's label tracking (0.06em Nunito / 0.12em
+        # DejaVu themes) on top of the average caps advance.
+        return 0.70 if rounded else 0.83
     return 0.53 if rounded else 0.62
 
 

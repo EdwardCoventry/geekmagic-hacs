@@ -104,10 +104,10 @@ def cell_padding(ctx: CellContext) -> tuple[float, float]:
 def label_px(ctx: CellContext) -> float:
     """The size the kit's ``.t-label`` resolves to for this cell.
 
-    Mirrors ``clamp(10px, min(10vmin, 7.5vw), 15px)``; viewport units
+    Mirrors ``clamp(12px, min(12vmin, 9vw), 18px)``; viewport units
     answer to the whole cell, chrome included.
     """
-    return max(10.0, min(0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width, 15.0))
+    return max(12.0, min(0.12 * min(ctx.width, ctx.height), 0.09 * ctx.width, 18.0))
 
 
 def blend(color: Color, background: Color, alpha: float) -> tuple[int, int, int]:

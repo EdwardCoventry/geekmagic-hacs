@@ -147,10 +147,10 @@ FLUID_KIT_CSS = """
           line-height: 0.85; letter-spacing: -0.035em; white-space: nowrap; }
 .t-value { font-size: clamp(15px, min(26vmin, 20vw), 64px); font-weight: 700;
            line-height: 1; white-space: nowrap; }
-.t-unit { font-size: clamp(12px, min(18vmin, 12vw), 40px); font-weight: 600;
+.t-unit { font-size: clamp(13px, min(18vmin, 12vw), 40px); font-weight: 600;
           line-height: 1; color: var(--text-secondary); white-space: nowrap; }
-.t-label { font-size: clamp(10px, min(10vmin, 7.5vw), 15px); font-weight: 700;
-           line-height: 1; letter-spacing: 0.14em; color: var(--text-tertiary);
+.t-label { font-size: clamp(12px, min(12vmin, 9vw), 18px); font-weight: 700;
+           line-height: 1; letter-spacing: 0.06em; color: var(--text-tertiary);
            white-space: nowrap; }
 .icon { font-family: "Material Design Icons"; font-weight: 400; line-height: 1; }
 .i-lg { font-size: clamp(20px, 34vmin, 84px); }
@@ -325,7 +325,7 @@ def _smooth_path(pts: list[tuple[float, float]]) -> str:
 def svg_sparkline(
     values: list[float],
     stroke: str = "var(--primary)",
-    fill_opacity: float = 0.22,
+    fill_opacity: float = 0.40,
     stroke_width: float = 2.6,
     *,
     aspect: float = 2.0,
@@ -384,6 +384,7 @@ def svg_sparkline(
         "<defs>"
         '<linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">'
         f'<stop offset="0%" stop-color="{stroke}" stop-opacity="{fill_opacity}"/>'
+        f'<stop offset="55%" stop-color="{stroke}" stop-opacity="{fill_opacity * 0.38:.2f}"/>'
         f'<stop offset="100%" stop-color="{stroke}" stop-opacity="0"/>'
         "</linearGradient>"
         "</defs>"
