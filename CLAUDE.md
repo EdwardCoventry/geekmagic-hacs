@@ -156,7 +156,12 @@ quantized without dithering), and ``dashboard.gif`` is uploaded in
 place of the JPEG. blitz-py 0.2.0 also ships a ``Template`` class
 (parse once, mutate by element id, ~0.4ms re-render) and ``css=`` /
 ``css_vars=`` params — noted as a future optimization for the refresh
-loop; the pipeline currently rebuilds documents per update.
+loop; the pipeline currently rebuilds documents per update. blitz-py
+>= 0.3.0 (unpublished) is slated to ship ``blitz_py.measure_text(...)``:
+when it lands, replace the PIL measurements in ``widgets/_textfit.py``
+(and its CJK fullwidth-em workaround) with engine-native measurement;
+the true fix is ``text-overflow: ellipsis`` in blitz-dom, tracked in the
+blitz-py repo's docs/UPSTREAM.md.
 
 `blitz-py` is REQUIRED for rendering — it's in `manifest.json`
 requirements (PyPI wheels for Linux glibc/musl x86_64 + aarch64, macOS,
