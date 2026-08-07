@@ -20,8 +20,12 @@ from custom_components.geekmagic.widgets.theme import DEFAULT_THEME
 
 @pytest.fixture
 def ctx():
-    """Create a CellContext for widgets."""
-    return CellContext(width=100, height=100, slot_index=0, theme=DEFAULT_THEME)
+    """Fullscreen cell context (240x240), matching tests/widgets/test_widgets.py.
+
+    Cell size is load-bearing for this widget: the header is measured
+    against the cell and drops bands that cannot fit.
+    """
+    return CellContext(width=240, height=240, slot_index=0, theme=DEFAULT_THEME)
 
 
 class TestAggregateOHLC:
@@ -203,15 +207,19 @@ class TestCandlestickRendering:
 
         fragment = widget.render_html(ctx, state)
         assert "<svg" in fragment
-        # One wick + one body per candle
-        assert fragment.count("<line") == 3
+        # One wick per candle, plus the dashed last-close reference line
+        assert fragment.count("<line") == 4
         assert fragment.count("<rect") == 3
+        assert 'rx="' in fragment  # bodies carry a small corner radius
         # Bull/bear tints resolved to concrete theme colors for SVG paint
         assert css_rgb(DEFAULT_THEME.success) in fragment
         assert css_rgb(DEFAULT_THEME.error) in fragment
-        # Caption row: label and current value
-        assert "BITCOIN" in fragment
-        assert "106.0$" in fragment
+        # Caption row: label and current value. The caption is truncated
+        # in Python to the width the value leaves, and the unit is its
+        # own smaller span, so both are matched by prefix.
+        assert "BITC" in fragment
+        assert "106.0" in fragment
+        assert "$" in fragment
         # Last candle is bullish, so the value takes the success tint
         assert "var(--success)" in fragment
 
@@ -287,6 +295,22 @@ class TestCandlestickRendering:
         # Should not raise even with zero range
         fragment = widget.render_html(ctx, state)
         assert fragment.count("<rect") == 2
+
+    def test_compact_cell_is_chart_only(self):
+        """A 3x3 cell drops the header (and the reference line with it)."""
+        widget = CandlestickWidget(
+            WidgetConfig(widget_type="candlestick", slot=0, entity_id="sensor.btc", label="BTC")
+        )
+        small = CellContext(width=74, height=71, slot_index=0, theme=DEFAULT_THEME)
+        state = WidgetState(
+            entity=EntityState(entity_id="sensor.btc", state="102.0"),
+            candlestick_data=[(100.0, 105.0, 95.0, 102.0), (102.0, 107.0, 99.0, 100.0)],
+            now=datetime.now(tz=UTC),
+        )
+        fragment = widget.render_html(small, state)
+        assert "<svg" in fragment
+        assert "BTC" not in fragment
+        assert fragment.count("<line") == 2  # wicks only, no baseline
 
     def test_show_value_false(self, ctx):
         """Rendering with show_value disabled omits the current value."""

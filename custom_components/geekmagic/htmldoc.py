@@ -296,7 +296,13 @@ def svg_sparkline(
         for i, v in enumerate(values)
     ]
     line = _smooth_path(pts) if smooth else "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
-    area = f"{line} L {pts[-1][0]:.1f} 100 L {pts[0][0]:.1f} 100 Z"
+    # The area fill extends to the viewBox edges (x=0 / x=vb_w) so the
+    # gradient has no hard vertical seam at the line insets; the stroked
+    # line itself keeps its inset for dot/stroke headroom.
+    area = (
+        f"M 0 {pts[0][1]:.1f} {line.replace('M', 'L', 1)} "
+        f"L {vb_w:.0f} {pts[-1][1]:.1f} L {vb_w:.0f} 100 L 0 100 Z"
+    )
     dot = ""
     if show_dot:
         dx, dy = pts[-1]

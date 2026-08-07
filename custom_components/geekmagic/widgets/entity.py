@@ -137,6 +137,9 @@ class EntityWidget(Widget):
             icon = _get_entity_icon(entity)
 
         box_w, box_h = cell_box(ctx)
+        # "--" is the absence of a value, not a value: it reads as a
+        # dimmed marker rather than a headline set in 100px dashes.
+        missing = value == PLACEHOLDER_VALUE
         bands_kept = caption_visible(ctx)
         show_caption = bool(name) and self.show_name and bands_kept
         show_icon = bool(icon) and bands_kept
@@ -145,9 +148,11 @@ class EntityWidget(Widget):
         share = HERO_SHARE_SOLO if not (show_caption or show_icon) else HERO_SHARE_STACKED
         free_h = box_h - caption_band
 
+        max_hero = min(_MAX_HERO_PX, 0.34 * box_h) if missing else _MAX_HERO_PX
+
         # Size the icon off the width-limited hero, then let it take its
         # share of the height back out of the hero's budget.
-        loose = fit_hero(value, ctx, box_w, box_h * 4, suffix=unit, max_px=_MAX_HERO_PX)
+        loose = fit_hero(value, ctx, box_w, box_h * 4, suffix=unit, max_px=max_hero)
         icon_px = min(max(_ICON_RATIO * loose.px, _ICON_MIN_PX), 0.32 * box_h, 0.5 * box_w)
 
         hero = fit_hero(
@@ -157,7 +162,7 @@ class EntityWidget(Widget):
             max(16.0, (free_h - (icon_px if show_icon else 0.0)) * share),
             suffix=unit,
             allow_wrap=min(ctx.width, ctx.height) >= _WRAP_MIN_CELL,
-            max_px=_MAX_HERO_PX,
+            max_px=max_hero,
             min_px=_MIN_HERO_PX,
         )
 
@@ -179,6 +184,7 @@ class EntityWidget(Widget):
             # promote it to its own band.
             icon_role="feature",
             hero=hero_block(hero.text, hero.px, suffix=unit, wrapped=hero.wrapped),
+            hero_color="var(--text-tertiary)" if missing else None,
             hero_is_html=True,
             ctx=ctx,
         )

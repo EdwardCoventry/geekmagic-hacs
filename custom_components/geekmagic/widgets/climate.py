@@ -104,14 +104,18 @@ _CHIP_GAP_PX = 5.0
 _FIT_SLACK = 0.99
 
 
+# Placeholder shown when the thermostat reports no reading.
+_NO_VALUE = "--"
+
+
 def _format_temp(value: float | str | None, unit: str = "°") -> str:
     """Format temperature value for display."""
     if value is None:
-        return "--"
+        return _NO_VALUE
     try:
         num = float(value)
     except (ValueError, TypeError):
-        return "--"
+        return _NO_VALUE
     if num == int(num):
         return f"{int(num)}{unit}"
     return f"{num:.1f}{unit}"
@@ -296,14 +300,19 @@ class ClimateWidget(Widget):
         a short reading like ``21`` fills the cell while ``-10.5`` still
         fits — the clamp has to assume the worst case for every value.
         """
+        missing = value == _NO_VALUE
         # A 3x3 tile has no width to spare: the reading is unambiguous
         # without "°C", and dropping it buys the numerals ~20% more size.
-        suffix = unit if value != "--" and ctx.width >= 100 else ""
+        suffix = unit if not missing and ctx.width >= 100 else ""
+        # An absent reading must not shout: fitted to the band, "--" is
+        # two bars the size of the temperature it stands in for.
+        max_px = min(46.0, avail_h * 0.5) if missing else 128.0
         # fit_hero sizes the value so text+suffix exactly equals the width
         # budget, which leaves its own truncation check sitting on float
         # equality — a hair of slack keeps a fitting value from being cut.
-        fit = fit_hero(value, ctx, avail_w * _FIT_SLACK, avail_h, suffix=suffix)
-        return f'<div class="t-hero">{hero_block(fit.text, fit.px, suffix=suffix)}</div>'
+        fit = fit_hero(value, ctx, avail_w * _FIT_SLACK, avail_h, suffix=suffix, max_px=max_px)
+        style = ' style="color: var(--text-secondary)"' if missing else ""
+        return f'<div class="t-hero"{style}>{hero_block(fit.text, fit.px, suffix=suffix)}</div>'
 
     @staticmethod
     def _is_strip(ctx: CellContext) -> bool:

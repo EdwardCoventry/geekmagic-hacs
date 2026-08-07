@@ -347,9 +347,7 @@ class CandlestickWidget(Widget):
                 # The reference line needs room to read as structure
                 # rather than as a stray edge — skip it in tiny cells.
                 baseline_color=(
-                    css_rgba(ctx.theme.text_primary, 0.15)
-                    if ctx.theme and not m.compact
-                    else None
+                    css_rgba(ctx.theme.text_primary, 0.15) if ctx.theme and not m.compact else None
                 ),
             )
             chart = f'<div style="width: 100%">{svg}</div>'
@@ -385,7 +383,10 @@ class CandlestickWidget(Widget):
         if self.show_value and current_value is not None:
             value_text = f"{current_value:.1f}"
             caret_html = ""
-            if caret:
+            # Below ~16px the triangle degenerates into a nub — the tint
+            # already carries the direction, so spend the width on the
+            # caption instead.
+            if caret and m.value_px >= 16.0:
                 caret_px = m.value_px * 0.72
                 value_w += caret_px  # MDI glyphs advance exactly 1em
                 caret_html = mdi_span("mdi:" + caret, "icon", f"font-size: {caret_px:.1f}px")
@@ -402,9 +403,7 @@ class CandlestickWidget(Widget):
                 f"{caret_html}{escape(value_text)}{unit_html}</span>"
             )
 
-        html = value_header(
-            caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm
-        )
+        html = value_header(caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm)
         if not html:
             return "", 0.0
         return html, max(m.value_px if value_html else 0.0, m.label_px if caption else 0.0)

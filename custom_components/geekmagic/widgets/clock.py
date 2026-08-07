@@ -25,11 +25,20 @@ if TYPE_CHECKING:
     from .state import WidgetState
 
 # Digits carry more optical space than letters, so the time can take
-# tighter tracking than the kit's default -0.035em without touching.
+# tighter tracking than the kit's default -0.035em without touching —
+# and the width it buys back goes straight into the type size.
 _TIME_TRACKING = -0.05
+
+# The meridiem is a label on the time, not part of it: smaller than a
+# unit suffix and set well clear of the digits.
+_MERIDIEM_SCALE = 0.38
 
 _MAX_HERO_PX = 124.0
 _MIN_HERO_PX = 13.0
+
+# Tall, narrow slots (split-v) get the stacked watch-face treatment:
+# hours over minutes, twice the size of a single centred line.
+_STACK_ASPECT = 1.7
 
 
 class ClockWidget(Widget):
@@ -78,11 +87,14 @@ class ClockWidget(Widget):
         """Render the clock widget."""
         now = state.now or datetime.now(tz=UTC)
 
+        # A 3x3 slot is better spent on legible hours and minutes than on
+        # seconds and a meridiem nobody can read at that size.
+        seconds = self.show_seconds and not ctx.is_compact
         if self.time_format == "12h":
-            fmt = "%I:%M:%S" if self.show_seconds else "%I:%M"
-            meridiem = now.strftime("%p")
+            fmt = "%I:%M:%S" if seconds else "%I:%M"
+            meridiem = "" if ctx.is_compact else now.strftime("%p")
         else:
-            fmt = "%H:%M:%S" if self.show_seconds else "%H:%M"
+            fmt = "%H:%M:%S" if seconds else "%H:%M"
             meridiem = ""
         time_str = now.strftime(fmt)
         date_str = now.strftime("%a, %b %d") if self.show_date else None
@@ -99,12 +111,21 @@ class ClockWidget(Widget):
         date_band = chip_band_px(ctx) if show_date else 0.0
         share = HERO_SHARE_SOLO if not (show_caption or show_date) else HERO_SHARE_STACKED
 
+        # A tall column can't spend its height on one line of digits, so
+        # stack hours over minutes instead of stranding half the cell.
+        stack = None
+        if not seconds and box_h >= _STACK_ASPECT * box_w:
+            stack = time_str.split(":")
+
         hero = fit_hero(
             time_str,
             ctx,
             box_w,
             max(16.0, (box_h - caption_band - date_band) * share),
             suffix=meridiem,
+            suffix_scale=_MERIDIEM_SCALE,
+            tracking=_TIME_TRACKING,
+            lines=stack,
             max_px=_MAX_HERO_PX,
             min_px=_MIN_HERO_PX,
         )
@@ -112,7 +133,12 @@ class ClockWidget(Widget):
         return card_html(
             caption=fit_caption(self.config.label or "", ctx, box_w) if show_caption else None,
             hero=hero_block(
-                hero.text, hero.px, suffix=meridiem, tracking=_TIME_TRACKING
+                hero.text,
+                hero.px,
+                suffix=meridiem,
+                suffix_scale=_MERIDIEM_SCALE,
+                wrapped=hero.wrapped,
+                tracking=_TIME_TRACKING,
             ),
             hero_is_html=True,
             hero_color=css_rgb(self.config.color) if self.config.color else None,

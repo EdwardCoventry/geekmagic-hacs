@@ -295,9 +295,7 @@ class ChartWidget(Widget):
                 f"{escape(value_text)}{unit_html}</span>"
             )
 
-        html = value_header(
-            caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm
-        )
+        html = value_header(caption=caption, value_html=value_html, value_width=value_w, m=m, tm=tm)
         if not html:
             return "", 0.0
         return html, max(m.value_px if value_html else 0.0, m.label_px if caption else 0.0)
@@ -356,7 +354,7 @@ class ChartWidget(Widget):
             '<div class="hide-short hide-narrow">'
             '<div style="display: flex; align-items: baseline; '
             'justify-content: space-between; gap: 6px">'
-            f'{bound("L", lo_text)}{period_html}{bound("H", hi_text)}'
+            f"{bound('L', lo_text)}{period_html}{bound('H', hi_text)}"
             "</div></div>",
             max(m.detail_px, m.label_px),
         )

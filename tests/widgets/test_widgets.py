@@ -869,12 +869,15 @@ class TestGaugeWidget:
         assert ">75<" in fragment
 
     def test_show_unit_true_appends_entity_unit(self, ctx):
+        """Value and unit are separate spans (unit reads lighter)."""
         widget = GaugeWidget(WidgetConfig(widget_type="gauge", slot=0, entity_id="sensor.cpu"))
         entity = make_entity(
             "sensor.cpu", "75", {"friendly_name": "CPU", "unit_of_measurement": "%"}
         )
         fragment = widget.render_html(ctx, make_state(entity))
-        assert "75%" in fragment
+        assert ">75<" in fragment
+        assert 't-unit"' in fragment
+        assert ">%<" in fragment
 
     def test_threshold_colors(self, ctx):
         widget = GaugeWidget(
@@ -1198,8 +1201,9 @@ class TestProgressWidget:
             "sensor.steps", "5000", {"friendly_name": "Steps", "unit_of_measurement": "steps"}
         )
         fragment = widget.render_html(ctx, make_state(entity))
-        assert ">50%<" in fragment  # hero percent
-        assert "5k/10k steps" in fragment  # abbreviated chip
+        assert ">50<" in fragment  # hero percent (digits)
+        assert ">%<" in fragment  # unit renders as its own lighter span
+        assert "5k of 10k steps" in fragment  # abbreviated chip
         assert "width: 50.0%" in fragment  # bar fill
         assert "STEPS" in fragment  # caption
 
@@ -1220,7 +1224,8 @@ class TestProgressWidget:
     def test_render_without_entity(self, ctx):
         widget = ProgressWidget(WidgetConfig(widget_type="progress", slot=0))
         fragment = widget.render_html(ctx, make_state())
-        assert ">0%<" in fragment
+        assert ">0<" in fragment
+        assert ">%<" in fragment
 
 
 # ============================================================================
@@ -1331,7 +1336,9 @@ class TestChartWidget:
         assert "23.5" in fragment  # current value in header
         assert '<span class="t-unit"' in fragment
         assert "°C" in fragment
-        assert "TEMPERATURE" in fragment  # label
+        # Caption is measured against the space the value leaves and
+        # truncated in Python (Blitz draws no ellipsis and never clips).
+        assert "TEMPERAT" in fragment  # label
 
     def test_range_footer_shows_min_max_and_period(self, ctx):
         widget = ChartWidget(
@@ -1381,6 +1388,26 @@ class TestChartWidget:
         # the area fade disappears.
         assert 'stop-opacity="0"' in fragment
         assert 'stop-opacity="0.22"' not in fragment
+
+    def test_compact_cell_is_chart_only(self, compact_ctx):
+        """A 3x3 cell drops both bands: the trace is the whole widget."""
+        widget = ChartWidget(
+            WidgetConfig(widget_type="chart", slot=0, entity_id="sensor.temperature")
+        )
+        entity = make_entity(attributes={"friendly_name": "Temp"})
+        fragment = widget.render_html(compact_ctx, make_state(entity, history=[20.0, 21.0, 24.0]))
+        assert "<svg" in fragment
+        assert "t-label" not in fragment
+        assert "t-value" not in fragment
+
+    def test_binary_history_draws_square_steps(self, ctx):
+        """Bezier smoothing overshoots on binary traces, so it is off."""
+        widget = ChartWidget(
+            WidgetConfig(widget_type="chart", slot=0, entity_id="binary_sensor.door")
+        )
+        entity = make_entity("binary_sensor.door", "off", {"friendly_name": "Door"})
+        fragment = widget.render_html(ctx, make_state(entity, history=[0.0, 1.0, 0.0, 1.0]))
+        assert " C " not in fragment  # no cubic bezier segments in the path
 
     def test_is_binary_data_true(self):
         assert _is_binary_data([0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0]) is True
@@ -1451,7 +1478,8 @@ class TestClimateWidget:
             "heat", current_temperature=20.5, temperature=22, hvac_action="heating", humidity=45
         )
         fragment = widget.render_html(ctx, make_state(entity))
-        assert "20.5°C" in fragment  # hero
+        assert ">20.5<" in fragment  # hero numerals
+        assert "°C" in fragment  # unit, set smaller on the hero baseline
         assert "HEATING" in fragment  # mode chip
         assert "var(--warning)" in fragment  # heating tint
         assert "22°" in fragment  # target chip
@@ -1466,7 +1494,8 @@ class TestClimateWidget:
             "cool", current_temperature=26, temperature=23, hvac_action="cooling"
         )
         fragment = widget.render_html(ctx, make_state(entity))
-        assert "26°C" in fragment
+        assert ">26<" in fragment
+        assert "°C" in fragment
         assert "COOLING" in fragment
         assert "var(--info)" in fragment
 
@@ -1487,7 +1516,8 @@ class TestClimateWidget:
         )
         entity = self._thermostat("off", current_temperature=18)
         fragment = widget.render_html(ctx, make_state(entity))
-        assert "18°C" in fragment
+        assert ">18<" in fragment
+        assert "°C" in fragment
         assert "OFF" in fragment
         assert "var(--error)" in fragment
 
@@ -1507,7 +1537,7 @@ class TestClimateWidget:
         assert "HEATING" not in fragment
         assert "22°" not in fragment
         assert "45%" not in fragment
-        assert "20.5°C" in fragment  # hero survives
+        assert ">20.5<" in fragment  # hero survives
 
     def test_format_temp(self):
         assert _format_temp(21) == "21°"
@@ -1644,22 +1674,22 @@ class TestWeatherWidget:
     def test_forecast_column_high_low_pair(self):
         widget = self._widget()
         column = widget._forecast_column(FORECAST[0], 0, high_only=False)
-        assert "26°" in column
-        assert "/14°" in column
+        assert 'class="wx-hi">26°' in column
+        assert 'class="wx-lo">14°' in column
 
     def test_forecast_column_high_only(self):
         widget = self._widget()
         column = widget._forecast_column(FORECAST[0], 0, high_only=True)
-        assert "26°" in column
-        assert "/14°" not in column
+        assert 'class="wx-hi">26°' in column
+        assert "wx-lo" not in column
 
     def test_forecast_temps_round_to_integer(self):
         """Forecast columns show whole-number temps (22.6 -> 23)."""
         widget = self._widget()
         day = {"datetime": "2025-12-29T00:00:00", "temperature": 26.4, "templow": 13.6}
         column = widget._forecast_column(day, 0, high_only=False)
-        assert "26°" in column
-        assert "/14°" in column
+        assert 'class="wx-hi">26°' in column
+        assert 'class="wx-lo">14°' in column
         assert "26.4" not in column
 
     @pytest.mark.parametrize(

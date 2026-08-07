@@ -174,9 +174,9 @@ class MultiProgressWidget(Widget):
         row_h = avail_h / len(items)
         # Row type is list-sized, not hero-sized: several rows share the
         # cell, so it scales with the row rather than the cell.
-        text_px = max(9.0, min(17.0, 0.11 * min(ctx.width, ctx.height), row_h * 0.44))
-        label_px_row = max(8.0, min(text_px * 0.86, 0.075 * ctx.width))
-        bar_px = max(4.0, min(11.0, row_h * 0.22))
+        text_px = max(9.0, min(20.0, 0.11 * min(ctx.width, ctx.height), row_h * 0.44))
+        label_px_row = max(8.0, min(text_px * 0.78, 0.075 * ctx.width))
+        bar_px = max(4.0, min(14.0, row_h * 0.22))
         # One column for every percent so the bars all end on the same
         # pixel — a ragged right edge is what makes stacked bars look
         # accidental.
@@ -209,8 +209,11 @@ class MultiProgressWidget(Widget):
             )
             for index, item in enumerate(items)
         ]
+        # Rows are separated by more than their own label sits from its
+        # bar, so each label + bar reads as one unit.
+        gap = max(3.0, row_h * 0.14)
         return (
-            '<div class="cell" style="align-items: stretch; gap: 2%">'
+            f'<div class="cell" style="align-items: stretch; gap: {gap:.0f}px">'
             f"{title_html}{''.join(rows)}</div>"
         )
 
@@ -276,9 +279,10 @@ class MultiProgressWidget(Widget):
                 budget -= label_px_row * 1.7
             if value_shown:
                 budget -= len(value_text) * label_px_row * char_em(ctx) + 6
-            label_text = truncate_text(
-                label.upper(), max(3, int(budget / (label_px_row * char_em(ctx, caps=True))))
-            )
+            # Row labels track at 0.1em, tighter than the kit's caps
+            # label the char budget is calibrated for.
+            per_char = label_px_row * char_em(ctx, caps=True) * 0.92
+            label_text = truncate_text(label.upper(), max(3, int(budget / per_char)))
             # Label and raw value share one size so the line reads as a
             # pair; the percent below is the row's actual readout.
             raw = (
@@ -307,6 +311,6 @@ class MultiProgressWidget(Widget):
         )
         return (
             '<div style="flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; '
-            f'justify-content: center; gap: {max(2.0, bar_px * 0.5):.0f}px">'
+            f'justify-content: center; gap: {max(2.0, bar_px * 0.35):.0f}px">'
             f"{label_row}{bar_row}</div>"
         )

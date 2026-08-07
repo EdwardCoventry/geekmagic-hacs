@@ -72,6 +72,9 @@ class TextWidget(Widget):
             box_w,
             max(16.0, (box_h - caption_band) * share),
             allow_wrap=min(ctx.width, ctx.height) >= _WRAP_MIN_CELL,
+            # A tall column would otherwise strand its height below two
+            # short lines; a wide cell reads better in two.
+            max_lines=3 if box_h > 1.5 * box_w else 2,
             max_px=_MAX_HERO_PX,
             min_px=_MIN_HERO_PX,
         )

@@ -60,11 +60,13 @@ def char_em(ctx: CellContext, *, caps: bool = False) -> float:
 
     Rounded (Nunito) themes pack tighter than the DejaVu/mono themes,
     which also track wider — budgeting per glyph by family keeps both
-    from spilling out of the cell.
+    from spilling out of the cell. The caps figures are deliberately
+    generous: a wide word ("POWER CONSUMPTION") runs ~15% over the
+    average, and truncating one character early beats a clipped glyph.
     """
     rounded = getattr(ctx.theme, "rounded_font", True) if ctx.theme is not None else True
     if caps:
-        return 0.68 if rounded else 0.88
+        return 0.78 if rounded else 0.95
     return 0.53 if rounded else 0.62
 
 
