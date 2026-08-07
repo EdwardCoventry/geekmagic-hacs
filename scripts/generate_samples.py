@@ -1314,10 +1314,12 @@ def generate_weather(renderer: Renderer, output_dir: Path) -> None:
     hass = MockHass()
     create_weather_states(hass)
 
-    layout = HeroLayout(footer_slots=3, hero_ratio=0.75, padding=8, gap=8)
+    # Fullscreen: the weather widget is an Apple-Weather glance that
+    # spreads caption / hero / forecast strip across the whole panel —
+    # empty footer slots would just waste the bottom quarter.
+    layout = FullscreenLayout(padding=8)
     img, draw = renderer.create_canvas()
 
-    # Hero: Weather widget with forecast
     weather = WeatherWidget(
         WidgetConfig(
             widget_type="weather",
@@ -1327,9 +1329,6 @@ def generate_weather(renderer: Renderer, output_dir: Path) -> None:
         )
     )
     layout.set_widget(0, weather)
-
-    # Footer slots can show additional info if needed
-    # For now, leave them empty to let the weather widget shine
 
     layout.render(renderer, draw, build_widget_states(layout, hass))
     save_image(renderer, img, "03_weather", output_dir)
