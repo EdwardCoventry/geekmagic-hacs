@@ -174,22 +174,26 @@ def _art_scrim(cell_h: int, block_px: float) -> str:
 
     The scrim is anchored to the bottom and its ramp is derived from where
     the metadata actually starts, so the overlay carries the same contrast
-    whether it holds one line or four. Two guarantees fall out of the
-    stop positions: the top of the cover is never touched (the scrim
-    starts at 42% at the very earliest, and is under 6% opaque for the
-    first stretch of its own height), and the text always sits on ~46%
-    black or deeper.
+    whether it holds one line or four. The ramp is a sampled smoothstep
+    ease rather than straight stop-to-stop segments: linear segments put
+    slope discontinuities in the alpha curve, and the eye reads those as
+    hard horizontal bands across the artwork (Mach bands). Guarantees:
+    the top of the cover stays untouched (the scrim starts at 30% at the
+    very earliest and eases in from zero), and the text always sits on
+    ~46% black or deeper.
     """
     text_top = 1.0 - block_px / max(1, cell_h)
-    start = min(0.62, max(0.42, text_top - 0.11))
-    p_text = min(0.9, max(0.12, (text_top - start) / (1.0 - start)))
-    stops = (
-        (0.0, 0.0),
-        (p_text * 0.45, 0.06),
-        (p_text, 0.46),
-        (p_text + (1.0 - p_text) * 0.35, 0.70),
-        (1.0, 0.94),
-    )
+    start = min(0.62, max(0.30, text_top - 0.26))
+    p_text = min(0.9, max(0.30, (text_top - start) / (1.0 - start)))
+
+    def smooth(t: float) -> float:
+        return t * t * (3.0 - 2.0 * t)
+
+    stops: list[tuple[float, float]] = [(0.0, 0.0)]
+    stops += [(p_text * t, 0.46 * smooth(t)) for t in (0.25, 0.5, 0.75)]
+    stops.append((p_text, 0.46))
+    stops += [(p_text + (1.0 - p_text) * t, 0.46 + 0.48 * smooth(t)) for t in (0.33, 0.66)]
+    stops.append((1.0, 0.94))
     ramp = ", ".join(f"rgba(0,0,0,{a:.2f}) {p * 100:.0f}%" for p, a in stops)
     return (
         '<div style="position: absolute; left: 0; right: 0; bottom: 0; '
