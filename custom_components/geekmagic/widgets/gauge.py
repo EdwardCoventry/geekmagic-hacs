@@ -12,7 +12,9 @@ from ._gauge import (
     CAPTION_MIN_PX,
     STROKE_UNITS,
     bar_html,
+    caption_band,
     cell_box,
+    feature_icon_px,
     fit_caption_sized,
     hero_font_css,
     hero_font_px,
@@ -443,9 +445,17 @@ class GaugeWidget(Widget):
             self.orientation == "auto" and ctx.height > ctx.width * 1.6
         )
         icon_html = mdi_span(self.icon, "icon i-sm", f"color: {color}") if self.icon else ""
+        # Tall-enough cells promote the icon to its own band above the
+        # caption (the entity card's feature pattern); the inline chip is
+        # the short-cell fallback.
+        stack_icon = (
+            mdi_span(self.icon, "icon", f"color: {color}; font-size: {feature_icon_px(ctx):.0f}px")
+            if self.icon
+            else ""
+        )
 
         if not vertical:
-            caption = self._caption(ctx, name, icon_html)
+            caption = caption_band(ctx, name, icon_html, stack_icon_html=stack_icon)
             bar = bar_html(percent, color=color, track=track, thickness=_BAR_THICKNESS)
             return f'<div class="cell">{caption}{self._hero(digits, unit, color)}{bar}</div>'
 
@@ -454,7 +464,7 @@ class GaugeWidget(Widget):
             # Wide cell, vertical bar: stand the bar up the left edge and
             # set the label + value beside it instead of stranding a stub
             # of a bar in the middle.
-            caption = self._caption(ctx, name, icon_html, width_ratio=0.6)
+            caption = caption_band(ctx, name, icon_html, width_ratio=0.6)
             hero = self._hero(digits, unit, color, cap_vw=24.0, cap_vmin=44.0)
             return (
                 '<div class="cell row" style="gap: 6%">'
@@ -469,8 +479,9 @@ class GaugeWidget(Widget):
         # under it. The value stays deliberately smaller than a
         # horizontal bar's hero so the column of colour stays the subject.
         # The bar's ``flex: 1`` leaves space-evenly nothing to distribute,
-        # so the breathing room between the bands is explicit here.
-        caption = self._caption(ctx, name, icon_html)
+        # so the breathing room between the bands is explicit here. The
+        # icon stays INLINE here — the vertical bar wants the height.
+        caption = caption_band(ctx, name, icon_html)
         hero = self._hero(digits, unit, color, cap_vw=27.0, cap_vmin=30.0)
         gap = max(4.0, min(14.0, ctx.height * 0.045))
         return (
@@ -502,33 +513,3 @@ class GaugeWidget(Widget):
             digits, unit, hero_css=hero_css, unit_css=unit_css, color=color, unit_color=color
         )
 
-    @staticmethod
-    def _caption(
-        ctx: CellContext,
-        name: str,
-        icon_html: str = "",
-        *,
-        width_ratio: float = 1.0,
-    ) -> str:
-        """Caps caption band, Python-truncated to the cell width.
-
-        Visibility is decided here, not by the kit's ``hide-short``: a
-        bar gauge in a hero-layout footer (~65px tall) still has room
-        for its 10px label, and an unlabeled bar is a number without a
-        meaning. Only cells too short for caption + value + bar drop it.
-        """
-        if not name or ctx.height < 46:
-            return ""
-        top = label_px(ctx)
-        # Shrink to keep the whole word before truncating — "MEMORY" at
-        # 10px beats "MEMO…" at 12px on a panel this small.
-        text, size_px = fit_caption_sized(
-            ctx,
-            name,
-            reserve_em=1.6 if icon_html else 0.0,
-            width_px=ctx.width * 0.90 * width_ratio,
-        )
-        if not (text or icon_html):
-            return ""
-        size = f' style="font-size: {size_px:.1f}px"' if size_px < top - 0.25 else ""
-        return f'<div class="t-label caption-row"{size}>{icon_html}{escape(text)}</div>'

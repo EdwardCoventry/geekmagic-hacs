@@ -154,12 +154,25 @@ def fit_caption_sized(
 CAPTION_MIN_CELL_H = 46.0
 
 
+def feature_icon_px(ctx: CellContext) -> float:
+    """Feature-band glyph size for a caption-topped gauge/progress card.
+
+    Geometry-driven like the entity card's, but smaller — these cells
+    also carry a bar — with the same tall-cell bonus so narrow columns
+    don't strand their height.
+    """
+    vmin = min(ctx.width, ctx.height)
+    bonus = 0.10 * max(0.0, ctx.height - ctx.width)
+    return max(14.0, min(0.24 * vmin + bonus, 0.5 * ctx.width, 40.0))
+
+
 def caption_band(
     ctx: CellContext,
     name: str,
     icon_html: str = "",
     *,
     width_ratio: float = 1.0,
+    stack_icon_html: str = "",
 ) -> str:
     """Caps caption band whose visibility is decided here, not by the kit.
 
@@ -167,17 +180,27 @@ def caption_band(
     icon included — but those cells still have room for a 10px name, and
     they are exactly the cells that most need one. The band is therefore
     sized in Python and carries no hide class.
+
+    With ``stack_icon_html`` and a cell at least 100px tall, the icon
+    takes its own band above the caption (the watchOS feature-icon
+    pattern the entity card uses); the inline chip row is the fallback
+    for genuinely short cells.
     """
     if not name or ctx.height < CAPTION_MIN_CELL_H:
         return ""
-    reserve_em = 1.6 if icon_html else 0.0
+    stacked = bool(stack_icon_html) and ctx.height >= 100
+    inline_icon = "" if stacked else icon_html
+    reserve_em = 1.6 if inline_icon else 0.0
     text, px = fit_caption_sized(
         ctx, name, reserve_em=reserve_em, width_px=ctx.width * 0.90 * width_ratio
     )
-    if not (text or icon_html):
+    if not (text or inline_icon or stacked):
         return ""
     size = f' style="font-size: {px:.1f}px"' if px < label_px(ctx) - 0.25 else ""
-    return f'<div class="t-label caption-row"{size}>{icon_html}{escape(text)}</div>'
+    row = f'<div class="t-label caption-row"{size}>{inline_icon}{escape(text)}</div>'
+    if stacked:
+        return f'<div class="card-icon">{stack_icon_html}</div>{row}'
+    return row
 
 
 def track_css(

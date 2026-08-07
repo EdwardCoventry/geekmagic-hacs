@@ -12,6 +12,7 @@ from ._gauge import (
     caption_band,
     cell_box,
     char_em,
+    feature_icon_px,
     fit_caption_sized,
     hero_font_css,
     label_px,
@@ -100,10 +101,15 @@ class ProgressWidget(Widget):
         bar_height = _BAR_HEIGHT_CSS.get(self.bar_height_style, _BAR_HEIGHT_CSS["normal"])
 
         icon_html = mdi_span(self.icon, "icon i-sm", f"color: {color}") if self.icon else ""
+        stack_icon = (
+            mdi_span(self.icon, "icon", f"color: {color}; font-size: {feature_icon_px(ctx):.0f}px")
+            if self.icon
+            else ""
+        )
         # The caption band carries the icon too, so ``hide-short`` would
         # cost a footer cell both its name and its tint. ``caption_band``
         # shrinks it to the 10px floor and decides visibility in Python.
-        caption = caption_band(ctx, label, icon_html)
+        caption = caption_band(ctx, label, icon_html, stack_icon_html=stack_icon)
         # The percent is the hero and stays theme text — the tint lives
         # in the icon and the bar fill (one accent per cell).
         hero_css, unit_css = hero_font_css(f"{percent:.0f}", "%")

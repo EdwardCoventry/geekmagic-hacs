@@ -365,3 +365,37 @@ class TestAttributeListCompactRows:
         widget = self._widget(attributes=[], title=None)
         fragment = widget.render_html(cell(*COLUMN), make_state(self._entity()))
         assert "BUS 42" in fragment
+
+
+class TestStackedFeatureIcon:
+    """Tall cells promote the icon to its own band above the caption
+    (the entity card's feature pattern); the inline chip row is only the
+    short-cell fallback."""
+
+    def test_progress_tall_cell_stacks_icon(self):
+        widget = ProgressWidget(
+            WidgetConfig(
+                widget_type="progress",
+                slot=0,
+                entity_id="sensor.steps",
+                label="Steps",
+                options={"icon": "walk"},
+            )
+        )
+        entity = EntityState(entity_id="sensor.steps", state="8500", attributes={"max": "10000"})
+        state = WidgetState(entity=entity, now=FIXED_NOW)
+        tall = CellContext(width=69, height=108, slot_index=0, theme=DEFAULT_THEME)
+        assert "card-icon" in widget.render_html(tall, state)
+        short = CellContext(width=108, height=69, slot_index=0, theme=DEFAULT_THEME)
+        assert "card-icon" not in widget.render_html(short, state)
+
+    def test_status_tall_narrow_cell_uses_stack(self):
+        widget = StatusWidget(
+            WidgetConfig(widget_type="status", slot=0, entity_id="binary_sensor.door", label="Door")
+        )
+        entity = EntityState(
+            entity_id="binary_sensor.door", state="on", attributes={"device_class": "door"}
+        )
+        state = WidgetState(entity=entity, now=FIXED_NOW)
+        tall = CellContext(width=69, height=108, slot_index=0, theme=DEFAULT_THEME)
+        assert "card-icon" in widget.render_html(tall, state)

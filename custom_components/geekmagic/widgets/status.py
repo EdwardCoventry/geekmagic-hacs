@@ -298,7 +298,10 @@ class StatusWidget(Widget):
         # stranding it either side of a centred column.
         if ctx.width >= 150 and ctx.width >= ctx.height * 1.7:
             return self._render_strip(ctx, ind)
-        if min(ctx.width, ctx.height) < 90:
+        # Narrow-but-TALL columns (69x108 grid tiles) still have the
+        # height for the stacked chip/name/state — the inline compact
+        # row is for cells short in BOTH senses.
+        if min(ctx.width, ctx.height) < 90 and ctx.height < 100:
             return self._render_compact(ctx, ind)
         return self._render_stack(ctx, ind)
 
