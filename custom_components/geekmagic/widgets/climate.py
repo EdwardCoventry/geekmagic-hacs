@@ -292,17 +292,30 @@ class ClimateWidget(Widget):
         the running mode the caption can spend the icon's width on the
         room name instead — but when the chips are shed (small cells)
         the caption icon is the ONLY carrier of the hvac state, so it
-        must ride along. ``hide_short=False`` lets short cells keep the
-        shrunk row the widget deliberately built for them.
+        must ride along. Narrow cells STACK the icon on its own line
+        above the name — inline, the icon's reserve starved the room
+        name into "LIV… RO…" stubs. ``hide_short=False`` lets short
+        cells keep the rows the widget deliberately built for them.
         """
-        icon_html = mdi_span(icon, "icon i-sm", f"color: {tint}") if with_icon else ""
+        stack = with_icon and ctx.width < 150
+        icon_html = ""
+        if with_icon:
+            classes = "icon i-md" if stack else "icon i-sm"
+            icon_html = mdi_span(icon, classes, f"color: {tint}")
         text, px = fit_caption_sized(
-            label, ctx, cell_box(ctx)[0], reserve_em=1.5 if with_icon else 0.0
+            label, ctx, cell_box(ctx)[0], reserve_em=0.0 if stack or not with_icon else 1.5
         )
         if not (text or icon_html):
             return ""
-        size = f' style="font-size: {px:.1f}px"'
         hide = " hide-short" if hide_short else ""
+        if stack:
+            label_row = (
+                f'<div class="t-label{hide}" style="font-size: {px:.1f}px">{escape(text)}</div>'
+                if text
+                else ""
+            )
+            return f'<div class="card-icon{hide}">{icon_html}</div>{label_row}'
+        size = f' style="font-size: {px:.1f}px"'
         return f'<div class="t-label caption-row{hide}"{size}>{icon_html}{escape(text)}</div>'
 
     @staticmethod
@@ -437,13 +450,18 @@ class ClimateWidget(Widget):
             # otherwise show the mode) are shed or the cell is wide
             # enough to afford both.
             mode_in_chips = bool(rows) and self.show_mode
+            with_icon = ctx.width >= 150 or not mode_in_chips
+            if with_icon and ctx.width < 150:
+                # The stacked state icon takes its own band (i-md clamp
+                # mirror) — budget it or the hero eats its room.
+                spent += max(14.0, min(0.20 * min(ctx.width, ctx.height), 48.0))
             bands.append(
                 self._caption_html(
                     ctx,
                     self.label_for(entity),
                     icon_name,
                     icon_color,
-                    with_icon=ctx.width >= 150 or not mode_in_chips,
+                    with_icon=with_icon,
                     hide_short=bands_kept,
                 )
             )
