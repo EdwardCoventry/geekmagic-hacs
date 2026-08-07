@@ -28,6 +28,20 @@ _ROW_TRACKING = 0.06
 _ROW_MIN = 10.5
 _ROW_MAX = 46.0
 
+# Below this content width the inline label|value row starves both
+# halves — the row goes STACKED instead: caps label on its own
+# full-width line, the value under it at full width. "Downtown" whole
+# at 22px beats "Dow…" at 16 beside a cramped "TO".
+_STACK_MAX_W = 150.0
+_STACK_ROW_MIN = 26.0
+_STACK_ROW_MAX = 82.0
+_STACK_VALUE_MAX_PX = 34.0
+
+# Inline values may run to this size when the row pitch affords it —
+# a 240px-wide row with three items was setting 17px values in a sea
+# of dark.
+_VALUE_MAX_PX = 30.0
+
 # A row label gives up size before it gives up letters, down to this
 # floor — "HUMIDITY" at 9px names its row, "HU…" at 13px does not.
 _LABEL_MIN_PX = 9.0
@@ -148,38 +162,59 @@ class AttributeListWidget(Widget):
         pad_x, pad_y = cell_padding(ctx)
         avail, usable_h = cell_box_px(ctx, pad_x, pad_y)
         count = max(1, len(items))
+        stacked = avail < _STACK_MAX_W
+        row_min = _STACK_ROW_MIN if stacked else _ROW_MIN
 
         title_text, title_px = fit_caption_sized(title, ctx, avail) if title else ("", 0.0)
         title_h = title_px * 1.9 if title_text else 0.0
         # The title answers to the row budget it displaces, never to the
         # cell width — a narrow column needs its heading too, and with
         # nothing configured the title IS the widget, so it always shows.
-        show_title = bool(title_text) and (not items or (usable_h - title_h) / count >= _ROW_MIN)
+        # Stacked blocks are tall: the title stands as long as ONE block
+        # survives under it (identity + one fact beats two anonymous
+        # facts in a 72px tile); inline rows keep the per-row average.
+        fits_rows = (
+            usable_h - title_h >= row_min if stacked else (usable_h - title_h) / count >= row_min
+        )
+        show_title = bool(title_text) and (not items or fits_rows)
         rows_h = usable_h - (title_h if show_title else 0.0)
 
-        if items and rows_h / count < _ROW_MIN:
-            items = items[: max(1, int(rows_h // _ROW_MIN))]
+        if items and rows_h / count < row_min:
+            items = items[: max(1, int(rows_h // row_min))]
             count = len(items)
-        row_h = min(rows_h / count, _ROW_MAX)
+        row_h = min(rows_h / count, _STACK_ROW_MAX if stacked else _ROW_MAX)
 
-        value_px = max(10.0, min(row_h * 0.50, 24.0))
+        value_px = max(10.0, min(row_h * 0.58, _VALUE_MAX_PX))
         gap = max(5.0, row_h * 0.16)
         item_label_px = self._label_size(tm, items, value_px, avail - gap)
 
-        body = "".join(
-            self._row_html(
-                tm,
-                item,
-                index=i,
-                row_h=row_h,
-                label_px_=item_label_px,
-                value_px=value_px,
-                gap=gap,
-                avail=avail,
-                hairline=hairline_css(ctx.theme),
+        if stacked:
+            body = "".join(
+                self._stacked_row_html(
+                    tm,
+                    item,
+                    index=i,
+                    row_h=row_h,
+                    avail=avail,
+                    hairline=hairline_css(ctx.theme),
+                )
+                for i, item in enumerate(items)
             )
-            for i, item in enumerate(items)
-        )
+        else:
+            body = "".join(
+                self._row_html(
+                    tm,
+                    item,
+                    index=i,
+                    row_h=row_h,
+                    label_px_=item_label_px,
+                    value_px=value_px,
+                    gap=gap,
+                    avail=avail,
+                    hairline=hairline_css(ctx.theme),
+                )
+                for i, item in enumerate(items)
+            )
 
         title_html = ""
         if show_title:
@@ -214,6 +249,54 @@ class AttributeListWidget(Widget):
         if widest <= 0:  # pragma: no cover - labels default to the attr key
             return ideal
         return max(_LABEL_MIN_PX, min(ideal, budget * 0.5 / widest))
+
+    @staticmethod
+    def _stacked_row_html(
+        tm: TextMetrics,
+        item: _Item,
+        *,
+        index: int,
+        row_h: float,
+        avail: float,
+        hairline: str,
+    ) -> str:
+        """One stacked block: caps label over the value, both full width.
+
+        The narrow-column treatment — neither half competes for the row,
+        so "Downtown" renders whole at the size the WIDTH affords instead
+        of truncating beside its label. The label keeps its own line at
+        caption size; the value takes the biggest size that fits both
+        the width and the block's remaining height.
+        """
+        label = item.label.upper()
+        label_px_ = max(10.0, min(row_h * 0.18, 13.0))
+        label_fit, label_px_ = _fit_label(tm, label, label_px_, avail)
+        label_band = label_px_ * 1.35 if label_fit else 0.0
+
+        value_cap = min((row_h - label_band) / 1.15, _STACK_VALUE_MAX_PX)
+        value_px = tm.fit_font_size(item.value, avail, value_cap, "bold", min_px=11.0)
+        # A width-bound fit lands exactly on the budget, where float
+        # noise reads as overflow — a hair of slack keeps a fitting
+        # value from losing its last character.
+        value = tm.truncate(item.value, value_px, avail + 1.0, "bold", min_chars=2)
+
+        color_css = f" color: {item.color};" if item.color else ""
+        sep = f"border-top: 1px solid {hairline}; " if index > 0 else ""
+        label_html = (
+            f'<div style="font-size: {label_px_:.1f}px; font-weight: 700; line-height: 1; '
+            f"letter-spacing: {_ROW_TRACKING}em; color: var(--text-tertiary); "
+            f'padding-bottom: {label_px_ * 0.35:.1f}px">{escape(label_fit)}</div>'
+            if label_fit
+            else ""
+        )
+        return (
+            f'<div style="{sep}height: {row_h:.1f}px; flex: none; display: flex; '
+            'flex-direction: column; justify-content: center">'
+            f"{label_html}"
+            f'<div style="white-space: nowrap; font-size: {value_px:.1f}px; '
+            f'font-weight: 700; line-height: 1.05;{color_css}">{escape(value)}</div>'
+            "</div>"
+        )
 
     @staticmethod
     def _row_html(
