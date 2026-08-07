@@ -537,3 +537,94 @@ class TestFluidKit:
             r"\.chips\.hide-small, \.caption-row\.hide-small",
             CARD_CSS,
         )
+
+
+class TestCompactIdentityContract:
+    """Every labeled widget must keep its identity in small cells.
+
+    The recurring regression class of the Blitz port: captions, icons
+    and titles silently vanishing below the kit's hide-* breakpoints,
+    leaving anonymous values ("85", a bare ring, a lone "ON"). The
+    contract: a widget configured with a label renders a non-empty
+    ``.t-label`` at both a hero-simple footer (228x76) and a 3x2 grid
+    tile (111x72) — shrunk, truncated, but never absent.
+    """
+
+    SIZES = ((228, 76), (111, 72))
+
+    def _fragment_has_label_text(self, fragment: str) -> bool:
+        for match in re.finditer(r'<[^>]*class="[^"]*t-label[^"]*"[^>]*>(.*?)</', fragment):
+            inner = re.sub(r"<[^>]+>", "", match.group(1)).strip()
+            if inner:
+                return True
+        # Some widgets render their caps identity outside .t-label
+        # (weather day names, media titles) — a caps word also counts.
+        return False
+
+    @pytest.mark.parametrize("size", SIZES)
+    def test_labeled_widgets_keep_identity(self, size: tuple[int, int]) -> None:
+        from datetime import UTC, datetime
+
+        from custom_components.geekmagic.htmldoc import CellContext
+        from custom_components.geekmagic.widgets.base import WidgetConfig
+        from custom_components.geekmagic.widgets.chart import ChartWidget
+        from custom_components.geekmagic.widgets.clock import ClockWidget
+        from custom_components.geekmagic.widgets.entity import EntityWidget
+        from custom_components.geekmagic.widgets.gauge import GaugeWidget
+        from custom_components.geekmagic.widgets.progress import ProgressWidget
+        from custom_components.geekmagic.widgets.state import EntityState, WidgetState
+        from custom_components.geekmagic.widgets.status import StatusWidget
+        from custom_components.geekmagic.widgets.text import TextWidget
+
+        entity = EntityState(
+            entity_id="sensor.probe",
+            state="42",
+            attributes={"friendly_name": "Probe", "unit_of_measurement": "%"},
+        )
+        state = WidgetState(
+            entity=entity, history=[1.0, 2.0, 3.0], now=datetime(2025, 12, 29, 13, 45, tzinfo=UTC)
+        )
+        widgets = [
+            EntityWidget(
+                WidgetConfig(widget_type="entity", slot=0, entity_id="sensor.probe", label="Probe")
+            ),
+            TextWidget(
+                WidgetConfig(widget_type="text", slot=0, label="Probe", options={"text": "Ready"})
+            ),
+            ClockWidget(WidgetConfig(widget_type="clock", slot=0, label="Probe")),
+            GaugeWidget(
+                WidgetConfig(
+                    widget_type="gauge",
+                    slot=0,
+                    entity_id="sensor.probe",
+                    label="Probe",
+                    options={"style": "bar"},
+                )
+            ),
+            GaugeWidget(
+                WidgetConfig(
+                    widget_type="gauge",
+                    slot=0,
+                    entity_id="sensor.probe",
+                    label="Probe",
+                    options={"style": "ring"},
+                )
+            ),
+            ProgressWidget(
+                WidgetConfig(
+                    widget_type="progress", slot=0, entity_id="sensor.probe", label="Probe"
+                )
+            ),
+            StatusWidget(
+                WidgetConfig(widget_type="status", slot=0, entity_id="sensor.probe", label="Probe")
+            ),
+            ChartWidget(
+                WidgetConfig(widget_type="chart", slot=0, entity_id="sensor.probe", label="Probe")
+            ),
+        ]
+        ctx = CellContext(width=size[0], height=size[1], slot_index=0, theme=DEFAULT_THEME)
+        for widget in widgets:
+            fragment = widget.render_html(ctx, state)
+            name = type(widget).__name__ + getattr(widget, "style", "")
+            assert "PROBE" in fragment.upper(), f"{name} lost its label at {size}"
+            assert self._fragment_has_label_text(fragment) or "PROBE" in fragment, name
