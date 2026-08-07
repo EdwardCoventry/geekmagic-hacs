@@ -76,13 +76,15 @@ def fit_caption(
     *,
     reserve_em: float = 0.0,
     width_px: float | None = None,
+    font_px: float | None = None,
 ) -> str:
     """Truncate a caps caption to the width it has to live in.
 
     Blitz has no ``text-overflow`` and ignores ``overflow: hidden`` on
-    text, so every caption is fitted here instead.
+    text, so every caption is fitted here instead. ``font_px`` overrides
+    the kit's ``.t-label`` size for captions rendered at a custom size.
     """
-    px = label_px(ctx)
+    px = font_px if font_px is not None else label_px(ctx)
     per_char = px * char_em(ctx, caps=True)
     usable = (width_px if width_px is not None else ctx.width * 0.90) - reserve_em * px
     return truncate_text(text, max(3, int(usable / per_char)))

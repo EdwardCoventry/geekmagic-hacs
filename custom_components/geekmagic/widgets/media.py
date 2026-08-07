@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
+from unicodedata import east_asian_width
 
 from ..htmldoc import css_rgb, image_data_uri, mdi_span
 
@@ -33,7 +34,8 @@ from .base import Widget, WidgetConfig
 # engine fits at least as much as we assumed.
 # ---------------------------------------------------------------------------
 _ADV_STEP = 0.025
-_ADV_FALLBACK = 0.62  # non-ASCII (accented letters, CJK) — assume "normal"
+_ADV_FALLBACK = 0.62  # non-ASCII proportional glyph (accented Latin, Greek…)
+_ADV_FULLWIDTH = 1.05  # CJK / Kana / Hangul — one em square, plus margin
 
 _ADV_ROUNDED = (
     ";:BHHVM:>>BH:A:=HHHHHHHHHH::HHHBVNLKOHGNO;>KGSNOJOLIINM]KJH>=>HD"
@@ -72,6 +74,8 @@ def _text_em(text: str, table: str) -> float:
             total += (ord(table[index]) - 48) * _ADV_STEP
         elif char == "…":
             total += ellipsis
+        elif east_asian_width(char) in ("W", "F"):
+            total += _ADV_FULLWIDTH
         else:
             total += _ADV_FALLBACK
     return total
@@ -481,13 +485,28 @@ class MediaWidget(Widget):
         # the cell's space-evenly only separates caption | track | progress.
         track: list[str] = []
 
-        title, title_px, _ = _fit_title(
-            entity.get("media_title", "Unknown"),
-            text_width,
-            table,
-            max_px=_clamp_px(13.0, 0.20, 40.0, vmin),
-            max_lines=2 if ctx.height >= 90 else 1,
+        artist_px = _clamp_px(10.0, 0.10, 18.0, vmin)
+        album_px = _clamp_px(9.0, 0.085, 14.0, vmin)
+        title_budget = self._title_height_budget(
+            ctx, vmin, artist_px, album_px, entity, duration
         )
+        max_lines = 2 if ctx.height >= 90 else 1
+        title_args = (entity.get("media_title", "Unknown"), text_width, table)
+        title, title_px, title_lines = _fit_title(
+            *title_args,
+            max_px=min(_clamp_px(13.0, 0.20, 40.0, vmin), title_budget / 1.14),
+            max_lines=max_lines,
+        )
+        # Blitz does not clip, so a title that wrapped has to be re-sized
+        # against the height it actually claims, not the height one line
+        # would have claimed. Dense scripts (CJK) hit this where Latin
+        # does not.
+        if title_lines > 1 and title_px * title_lines * 1.14 > title_budget:
+            title, title_px, title_lines = _fit_title(
+                *title_args,
+                max_px=max(11.0, title_budget / (title_lines * 1.14)),
+                max_lines=max_lines,
+            )
         track.append(
             f'<div style="font-size: {title_px:.1f}px; font-weight: 700; '
             'line-height: 1.14; letter-spacing: -0.015em">'
@@ -496,7 +515,6 @@ class MediaWidget(Widget):
 
         artist = entity.get("media_artist", "")
         if self.show_artist and artist:
-            artist_px = _clamp_px(10.0, 0.10, 18.0, vmin)
             artist = _fit_one_line(artist, text_width, artist_px, table)
             track.append(
                 f'<div class="hide-short" style="font-size: {artist_px:.1f}px; '
@@ -506,7 +524,6 @@ class MediaWidget(Widget):
 
         album = entity.get("media_album_name", "")
         if self.show_album and album:
-            album_px = _clamp_px(9.0, 0.085, 14.0, vmin)
             album = _fit_one_line(album, text_width, album_px, table)
             track.append(
                 f'<div class="hide-small" style="font-size: {album_px:.1f}px; '

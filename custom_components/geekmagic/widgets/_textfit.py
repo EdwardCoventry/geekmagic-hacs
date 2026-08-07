@@ -58,7 +58,7 @@ _FALLBACK_EM = 0.60
 # Widest letter-spacing any theme applies to the kit classes, used as the
 # measuring assumption. Over-reserving a couple of percent costs one
 # character of caption; under-reserving clips text off the panel.
-LABEL_TRACKING = 0.20  # retro's .t-label override, the widest shipped
+LABEL_TRACKING = 0.24  # the Swiss/CRT .t-label override, the widest shipped
 HERO_TRACKING = 0.0  # minimal resets the kit's -0.035em to 0
 
 

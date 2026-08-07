@@ -11,6 +11,7 @@ from ._gauge import (
     STROKE_UNITS,
     bar_html,
     cell_box,
+    char_em,
     fit_caption,
     hero_font_css,
     hero_font_px,
@@ -210,20 +211,30 @@ class GaugeWidget(Widget):
             diameter = min(avail_w, avail_h)
         diameter = max(_ROUND_MIN, diameter)
 
+        hole = diameter - 2 * diameter * STROKE_UNITS / 100
         label_html = ""
+        value_px = 0.0
         if digits or unit:
             value_px = self._hole_font_px(diameter, digits, unit)
             if inside:
                 value_px *= 0.82
             label_html = self._value_html(digits, unit, value_px, color)
-            if inside:
+        if inside:
+            if value_px:
                 caption_px = max(9.0, min(lbl, value_px * 0.30))
-                hole = diameter - 2 * diameter * STROKE_UNITS / 100
-                label_html += (
-                    f'<div class="t-label" style="font-size: {caption_px:.1f}px; '
-                    f'margin-top: {value_px * 0.16:.1f}px">'
-                    f"{escape(fit_caption(ctx, name.upper(), width_px=hole * 0.86))}</div>"
-                )
+            else:
+                # Without a value the caption owns the hole: size it so
+                # the whole word fits rather than truncating it.
+                widest = hole * 0.86 / max(1, len(name)) / char_em(ctx, caps=True)
+                caption_px = max(10.0, min(hole * 0.20, 26.0, widest))
+            gap = f"margin-top: {value_px * 0.16:.1f}px" if value_px else ""
+            caption_text = fit_caption(
+                ctx, name.upper(), width_px=hole * 0.86, font_px=caption_px
+            )
+            label_html += (
+                f'<div class="t-label" style="font-size: {caption_px:.1f}px; {gap}">'
+                f"{escape(caption_text)}</div>"
+            )
 
         box = self._gauge_box(diameter, percent, color, track, label_html)
         caption = ""

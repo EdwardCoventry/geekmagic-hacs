@@ -54,11 +54,6 @@ SUFFIX_SCALE = 0.46
 _SUFFIX_GAP_TIGHT = 0.05
 _SUFFIX_GAP_WORD = 0.20
 
-# Widest caption tracking any theme applies (kit 0.14em, Swiss/CRT
-# themes 0.24em) — measuring with the widest keeps captions inside every
-# theme.
-LABEL_TRACKING = 0.24
-
 # Kit breakpoints, mirrored so Python can predict which bands survive.
 HIDE_SHORT_H = 100
 HIDE_SMALL = 130
@@ -171,11 +166,15 @@ def _balance(text: str, count: int = 2) -> list[str]:
 
 @dataclass(frozen=True)
 class HeroFit:
-    """Result of fitting a hero value to its band."""
+    """A fitted hero: the size, and the lines it was fitted to."""
 
     px: float
-    text: str
-    wrapped: bool = False
+    lines: tuple[str, ...]
+
+    @property
+    def text(self) -> str:
+        """The fitted value as one string."""
+        return " ".join(self.lines)
 
 
 def fit_hero(
@@ -205,52 +204,46 @@ def fit_hero(
     """
     metrics = metrics_for(ctx.theme)
     if not text:
-        return HeroFit(min_px, text)
+        return HeroFit(min_px, (text,))
 
     def per_px(value: str) -> float:
         return metrics.width(value, 1.0, _HERO_WEIGHT, tracking)
 
-    def fit_lines(parts: list[str], reserve_em: float = 0.0) -> float:
+    def fit_parts(parts: list[str], reserve_em: float = 0.0) -> float:
         widest = max(per_px(part) for part in parts) + reserve_em
         return min(
             max_px,
-            avail_w * _WRAP_SAFETY / max(widest, 1e-6),
-            avail_h / (len(parts) * WRAP_LINE),
+            avail_w / max(widest, 1e-6),
+            avail_h / (len(parts) * (WRAP_LINE if len(parts) > 1 else HERO_LINE)),
         )
 
     reserve = suffix_width_em(suffix, ctx, scale=suffix_scale)
 
     if lines:
-        return HeroFit(max(min_px, fit_lines(lines, reserve)), " ".join(lines), True)
+        return HeroFit(max(min_px, fit_parts(lines, reserve)), tuple(lines))
 
-    px = min(max_px, avail_w / max(per_px(text) + reserve, 1e-6), avail_h / HERO_LINE)
-
-    wrapped = False
+    px = fit_parts([text], reserve)
     layout = [text]
     if allow_wrap and not suffix:
         for count in range(2, max_lines + 1):
             parts = _balance(text, count)
             if len(parts) < count:
                 break
-            candidate = fit_lines(parts)
+            candidate = fit_parts(parts)
             if candidate > px * _WRAP_GAIN:
-                px, wrapped, layout = candidate, True, parts
+                px, layout = candidate, parts
 
     px = max(min_px, px)
-    if wrapped:
-        # The min_px floor can undo the wrap fit; fall back to one
-        # truncated line rather than draw over the edge.
-        wrapped = all(
-            metrics.width(line, px, _HERO_WEIGHT, tracking) <= avail_w + _FIT_EPS
-            for line in layout
-        )
-    if not wrapped:
+    if len(layout) == 1:
+        # The min_px floor can push a lone line back over the budget.
         budget = avail_w - reserve * px
         if metrics.width(text, px, _HERO_WEIGHT, tracking) > budget + _FIT_EPS:
-            text = metrics.truncate(
-                text, px, budget, _HERO_WEIGHT, tracking=tracking, style="end", min_chars=2
-            )
-    return HeroFit(px, text, wrapped)
+            layout = [
+                metrics.truncate(
+                    text, px, budget, _HERO_WEIGHT, tracking=tracking, style="end", min_chars=2
+                )
+            ]
+    return HeroFit(px, tuple(layout))
 
 
 def suffix_width_em(suffix: str, ctx: CellContext, *, scale: float = SUFFIX_SCALE) -> float:
@@ -263,12 +256,10 @@ def suffix_width_em(suffix: str, ctx: CellContext, *, scale: float = SUFFIX_SCAL
 
 
 def hero_block(
-    text: str,
-    px: float,
+    fit: HeroFit,
     *,
     suffix: str = "",
     suffix_scale: float = SUFFIX_SCALE,
-    wrapped: bool = False,
     tracking: float | None = None,
 ) -> str:
     """The hero band: fitted value plus an optional secondary suffix.
@@ -276,19 +267,37 @@ def hero_block(
     Rendered as a block child of ``.t-hero``: a block child suppresses
     the parent's line-box strut, so the band is exactly as tall as the
     fitted type instead of reserving room for the kit's ``clamp()`` cap.
-    The suffix is an inline ``.t-unit`` span, which puts it on the value's
-    baseline — smaller and secondary, the way a unit should read.
+    Multi-line heroes get one block per line rather than an engine wrap —
+    Blitz breaks lines against the flex item's own width, which ignores
+    the cell's percentage padding, so leaving it to wrap puts long lines
+    into the margin.
+
+    The suffix is an inline ``.t-unit`` span on the last line, which
+    keeps it on the value's baseline — smaller and secondary, the way a
+    unit should read.
     """
-    style = f"font-size: {px:.1f}px; line-height: {WRAP_LINE if wrapped else HERO_LINE}"
+    multiline = len(fit.lines) > 1
+    style = f"font-size: {fit.px:.1f}px; line-height: {WRAP_LINE if multiline else HERO_LINE}"
     if tracking is not None:
         style += f"; letter-spacing: {tracking}em"
-    if wrapped:
-        style += "; white-space: normal"
-    body = escape(text)
+
+    tail = ""
     if suffix:
         gap = _SUFFIX_GAP_WORD if suffix[0].isalnum() else _SUFFIX_GAP_TIGHT
-        body += (
+        tail = (
             f'<span class="t-unit" style="font-size: {suffix_scale}em; '
             f'margin-left: {gap}em">{escape(suffix)}</span>'
         )
+
+    body = "".join(
+        f"<div>{escape(line)}{tail if i == len(fit.lines) - 1 else ''}</div>"
+        if multiline
+        else f"{escape(line)}{tail}"
+        for i, line in enumerate(fit.lines)
+    )
     return f'<div style="{style}">{body}</div>'
+
+
+def px_css(value: float) -> str:
+    """Format a fitted pixel size for CSS."""
+    return f"{value:.1f}px"

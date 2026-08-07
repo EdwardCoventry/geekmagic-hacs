@@ -2,21 +2,48 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..const import PLACEHOLDER_NAME, PLACEHOLDER_VALUE
 from ..htmldoc import css_rgb
+from ._cellkit import cell_box_px, cell_padding, hairline_css, label_px
+from ._textfit import LABEL_TRACKING, TextMetrics, metrics_for
 from .base import Widget, WidgetConfig
-from .helpers import truncate_text
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
     from .state import WidgetState
 
+# Row labels are caps a step below the value. Their tracking is set
+# explicitly (no theme can override an inline style), so it is also what
+# they get measured at — unlike the title, which rides ``.t-label`` and
+# has to assume the widest tracking any theme applies.
+_ROW_TRACKING = 0.14
+
+# Row pitch bounds, matching StatusListWidget so the two list widgets
+# sit side by side without a visible change of rhythm.
+_ROW_MIN = 10.5
+_ROW_MAX = 46.0
+
+
+@dataclass(frozen=True)
+class _Item:
+    """One resolved label/value pair."""
+
+    label: str
+    value: str
+    color: str | None
+
 
 class AttributeListWidget(Widget):
     """Widget that displays a list of entity attributes as key-value pairs.
+
+    A key/value table in the watchOS voice: tertiary caps label on the
+    left, emphasized value right-aligned, hairline between rows, and an
+    even pitch that stays a centred block rather than stretching two
+    rows to opposite edges of a 240px cell.
 
     Configuration example:
         widget:
@@ -41,118 +68,197 @@ class AttributeListWidget(Widget):
         self.attributes = config.options.get("attributes", [])
         self.title = config.options.get("title")
 
-    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
-        """Render key-value rows in a flex column: label left, value right."""
+    def _resolve_items(self, state: WidgetState) -> list[_Item]:
+        """Read every configured attribute off the entity."""
         entity = state.entity
-
-        # Per design system: list-row values default to text_primary
-        # (white) — they're "values", not gauge accents. Per-attribute
-        # config (or config.color for the whole widget) can still tint
-        # individual rows.
+        # Per design system: list-row values default to text_primary —
+        # they're "values", not gauge accents. Per-attribute config (or
+        # config.color for the whole widget) can still tint a row.
         default_color = css_rgb(self.config.color) if self.config.color else None
 
-        items: list[tuple[str, str, str | None]] = []
+        items: list[_Item] = []
         for attr_config in self.attributes:
-            # Support both dict format and simple string format
             if isinstance(attr_config, dict):
                 key = attr_config.get("key", "")
                 label = attr_config.get("label", key)
-                item_color = attr_config.get("color")
-                if isinstance(item_color, list | tuple) and len(item_color) == 3:
-                    item_color = css_rgb(tuple(item_color))
+                raw_color = attr_config.get("color")
+                if isinstance(raw_color, list | tuple) and len(raw_color) == 3:
+                    color = css_rgb(tuple(raw_color))
                 else:
-                    item_color = default_color
+                    color = default_color
             else:
-                # Simple string format: use attribute name as both key and label
+                # Simple string format: the attribute name is the label.
                 key = str(attr_config)
                 label = key
-                item_color = default_color
+                color = default_color
 
-            # Get value from entity
             if entity is None:
                 value = PLACEHOLDER_VALUE
             elif key == "state":
-                # Special case: "state" refers to entity state, not an attribute
+                # Special case: "state" refers to the entity state.
                 value = entity.state
             else:
-                raw_value = entity.get(key)
-                value = self._format_value(raw_value)
+                value = self._format_value(entity.get(key))
 
-            items.append((label, value, item_color))
+            items.append(_Item(label=str(label), value=str(value), color=color))
+        return items
 
-        # If no attributes configured, show friendly name as title
+    def render_html(self, ctx: CellContext, state: WidgetState) -> str:
+        """Render key-value rows: caps label left, emphasized value right."""
+        tm = metrics_for(ctx.theme)
+        items = self._resolve_items(state)
+
         title = self.title
         if not self.attributes:
+            # Nothing configured — the entity name is the whole message.
+            entity = state.entity
             if not title and entity:
                 title = entity.friendly_name
             elif not title:
                 title = self.config.entity_id or PLACEHOLDER_NAME
 
-        # Blitz has no text-overflow/flex-shrink text truncation, so
-        # allocate label/value widths in Python (like the old
-        # ``LabelValueRow``) from estimated character widths.
-        vmin = min(ctx.width, ctx.height)
-        value_px = max(11.0, min(19.0, 0.12 * vmin))
-        label_px = max(10.0, min(17.0, 0.11 * vmin))
-        value_cw = value_px * 0.58  # avg bold char width
-        label_cw = label_px * 0.55
-        gap = 6
-        avail = ctx.width * 0.88 - gap  # cell padding is 6% each side
+        pad_x, pad_y = cell_padding(ctx)
+        avail, usable_h = cell_box_px(ctx, pad_x, pad_y)
+        caption_px = label_px(ctx)
+        count = max(1, len(items))
 
-        rows: list[str] = []
-        if title:
-            # At narrow widths the title eats a row better spent on data.
-            title_cw = label_px * 0.70  # caps + letter-spacing
-            title_text = truncate_text(title.upper(), max(4, int((avail + gap) // title_cw)))
-            rows.append(
-                '<div class="t-label hide-narrow" style="text-align: left">'
-                f"{escape(title_text)}</div>"
+        title_h = caption_px * 1.9
+        show_title = (
+            bool(title) and ctx.width >= 100 and (usable_h - title_h) / count >= _ROW_MIN
+        )
+        rows_h = usable_h - (title_h if show_title else 0.0)
+
+        if items and rows_h / count < _ROW_MIN:
+            items = items[: max(1, int(rows_h // _ROW_MIN))]
+            count = len(items)
+        row_h = min(rows_h / count, _ROW_MAX)
+
+        value_px = max(10.0, min(row_h * 0.46, 19.0))
+        gap = max(5.0, row_h * 0.16)
+        item_label_px, show_labels = self._label_size(tm, items, value_px, avail - gap)
+
+        body = "".join(
+            self._row_html(
+                tm,
+                item,
+                index=i,
+                row_h=row_h,
+                label_px_=item_label_px if show_labels else None,
+                value_px=value_px,
+                gap=gap,
+                avail=avail,
+                hairline=hairline_css(ctx.theme),
             )
-
-        # Row text scales with the cell but stays list-sized (several
-        # rows share the cell). Values are bolder than labels.
-        label_css = (
-            "flex: 1 1 0; min-width: 0; text-align: left; color: var(--text-secondary); "
-            f"font-size: {label_px:.1f}px; font-weight: 600; line-height: 1.2;"
-        )
-        value_css = (
-            f"white-space: nowrap; font-weight: 700; line-height: 1.2; font-size: {value_px:.1f}px;"
+            for i, item in enumerate(items)
         )
 
-        for raw_label, raw_value, color in items:
-            label, value = str(raw_label), str(raw_value)
-            label_w = len(label) * label_cw
-            value_w = len(value) * value_cw
-
-            if label_w + value_w <= avail:
-                pass  # everything fits
-            elif value_w >= ctx.width * 0.7:
-                # Drop the label entirely if the value alone barely fits —
-                # the value carries the actual information, and "Arr… 5 m…"
-                # is worse than just "5 min".
-                label = ""
-                value = truncate_text(value, max(2, int((avail + gap) // value_cw)))
-            elif value_w <= avail:
-                # Value fits in full; give the rest to a truncated label.
-                label = truncate_text(label, max(1, int((avail - value_w) // label_cw)))
-            else:
-                # Value doesn't fit either — value gets 60%, label 40%.
-                value_max = max(avail * 0.60, avail - label_w)
-                label = truncate_text(label, max(1, int((avail - value_max) // label_cw)))
-                value = truncate_text(value, max(2, int(value_max // value_cw)))
-
-            color_css = f" color: {color};" if color else ""
-            label_html = f'<span style="{label_css}">{escape(label)}</span>' if label else ""
-            rows.append(
-                f'<div style="display: flex; align-items: center; gap: {gap}px">'
-                f"{label_html}"
-                f'<span style="{value_css}{color_css}">{escape(value)}</span>'
-                "</div>"
+        title_html = ""
+        if show_title and title:
+            fitted = tm.truncate(
+                title.upper(),
+                caption_px,
+                avail,
+                "bold",
+                tracking=LABEL_TRACKING,
+                min_chars=3,
+            )
+            title_html = (
+                '<div class="t-label" style="text-align: left; flex: none; '
+                f'padding-bottom: {caption_px * 0.55:.1f}px">{escape(fitted)}</div>'
             )
 
         return (
-            '<div class="cell" style="align-items: stretch; padding: 5% 6%; gap: 2px">'
-            f"{''.join(rows)}</div>"
+            f'<div class="cell" style="padding: {pad_y:.1f}px {pad_x:.1f}px; '
+            'align-items: stretch; justify-content: center; text-align: left">'
+            f"{title_html}"
+            '<div style="flex: none; display: flex; flex-direction: column">'
+            f"{body}</div></div>"
+        )
+
+    @staticmethod
+    def _label_size(
+        tm: TextMetrics, items: list[_Item], value_px: float, budget: float
+    ) -> tuple[float, bool]:
+        """Pick one label size for every row, and whether to show labels.
+
+        Labels are the cheap half of the row — a smaller caps label still
+        reads as a caption, whereas "ARRI…" reads as nothing. So they are
+        shrunk (not truncated) to keep the longest one whole in half the
+        row. Below the legibility floor even that fails, and a 3x3 slot
+        is better off spending its whole width on the value than on
+        "A… 5 m…" — so the labels come off entirely.
+        """
+        ideal = max(9.0, min(value_px * 0.78, 14.0))
+        if not items:
+            return ideal, True
+        widest = max(tm.width(i.label.upper(), 1.0, "bold", _ROW_TRACKING) for i in items)
+        if widest <= 0:  # pragma: no cover - labels default to the attr key
+            return ideal, True
+        if widest * 9.0 > budget * 0.55:
+            return ideal, False
+        return max(9.0, min(ideal, budget * 0.5 / widest)), True
+
+    @staticmethod
+    def _row_html(
+        tm: TextMetrics,
+        item: _Item,
+        *,
+        index: int,
+        row_h: float,
+        label_px_: float | None,
+        value_px: float,
+        gap: float,
+        avail: float,
+        hairline: str,
+    ) -> str:
+        """One label/value row with a hairline above every row but the first."""
+        color_css = f" color: {item.color};" if item.color else ""
+        sep = f"border-top: 1px solid {hairline}; " if index > 0 else ""
+        row_open = (
+            f'<div style="{sep}height: {row_h:.1f}px; flex: none; display: flex; '
+            f'align-items: center; gap: {gap:.1f}px">'
+        )
+        value_css = (
+            f"white-space: nowrap; font-size: {value_px:.1f}px; "
+            f"font-weight: 700; line-height: 1.05;{color_css}"
+        )
+
+        if label_px_ is None:
+            # No room for a caption — the value takes the whole row.
+            value = tm.truncate(item.value, value_px, avail, "bold", min_chars=2)
+            return (
+                f"{row_open}"
+                f'<span style="flex: 1; min-width: 0; text-align: center; {value_css}">'
+                f"{escape(value)}</span></div>"
+            )
+
+        # The value carries the information, so it is served first — but
+        # never at the cost of the label disappearing, which would leave
+        # a full-width orphan breaking the table's left edge.
+        label = item.label.upper()
+        label_w = tm.width(label, label_px_, "bold", _ROW_TRACKING)
+        value_w = tm.width(item.value, value_px, "bold")
+        budget = avail - gap
+
+        if label_w + value_w > budget:
+            value_max = max(budget * 0.62, budget - label_w)
+            value = tm.truncate(item.value, value_px, value_max, "bold", min_chars=2)
+            value_w = tm.width(value, value_px, "bold")
+            label = tm.truncate(
+                label, label_px_, budget - value_w, "bold", tracking=_ROW_TRACKING, min_chars=2
+            )
+        else:
+            value = item.value
+
+        return (
+            f"{row_open}"
+            f'<span style="flex: 1; min-width: 0; white-space: nowrap; '
+            f"font-size: {label_px_:.1f}px; font-weight: 700; line-height: 1.05; "
+            f'letter-spacing: {_ROW_TRACKING}em; color: var(--text-tertiary)">'
+            f"{escape(label)}</span>"
+            f'<span style="flex: none; text-align: right; {value_css}">'
+            f"{escape(value)}</span>"
+            "</div>"
         )
 
     def _format_value(self, value: Any) -> str:

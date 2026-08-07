@@ -154,12 +154,24 @@ Blitz engine gotchas (verified, keep in mind):
 - `var(--x)` does NOT resolve inside SVG paint attributes — pass
   concrete colors (`css_rgb(theme.x)`) to the SVG helpers.
 - No `text-overflow: ellipsis` and text ignores `overflow: hidden` —
-  truncate long strings in Python (`helpers.truncate_text`).
+  truncate long strings in Python (`helpers.truncate_text`, or the
+  measured `_textfit` metrics for design-critical text).
 - Inline `style="display: flex"` beats the kit's `.hide-*` media rules —
   put hide classes on a wrapper div without inline display.
+- Inline `<svg>` is sized from its viewBox ASPECT RATIO, not from
+  `height:100%` against a flex parent — measure the plot box in Python
+  and pass a matching `aspect`/viewBox.
+- Percentage padding resolves against the cell WIDTH on both axes —
+  use px padding when vertical space is tight.
+- `<style>` blocks inside a widget fragment work, including media
+  queries — a clean lever for widget-scoped responsive rules. But an
+  element carrying both `.hide-*` and your own breakpoint loses to the
+  kit's `display:none !important`; drop the `.hide-*` class when
+  self-managing visibility.
 - No container queries, no `background-clip: text`, no `text-shadow`,
   no `filter`. Gradients (linear/radial/conic), `box-shadow`, borders,
-  `object-fit`, SVG, and CSS math (`clamp`/`min`/nested) all work.
+  `object-fit`, SVG (incl. `linearGradient`, bezier paths, `stroke-dasharray`),
+  and CSS math (`clamp`/`min`/nested) all work.
 
 ### Widget Interface
 ```python
