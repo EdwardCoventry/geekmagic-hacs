@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import TYPE_CHECKING
 
-from ._textfit import LABEL_TRACKING, metrics_for
+from ._textfit import metrics_for
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -120,7 +120,7 @@ def fit_caption(text: str, ctx: CellContext, avail_w: float) -> str:
         label_px(ctx),
         avail_w,
         "bold",
-        tracking=LABEL_TRACKING,
+        tracking=metrics.label_tracking,
         style="end",
         min_chars=3,
     )

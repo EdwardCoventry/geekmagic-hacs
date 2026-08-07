@@ -171,15 +171,13 @@ class EntityWidget(Widget):
         if slack > _SLACK_TRIGGER * free_h:
             icon_px = min(icon_px + _SLACK_SHARE * slack, 0.42 * box_w, _ICON_RATIO_MAX * hero.px)
 
-        # card_html applies icon_color verbatim as the icon's inline
-        # style, so the fitted size rides along with the colour.
         tint = css_rgb(self.config.color) if self.config.color else ctx.accent()
-        icon_css = f"{tint}; font-size: {icon_px:.0f}px"
 
         return card_html(
             caption=fit_caption(name, ctx, box_w) if show_caption else None,
             icon=icon,
-            icon_color=icon_css,
+            icon_color=tint,
+            icon_size=icon_px,
             # The entity icon is the cell's primary visual identifier —
             # promote it to its own band.
             icon_role="feature",

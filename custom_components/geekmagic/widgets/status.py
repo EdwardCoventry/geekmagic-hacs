@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from ..const import PLACEHOLDER_NAME
 from ..htmldoc import css_rgb, mdi_span
 from ._cellkit import cell_box_px, cell_padding, hairline_css, label_px, tint_css
-from ._textfit import HERO_TRACKING, LABEL_TRACKING, TextMetrics, metrics_for
+from ._textfit import HERO_TRACKING, TextMetrics, metrics_for
 from .base import Widget, WidgetConfig
 from .helpers import (
     ON_STATES,
@@ -289,7 +289,7 @@ class StatusWidget(Widget):
     ) -> str:
         """A caps-tracked name band, truncated to the width it actually has."""
         fitted = tm.truncate(
-            text.upper(), px, max_width, "bold", tracking=LABEL_TRACKING, min_chars=3
+            text.upper(), px, max_width, "bold", tracking=tm.label_tracking, min_chars=3
         )
         classes = "t-label hide-short" if hide_short else "t-label"
         return f'<div class="{classes}" style="text-align: {align}">{escape(fitted)}</div>'
@@ -574,7 +574,7 @@ class StatusListWidget(Widget):
                 caption_px,
                 avail,
                 "bold",
-                tracking=LABEL_TRACKING,
+                tracking=tm.label_tracking,
                 min_chars=3,
             )
             title_html = (

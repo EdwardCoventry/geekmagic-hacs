@@ -14,7 +14,6 @@ from html import escape
 from typing import TYPE_CHECKING
 
 from ..htmldoc import mdi_span
-from .helpers import truncate_text
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -36,25 +35,28 @@ CARD_CSS = """
 /* The display:flex rules above are appended after the fluid kit, so they
    would override its single-class hide-* media rules; re-assert hiding
    with higher specificity. */
-@media (max-height: 99px) { .caption-row.hide-short { display: none; } }
+@media (max-height: 99px) {
+  .caption-row.hide-short, .chips.hide-short { display: none; }
+}
 @media (max-height: 129px), (max-width: 129px) {
   .chips.hide-small, .caption-row.hide-small { display: none; }
 }
 """
 
 
-def caption_max_chars(ctx: CellContext | None, *, reserve_em: float = 0.0) -> int | None:
-    """Estimate how many caption characters fit the cell width.
+def caption_fit(ctx: CellContext | None, text: str, *, reserve_em: float = 0.0) -> str:
+    """Truncate a caps caption to the width it actually has.
 
-    Mirrors the kit's ``.t-label`` sizing (``clamp(10px, min(10vmin,
-    7.5vw), 15px)`` at ~0.68em average glyph width incl. letterspacing).
-    Returns None when no context is available.
+    Measures with the embedded font metrics (theme-aware family,
+    tracking, and case) rather than an average glyph estimate. Returns
+    the text unchanged when no context is available.
     """
     if ctx is None:
-        return None
-    px = max(10.0, min(0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width, 15.0))
-    usable = ctx.width * 0.88 - reserve_em * px
-    return max(4, int(usable / (px * 0.68)))
+        return text
+    from ._cardfit import cell_box, fit_caption, label_px  # noqa: PLC0415 (cycle-free, lazy)
+
+    avail_w = cell_box(ctx)[0] - reserve_em * label_px(ctx)
+    return fit_caption(text, ctx, avail_w)
 
 
 def chip_html(text: str, icon: str | None = None, color: str | None = None) -> str:
@@ -70,9 +72,11 @@ def card_html(
     icon: str | None = None,
     icon_color: str | None = None,
     icon_role: str = "chip",
+    icon_size: float | None = None,
     hero: str = "",
     hero_color: str | None = None,
     chips: list[str] | None = None,
+    chips_hide: str = "hide-small",
     extra: str = "",
     hero_is_html: bool = False,
     ctx: CellContext | None = None,
@@ -85,28 +89,34 @@ def card_html(
         icon_color: CSS color for the icon.
         icon_role: "feature" renders the icon as its own band above the
             caption; "chip" keeps it inline beside the caption.
+        icon_size: Explicit glyph size in px for a feature icon
+            (overrides the kit's ``i-md`` clamp).
         hero: Primary value text.
         hero_color: CSS color for the hero (default: theme text).
-        chips: Pre-rendered chip fragments (see :func:`chip_html`),
-            auto-hidden in small cells.
+        chips: Pre-rendered chip fragments (see :func:`chip_html`).
+        chips_hide: Which kit breakpoint sheds the chip strip
+            ("hide-small", "hide-short", or "" to always keep it).
         extra: Raw HTML appended after the chip strip (indicators).
         hero_is_html: Set True when ``hero`` is already markup.
-        ctx: When provided, captions are truncated in Python to fit the
-            cell width (Blitz has no ellipsis and clips mid-glyph).
+        ctx: When provided, captions are truncated in Python with real
+            font metrics (Blitz has no ellipsis and clips mid-glyph).
     """
     bands: list[str] = []
 
     icon_style = f"color: {icon_color}" if icon_color else ""
     if icon and icon_role == "feature":
+        glyph_style = icon_style
+        glyph_classes = "icon i-md"
+        if icon_size is not None:
+            glyph_style = f"{icon_style}; font-size: {icon_size:.0f}px".strip("; ")
+            glyph_classes = "icon"
         bands.append(
-            f'<div class="card-icon hide-short">{mdi_span(icon, "icon i-md", icon_style)}</div>'
+            f'<div class="card-icon hide-short">{mdi_span(icon, glyph_classes, glyph_style)}</div>'
         )
 
     if caption:
-        text = caption.upper()
-        limit = caption_max_chars(ctx, reserve_em=1.5 if (icon and icon_role == "chip") else 0.0)
-        if limit is not None:
-            text = truncate_text(text, limit)
+        reserve = 1.5 if (icon and icon_role == "chip") else 0.0
+        text = caption_fit(ctx, caption.upper(), reserve_em=reserve)
         caption_inner = escape(text)
         if icon and icon_role == "chip":
             caption_inner = mdi_span(icon, "icon i-sm", icon_style) + caption_inner
@@ -117,7 +127,8 @@ def card_html(
     bands.append(f'<div class="t-hero"{hero_style}>{hero_html}</div>')
 
     if chips:
-        bands.append(f'<div class="chips hide-small">{"".join(chips)}</div>')
+        hide = f" {chips_hide}" if chips_hide else ""
+        bands.append(f'<div class="chips{hide}">{"".join(chips)}</div>')
 
     if extra:
         bands.append(extra)

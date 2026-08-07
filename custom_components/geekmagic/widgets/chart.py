@@ -13,7 +13,7 @@ from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 from ..htmldoc import css_rgb, svg_sparkline
-from ._textfit import LABEL_TRACKING, TextMetrics, metrics_for
+from ._textfit import TextMetrics, metrics_for
 from .base import Widget, WidgetConfig
 
 if TYPE_CHECKING:
@@ -110,7 +110,7 @@ def value_header(
     available = m.inner_w - value_width - 8.0
     if caption:
         upper = caption.upper()
-        text = tm.truncate(upper, m.label_px, available, weight="bold", tracking=LABEL_TRACKING)
+        text = tm.truncate(upper, m.label_px, available, weight="bold", tracking=tm.label_tracking)
         # A caption cut down to a letter or two is noise, not a label —
         # give the row to the value instead.
         if text == upper or len(text) > 4:
@@ -318,9 +318,9 @@ class ChartWidget(Widget):
             return "", 0.0
         lo_text, hi_text = _range_text(min(data)), _range_text(max(data))
         num_w = tm.width(lo_text, m.detail_px, "bold") + tm.width(hi_text, m.detail_px, "bold")
-        letter_w = 2.0 * (tm.width("L", m.label_px, "bold", LABEL_TRACKING) + m.detail_px * 0.42)
+        letter_w = 2.0 * (tm.width("L", m.label_px, "bold", tm.label_tracking) + m.detail_px * 0.42)
         period = _format_period(self.hours)
-        period_w = tm.width(period, m.label_px, "bold", LABEL_TRACKING) + 12.0
+        period_w = tm.width(period, m.label_px, "bold", tm.label_tracking) + 12.0
 
         show_letters = num_w + letter_w + 12.0 <= m.inner_w
         if num_w + 12.0 > m.inner_w:

@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from ..htmldoc import mdi_span
 from ._cardfit import (
     HERO_SHARE_STACKED,
-    LABEL_TRACKING,
     caption_visible,
     cell_box,
     chip_band_px,
@@ -399,7 +398,7 @@ class WeatherWidget(Widget):
         text = condition.upper()
         if humidity:
             combined = f"{text}  ·  {humidity}"
-            if metrics.width(combined, px, "bold", tracking=LABEL_TRACKING) <= avail_w:
+            if metrics.width(combined, px, "bold", tracking=metrics.label_tracking) <= avail_w:
                 text = combined
         fitted = escape(fit_caption(text, ctx, avail_w))
         return f'<div class="t-label caption-row hide-short">{fitted}</div>'

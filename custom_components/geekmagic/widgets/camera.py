@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ._textfit import TextMetrics
     from .state import WidgetState
 
-from ._textfit import LABEL_TRACKING, metrics_for
+from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
 
 # Both strings this widget draws are rendered uppercase, so they are
@@ -98,7 +98,7 @@ class CameraWidget(Widget):
             font_px,
             ctx.width * 0.88 - _CHROME_PX,
             _LABEL_WEIGHT,
-            tracking=LABEL_TRACKING,
+            tracking=_caps_metrics(ctx).label_tracking,
         )
         return (
             '<div class="cell" style="justify-content: center; gap: 3.5vmin">'

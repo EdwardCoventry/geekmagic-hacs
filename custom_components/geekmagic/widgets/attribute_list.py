@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from ..const import PLACEHOLDER_NAME, PLACEHOLDER_VALUE
 from ..htmldoc import css_rgb
 from ._cellkit import cell_box_px, cell_padding, hairline_css, label_px
-from ._textfit import LABEL_TRACKING, TextMetrics, metrics_for
+from ._textfit import TextMetrics, metrics_for
 from .base import Widget, WidgetConfig
 
 if TYPE_CHECKING:
@@ -157,7 +157,7 @@ class AttributeListWidget(Widget):
                 caption_px,
                 avail,
                 "bold",
-                tracking=LABEL_TRACKING,
+                tracking=tm.label_tracking,
                 min_chars=3,
             )
             title_html = (
@@ -239,12 +239,33 @@ class AttributeListWidget(Widget):
         budget = avail - gap
 
         if label_w + value_w > budget:
-            value_max = max(budget * 0.62, budget - label_w)
-            value = tm.truncate(item.value, value_px, value_max, "bold", min_chars=2)
-            value_w = tm.width(value, value_px, "bold")
-            label = tm.truncate(
-                label, label_px_, budget - value_w, "bold", tracking=_ROW_TRACKING, min_chars=2
-            )
+            if value_w <= budget * 0.78:
+                # The value fits whole — it carries the information, so
+                # the LABEL yields: truncate it into what's left, or
+                # drop it entirely when not even a stub fits (a blank
+                # left edge beats "VE…" next to a mangled number).
+                value = item.value
+                label_avail = budget - value_w
+                stub_w = tm.width("AB…", label_px_, "bold", _ROW_TRACKING)
+                if label_avail < stub_w:
+                    label = ""
+                else:
+                    label = tm.truncate(
+                        label,
+                        label_px_,
+                        label_avail,
+                        "bold",
+                        tracking=_ROW_TRACKING,
+                        min_chars=2,
+                    )
+            else:
+                # Pathologically long value — split the row.
+                value_max = max(budget * 0.62, budget - label_w)
+                value = tm.truncate(item.value, value_px, value_max, "bold", min_chars=2)
+                value_w = tm.width(value, value_px, "bold")
+                label = tm.truncate(
+                    label, label_px_, budget - value_w, "bold", tracking=_ROW_TRACKING, min_chars=2
+                )
         else:
             value = item.value
 

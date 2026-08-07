@@ -168,6 +168,19 @@ Blitz engine gotchas (verified, keep in mind):
   element carrying both `.hide-*` and your own breakpoint loses to the
   kit's `display:none !important`; drop the `.hide-*` class when
   self-managing visibility.
+- Blitz paints non-positioned subtrees BEFORE absolutely-positioned
+  siblings. A `.hide-*` wrapper around overlay text puts it under the
+  scrim unless the wrapper itself is `position:absolute; inset:0` (and
+  it must fill the cell — absolute boxes resolve against the parent, so
+  a zero-height wrapper collapses the overlay).
+- Fixed-height flex children shrink when the column overflows — give
+  bars/tracks `flex: none` or they collapse to hairlines.
+- `white-space: normal` wrapping is not clipped by `.cell`'s
+  percentage padding — engine-wrapped text bleeds into the margin.
+  Emit one block div per line (see `_cardfit`).
+- Text measured for fitting must use the theme's real face and case —
+  `widgets/_textfit.py` (`metrics_for(theme)`) is the canonical
+  measurer; `_cardfit.py` builds card geometry on top of it.
 - No container queries, no `background-clip: text`, no `text-shadow`,
   no `filter`. Gradients (linear/radial/conic), `box-shadow`, borders,
   `object-fit`, SVG (incl. `linearGradient`, bezier paths, `stroke-dasharray`),

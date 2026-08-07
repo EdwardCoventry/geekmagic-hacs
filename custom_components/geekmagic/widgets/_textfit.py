@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unicodedata import east_asian_width
 
 from PIL import ImageFont
 
@@ -55,11 +56,22 @@ _REF_PX = 200
 # Fallback average glyph width (em) when a font file is missing.
 _FALLBACK_EM = 0.60
 
-# Widest letter-spacing any theme applies to the kit classes, used as the
-# measuring assumption. Over-reserving a couple of percent costs one
-# character of caption; under-reserving clips text off the panel.
-LABEL_TRACKING = 0.24  # the Swiss/CRT .t-label override, the widest shipped
+# Letter-spacing assumptions for the kit's .t-label. The kit ships
+# 0.14em; the Swiss/CRT themes (DejaVu and/or uppercase chrome) widen it
+# to ~0.24em. Prefer ``TextMetrics.label_tracking`` (theme-aware) —
+# measuring every theme at the widest override costs Nunito themes a
+# caption character per ~10 (that's how "LIVING ROOM" became
+# "LIVING RO…" on watchos).
+LABEL_TRACKING = 0.24  # worst case, kept for callers without a theme
+KIT_LABEL_TRACKING = 0.14
 HERO_TRACKING = 0.0  # minimal resets the kit's -0.035em to 0
+
+# East-Asian wide/fullwidth glyphs (CJK, Kana, Hangul) are not covered by
+# the embedded faces: PIL reports the narrow .notdef box while Blitz
+# falls back to a system face and draws them full-width. Reserve a full
+# em for each so Japanese/Chinese/Korean titles never overflow the cell.
+_FULLWIDTH_CLASSES = ("W", "F")
+_FULLWIDTH_EM = 1.0
 
 
 @lru_cache(maxsize=16)
@@ -87,6 +99,9 @@ class TextMetrics:
 
     family: str = "nunito"
     uppercase: bool = False
+    # The .t-label letter-spacing this theme actually renders — use this
+    # for caption budgets instead of the worst-case LABEL_TRACKING.
+    label_tracking: float = KIT_LABEL_TRACKING
 
     def _measured(self, text: str) -> str:
         return text.upper() if self.uppercase else text
@@ -96,14 +111,22 @@ class TextMetrics:
 
         ``tracking`` is CSS ``letter-spacing`` in em; browsers add one
         gap per character (including a trailing one), so that is what is
-        modelled here.
+        modelled here. East-Asian wide glyphs reserve a full em each —
+        the embedded faces don't cover them, and Blitz draws them
+        full-width from a system fallback while PIL would report the
+        narrow ``.notdef`` box.
         """
         if not text:
             return 0.0
         measured = self._measured(text)
-        return _ref_width(measured, self.family, weight) * px / _REF_PX + tracking * px * len(
-            measured
-        )
+        wide = sum(1 for c in measured if east_asian_width(c) in _FULLWIDTH_CLASSES)
+        if wide:
+            narrow = "".join(c for c in measured if east_asian_width(c) not in _FULLWIDTH_CLASSES)
+            base = _ref_width(narrow, self.family, weight) * px / _REF_PX if narrow else 0.0
+            base += wide * px * _FULLWIDTH_EM
+        else:
+            base = _ref_width(measured, self.family, weight) * px / _REF_PX
+        return base + tracking * px * len(measured)
 
     def fit_font_size(
         self,
@@ -155,10 +178,23 @@ _DEFAULT_METRICS = TextMetrics()
 
 
 def metrics_for(theme: Theme | None) -> TextMetrics:
-    """Build a measurer matching how ``theme`` renders the kit classes."""
+    """Build a measurer matching how ``theme`` renders the KIT classes.
+
+    ``uppercase`` reflects the theme's ``text-transform`` on the kit
+    text classes (retro uppercases them all). Widgets measuring plain
+    non-kit divs should neutralise it —
+    ``replace(metrics_for(theme), uppercase=False)`` — or they will
+    over-reserve for text that renders mixed-case.
+    """
     if theme is None:
         return _DEFAULT_METRICS
     stack = (getattr(theme, "font_stack", "") or "").lower()
     family = "dejavu" if "dejavu" in stack.split(",")[0] else "nunito"
     chrome = (getattr(theme, "chrome_css", "") or "").lower()
-    return TextMetrics(family=family, uppercase="text-transform: uppercase" in chrome)
+    uppercase = "text-transform: uppercase" in chrome
+    wide_labels = family == "dejavu" or uppercase
+    return TextMetrics(
+        family=family,
+        uppercase=uppercase,
+        label_tracking=LABEL_TRACKING if wide_labels else KIT_LABEL_TRACKING,
+    )

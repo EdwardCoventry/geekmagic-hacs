@@ -140,7 +140,7 @@ FLUID_KIT_CSS = """
         padding: 4%; }
 .cell.row { flex-direction: row; }
 .t-hero { font-size: clamp(20px, min(48vmin, 30vw), 124px); font-weight: 800;
-          line-height: 0.95; letter-spacing: -0.035em; white-space: nowrap; }
+          line-height: 0.85; letter-spacing: -0.035em; white-space: nowrap; }
 .t-value { font-size: clamp(15px, min(26vmin, 20vw), 64px); font-weight: 700;
            line-height: 1; white-space: nowrap; }
 .t-unit { font-size: clamp(12px, min(18vmin, 12vw), 40px); font-weight: 600;
@@ -216,9 +216,7 @@ def render_document(
         return None
 
 
-def composite_premultiplied(
-    canvas: Image.Image, source: Image.Image, pos: tuple[int, int]
-) -> None:
+def composite_premultiplied(canvas: Image.Image, source: Image.Image, pos: tuple[int, int]) -> None:
     """Composite a PREMULTIPLIED-alpha RGBA image onto an RGB canvas.
 
     ``blitz_py.render_rgba`` returns premultiplied alpha. Pasting that
@@ -283,9 +281,7 @@ def _smooth_path(pts: list[tuple[float, float]]) -> str:
         p3 = pts[i + 2] if i + 2 < len(pts) else p2
         c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
         c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
-        path.append(
-            f"C {c1[0]:.1f} {c1[1]:.1f}, {c2[0]:.1f} {c2[1]:.1f}, {p2[0]:.1f} {p2[1]:.1f}"
-        )
+        path.append(f"C {c1[0]:.1f} {c1[1]:.1f}, {c2[0]:.1f} {c2[1]:.1f}, {p2[0]:.1f} {p2[1]:.1f}")
     return " ".join(path)
 
 
@@ -380,8 +376,11 @@ def svg_ring(
         "</svg>"
     )
     if label_html:
+        # max-width guards non-square parents: without it the square
+        # aspect box overflows a tall cell's width (and vice versa).
         return (
-            '<div style="position:relative;height:100%;aspect-ratio:1;margin:0 auto">'
+            '<div style="position:relative;height:100%;max-width:100%;'
+            'aspect-ratio:1;margin:0 auto">'
             f"{svg}"
             '<div style="position:absolute;inset:0;display:flex;flex-direction:column;'
             'align-items:center;justify-content:center">'

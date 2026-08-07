@@ -140,10 +140,7 @@ class ClockWidget(Widget):
             ),
             hero_is_html=True,
             hero_color=css_rgb(self.config.color) if self.config.color else None,
-            extra=(
-                f'<div class="chips hide-short">{chip_html(date_str or "")}</div>'
-                if show_date
-                else ""
-            ),
+            chips=[chip_html(date_str or "")] if show_date else None,
+            chips_hide="hide-short",
             ctx=ctx,
         )
