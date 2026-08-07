@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
-
 from html import escape
+from typing import TYPE_CHECKING, ClassVar
 
 from ..htmldoc import css_rgb, mdi_span
 from ._cardfit import cell_box, fit_caption_sized, label_px
@@ -53,9 +52,7 @@ class IconWidget(Widget):
         if self.config.label and box_h >= 44:
             text, px = fit_caption_sized(self.config.label, ctx, box_w)
             if text:
-                caption = (
-                    f'<div class="t-label" style="font-size: {px:.1f}px">{escape(text)}</div>'
-                )
+                caption = f'<div class="t-label" style="font-size: {px:.1f}px">{escape(text)}</div>'
                 box_h -= label_px(ctx) * 1.6
 
         # Size the glyph to the cell it actually got: the same fragment
