@@ -780,17 +780,25 @@ body { background:
     rgba(0,0,0,0) 1px, rgba(0,0,0,0) 8px),
   linear-gradient(180deg, #0d3161 0%, #0b2a50 100%); }
 """,
-    overlay_css="""
-body { background:
-  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 3px 3px / 12px 1px no-repeat,
-  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 3px 3px / 1px 12px no-repeat,
-  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 225px 3px / 12px 1px no-repeat,
-  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 236px 3px / 1px 12px no-repeat,
-  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 3px 236px / 12px 1px no-repeat,
-  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 3px 225px / 1px 12px no-repeat,
-  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 225px 236px / 12px 1px no-repeat,
-  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 236px 225px / 1px 12px no-repeat; }
-""",
+    # Plotted-sheet register ticks: one 12x1 (or 1x12) white stroke per
+    # corner edge, each a solid two-stop gradient placed/sized via
+    # background shorthand. Assembled in Python to keep lines readable.
+    overlay_css="body { background: "
+    + ", ".join(
+        f"linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) "
+        f"{pos} / {size} no-repeat"
+        for pos, size in (
+            ("3px 3px", "12px 1px"),
+            ("3px 3px", "1px 12px"),
+            ("225px 3px", "12px 1px"),
+            ("236px 3px", "1px 12px"),
+            ("3px 236px", "12px 1px"),
+            ("3px 225px", "1px 12px"),
+            ("225px 236px", "12px 1px"),
+            ("236px 225px", "1px 12px"),
+        )
+    )
+    + "; }",
 )
 
 # 13. Ink — warm newsprint, one pot of red ink
