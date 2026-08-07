@@ -13,6 +13,7 @@ from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 from ..htmldoc import css_rgb, svg_sparkline
+from ._cardfit import fit_caption_sized
 from ._textfit import TextMetrics, metrics_for
 from .base import Widget, WidgetConfig
 
@@ -130,6 +131,25 @@ def value_header(
     )
 
 
+def compact_caption(caption: str, ctx: CellContext, m: PlotMetrics) -> tuple[str, float]:
+    """Caption-only header for compact plot cells.
+
+    Shrinks to keep the whole word before truncating (the shared
+    ``fit_caption_sized`` policy), centred so it reads as the tile's
+    title rather than a stranded table cell.
+    """
+    if not caption:
+        return "", 0.0
+    text, px = fit_caption_sized(caption, ctx, m.inner_w)
+    if not text:
+        return "", 0.0
+    return (
+        f'<div class="t-label" style="font-size: {px:.1f}px; text-align: center">'
+        f"{escape(text)}</div>",
+        px,
+    )
+
+
 def empty_plot(m: PlotMetrics, plot_h: float) -> str:
     """Placeholder occupying the plot box when there is nothing to draw."""
     return (
@@ -230,6 +250,10 @@ class ChartWidget(Widget):
             footer, footer_h = self._footer(
                 data, self.show_range and has_data and not binary, m, tm
             )
+        else:
+            # Compact tiles keep the caption: an unlabeled trace is a
+            # squiggle, not data. The value/range rows stay dropped.
+            header, header_h = compact_caption(self.label_for(entity), ctx, m)
 
         bands = 1 + bool(header) + bool(footer)
         plot_h = max(16.0, m.inner_h - header_h - footer_h - m.gap * (bands - 1))

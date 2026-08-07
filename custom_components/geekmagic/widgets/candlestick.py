@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from ..htmldoc import css_rgb, css_rgba, mdi_span
 from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
-from .chart import PlotMetrics, empty_plot, fit_px, plot_metrics, value_header
+from .chart import PlotMetrics, compact_caption, empty_plot, fit_px, plot_metrics, value_header
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -328,6 +328,10 @@ class CandlestickWidget(Widget):
                 color=value_color,
                 caret=caret,
             )
+        else:
+            # Compact tiles keep the caption — unlabeled candles are
+            # noise. The value row stays dropped.
+            header, header_h = compact_caption(self.label_for(entity), ctx, m)
 
         bands = 1 + bool(header)
         plot_h = max(16.0, m.inner_h - header_h - m.gap * (bands - 1))

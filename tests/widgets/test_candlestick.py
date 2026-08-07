@@ -296,8 +296,9 @@ class TestCandlestickRendering:
         fragment = widget.render_html(ctx, state)
         assert fragment.count("<rect") == 2
 
-    def test_compact_cell_is_chart_only(self):
-        """A 3x3 cell drops the header (and the reference line with it)."""
+    def test_compact_cell_keeps_caption_drops_value_row(self):
+        """A 3x3 cell keeps the caption (unlabeled candles are noise)
+        but sheds the value header and its reference line."""
         widget = CandlestickWidget(
             WidgetConfig(widget_type="candlestick", slot=0, entity_id="sensor.btc", label="BTC")
         )
@@ -309,7 +310,8 @@ class TestCandlestickRendering:
         )
         fragment = widget.render_html(small, state)
         assert "<svg" in fragment
-        assert "BTC" not in fragment
+        assert "BTC" in fragment  # caption survives
+        assert "t-value" not in fragment
         assert fragment.count("<line") == 2  # wicks only, no baseline
 
     def test_show_value_false(self, ctx):

@@ -1513,16 +1513,18 @@ class TestChartWidget:
         assert 'stop-opacity="0"' in fragment
         assert 'stop-opacity="0.22"' not in fragment
 
-    def test_compact_cell_is_chart_only(self, compact_ctx):
-        """A 3x3 cell drops both bands: the trace is the whole widget."""
+    def test_compact_cell_keeps_caption_drops_value_bands(self, compact_ctx):
+        """A 3x3 cell keeps the caption (an unlabeled trace is a
+        squiggle) but sheds the value and range rows."""
         widget = ChartWidget(
             WidgetConfig(widget_type="chart", slot=0, entity_id="sensor.temperature")
         )
         entity = make_entity(attributes={"friendly_name": "Temp"})
         fragment = widget.render_html(compact_ctx, make_state(entity, history=[20.0, 21.0, 24.0]))
         assert "<svg" in fragment
-        assert "t-label" not in fragment
+        assert "TEMP" in fragment  # caption survives, shrunk if needed
         assert "t-value" not in fragment
+        assert "hide-short" not in fragment  # visibility decided in Python
 
     def test_binary_history_draws_square_steps(self, ctx):
         """Bezier smoothing overshoots on binary traces, so it is off."""
@@ -1593,6 +1595,34 @@ class TestClimateWidget:
 
     def _thermostat(self, state: str, **attrs: Any) -> EntityState:
         return make_entity("climate.thermostat", state, {"friendly_name": "Thermostat", **attrs})
+
+    def test_small_tile_caption_carries_mode_icon(self):
+        """When the chips are shed (<100px), the caption icon is the only
+        carrier of the hvac state — it must ride along."""
+        widget = ClimateWidget(
+            WidgetConfig(widget_type="climate", slot=0, entity_id="climate.thermostat")
+        )
+        entity = self._thermostat(
+            "heat", current_temperature=21.5, temperature=22, hvac_action="heating"
+        )
+        tile = CellContext(width=69, height=108, slot_index=0, theme=DEFAULT_THEME)
+        fragment = widget.render_html(tile, make_state(entity))
+        assert "THERM" in fragment  # room caption survives (maybe truncated)
+        assert "icon i-sm" in fragment  # tinted state icon present
+
+    def test_short_cell_keeps_caption_row(self):
+        """Short non-strip cells keep a shrunk caption instead of an
+        anonymous temperature."""
+        widget = ClimateWidget(
+            WidgetConfig(widget_type="climate", slot=0, entity_id="climate.thermostat")
+        )
+        entity = self._thermostat(
+            "heat", current_temperature=21.5, temperature=22, hvac_action="heating"
+        )
+        short = CellContext(width=108, height=69, slot_index=0, theme=DEFAULT_THEME)
+        fragment = widget.render_html(short, make_state(entity))
+        assert "THERMOSTAT" in fragment
+        assert "hide-short" not in fragment
 
     def test_render_heating(self, ctx):
         widget = ClimateWidget(

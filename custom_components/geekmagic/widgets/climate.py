@@ -13,7 +13,7 @@ from ._cardfit import (
     cell_box,
     chip_band_px,
     chip_px,
-    fit_caption,
+    fit_caption_sized,
     fit_hero,
     hero_block,
     label_px,
@@ -277,20 +277,33 @@ class ClimateWidget(Widget):
         )
 
     @staticmethod
-    def _caption_html(ctx: CellContext, label: str, icon: str, tint: str) -> str:
-        """Tinted state icon + room name, measured against the real face."""
-        avail_w = cell_box(ctx)[0]
-        # Narrow cells spend ~18px of ~105px usable on the state icon —
-        # two whole characters of the room name. The chip strip already
-        # carries the tint there, so the caption keeps the full name.
-        with_icon = ctx.width >= 150
-        icon_html = ""
-        if with_icon:
-            icon_px = max(11.0, min(0.12 * min(ctx.width, ctx.height), 24.0))
-            avail_w -= icon_px + 0.45 * label_px(ctx)
-            icon_html = mdi_span(icon, "icon i-sm", f"color: {tint}")
-        text = escape(fit_caption(label, ctx, avail_w))
-        return f'<div class="t-label caption-row hide-short">{icon_html}{text}</div>'
+    def _caption_html(
+        ctx: CellContext,
+        label: str,
+        icon: str,
+        tint: str,
+        *,
+        with_icon: bool,
+        hide_short: bool = True,
+    ) -> str:
+        """Tinted state icon + room name, measured against the real face.
+
+        ``with_icon`` is decided by the caller: when the chip strip shows
+        the running mode the caption can spend the icon's width on the
+        room name instead — but when the chips are shed (small cells)
+        the caption icon is the ONLY carrier of the hvac state, so it
+        must ride along. ``hide_short=False`` lets short cells keep the
+        shrunk row the widget deliberately built for them.
+        """
+        icon_html = mdi_span(icon, "icon i-sm", f"color: {tint}") if with_icon else ""
+        text, px = fit_caption_sized(
+            label, ctx, cell_box(ctx)[0], reserve_em=1.5 if with_icon else 0.0
+        )
+        if not (text or icon_html):
+            return ""
+        size = f' style="font-size: {px:.1f}px"' if px < label_px(ctx) - 0.25 else ""
+        hide = " hide-short" if hide_short else ""
+        return f'<div class="t-label caption-row{hide}"{size}>{icon_html}{escape(text)}</div>'
 
     @staticmethod
     def _hero_html(ctx: CellContext, value: str, unit: str, avail_w: float, avail_h: float) -> str:
@@ -401,7 +414,11 @@ class ClimateWidget(Widget):
         bands: list[str] = []
         spent = 0.0
 
-        show_caption = caption_visible(ctx)
+        bands_kept = caption_visible(ctx)
+        # Short non-strip cells keep a shrunk caption row instead of an
+        # anonymous temperature (same compact-identity rule as entity).
+        compact_identity = not bands_kept and avail_h >= 40.0
+        show_caption = bands_kept or compact_identity
         if show_caption:
             spent += label_px(ctx)
 
@@ -416,7 +433,20 @@ class ClimateWidget(Widget):
             spent += len(rows) * chip_band_px(ctx)
 
         if show_caption:
-            bands.append(self._caption_html(ctx, self.label_for(entity), icon_name, icon_color))
+            # The caption icon rides along whenever the chips (which
+            # otherwise show the mode) are shed or the cell is wide
+            # enough to afford both.
+            mode_in_chips = bool(rows) and self.show_mode
+            bands.append(
+                self._caption_html(
+                    ctx,
+                    self.label_for(entity),
+                    icon_name,
+                    icon_color,
+                    with_icon=ctx.width >= 150 or not mode_in_chips,
+                    hide_short=bands_kept,
+                )
+            )
         bands.append(
             self._hero_html(
                 ctx, value, unit, avail_w, max(24.0, avail_h - spent) * HERO_SHARE_STACKED
