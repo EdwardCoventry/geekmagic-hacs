@@ -152,17 +152,15 @@ browser). Pillow only composites passes and encodes JPEG/PNG.
 
 **Animated path (opt-in):** when the device's Animations switch is on
 and a placed widget returns ``is_animated() == True``, the coordinator
-calls ``layout.render_animation`` instead: the static base (backdrop +
-non-animated cells) renders in one ``render_layers`` call, each
-animated cell renders all timestamps in one ``blitz_py.render_frames``
-call (CSS animations evaluated per instant, needs blitz-py >= 0.2.0 /
-``htmldoc.HAS_FRAMES``), frames are composited and encoded with
-``Renderer.to_gif`` (1.6s @ 10fps, palette quantized without
-dithering), and ``dashboard.gif`` is uploaded in place of the JPEG.
-KNOWN UPSTREAM BUG (blitz-py 0.4.0): ``render_layers`` documents a
-per-layer ``time`` but does not apply it — that's why animated cells
-still go through ``render_frames`` + Pillow compositing; fold them
-into the layered call once the clock works.
+calls ``layout.render_animation`` instead: each frame is ONE
+``render_layers`` call with the frame's clock on animated layers (and
+their glow underlays) — needs blitz-py >= 0.4.1
+(``htmldoc.HAS_LAYER_CLOCK``; 0.4.0 documented per-layer ``time`` but
+ignored it). Frames are encoded with ``Renderer.to_gif`` (1.6s @
+10fps, palette quantized without dithering) and ``dashboard.gif`` is
+uploaded in place of the JPEG. Older engines fall back to
+``render_frames`` per animated cell + Pillow compositing
+(``_render_animation_legacy``).
 
 blitz-py capabilities adopted so far: ``measure_text`` (0.3.0) and
 ``ellipsize`` (0.4.0) drive ``widgets/_textfit.py`` — engine-native
