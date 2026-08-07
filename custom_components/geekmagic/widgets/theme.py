@@ -785,8 +785,7 @@ body { background:
     # background shorthand. Assembled in Python to keep lines readable.
     overlay_css="body { background: "
     + ", ".join(
-        f"linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) "
-        f"{pos} / {size} no-repeat"
+        f"linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) {pos} / {size} no-repeat"
         for pos, size in (
             ("3px 3px", "12px 1px"),
             ("3px 3px", "1px 12px"),
