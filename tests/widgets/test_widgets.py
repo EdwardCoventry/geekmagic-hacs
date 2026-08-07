@@ -618,12 +618,16 @@ class TestEntityWidgetCompactIdentity:
         # re-hide the caption the widget deliberately shrank.
         assert "hide-short" not in fragment
 
-    def test_footer_cell_keeps_icon_inline(self):
+    def test_footer_cell_stacks_icon(self):
         entity = make_entity("sensor.living_temp", "22", {"icon": "mdi:thermometer"})
         fragment = self._widget().render_html(self.FOOTER, make_state(entity))
-        # Inline chip icon beside the caption, not a feature band.
-        assert "i-sm" in fragment
+        # Even a 65px footer stacks the icon above the caption (the old
+        # design's tile anatomy); only sub-54px content bands go inline.
+        assert "card-icon" in fragment
+        tiny = CellContext(width=108, height=52, slot_index=0, theme=DEFAULT_THEME)
+        fragment = self._widget().render_html(tiny, make_state(entity))
         assert "card-icon" not in fragment
+        assert "i-sm" in fragment
 
     def test_footer_cell_keeps_short_unit(self):
         entity = make_entity("sensor.living_temp", "22", {"unit_of_measurement": "°C"})

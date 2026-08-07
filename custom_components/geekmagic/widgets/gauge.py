@@ -335,10 +335,18 @@ class GaugeWidget(Widget):
             hero_band = hero_px * 1.1
             label_html = self._value_html(digits, unit, hero_px, color)
         # The remainder is the gauge's, minus a share left for the
-        # space-evenly gaps that keep the three bands reading as bands.
+        # space-evenly gaps that keep the bands reading as bands.
         diameter = max(_ROUND_MIN, min(avail_w, (avail_h - band - hero_band) * 0.92))
         box = self._gauge_box(diameter, percent, color, track, "")
-        return f'<div class="cell">{caption}{box}{label_html}</div>'
+        # Ring and value are ONE unit (Activity style) — grouped with a
+        # tight gap, or space-evenly floats the number to the cell's
+        # bottom edge and the ring reads as an empty broken circle.
+        gap = max(2.0, diameter * 0.06)
+        reading = (
+            '<div style="display: flex; flex-direction: column; align-items: center; '
+            f'gap: {gap:.0f}px">{box}{label_html}</div>'
+        )
+        return f'<div class="cell">{caption}{reading}</div>'
 
     @staticmethod
     def _caption_band(
@@ -512,4 +520,3 @@ class GaugeWidget(Widget):
         return value_unit_html(
             digits, unit, hero_css=hero_css, unit_css=unit_css, color=color, unit_color=color
         )
-

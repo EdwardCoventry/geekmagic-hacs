@@ -77,6 +77,10 @@ def char_em(ctx: CellContext, *, caps: bool = False) -> float:
 # Mirrors ``_cardfit.CAPTION_MIN_PX``.
 CAPTION_MIN_PX = 10.0
 
+# Cell height from which the feature icon stacks above the caption
+# instead of riding inline (matches entity.py's _FEATURE_MIN_H + insets).
+STACK_MIN_CELL_H = 64.0
+
 # Characters that must survive truncation for a caption to be worth
 # drawing ("NET…" is noise, "NETW…" is not). Pass 0 when the caption is
 # the only thing the cell has left to say.
@@ -131,7 +135,10 @@ def fit_caption_sized(
     custom band (a ring's hole).
     """
     upper = text.upper()
-    top = max_px if max_px is not None else label_px(ctx)
+    # The kit clamp's vw term guards unmeasured captions; a fitted one
+    # may take the full 18px cap when the text has the width (mirrors
+    # _cardfit.fit_caption_sized).
+    top = max_px if max_px is not None else max(12.0, min(0.12 * min(ctx.width, ctx.height), 18.0))
     usable = width_px if width_px is not None else ctx.width * 0.90
     per_em = char_em(ctx, caps=True)
     px_fit = usable / max(1e-6, len(upper) * per_em + reserve_em)
@@ -181,14 +188,17 @@ def caption_band(
     they are exactly the cells that most need one. The band is therefore
     sized in Python and carries no hide class.
 
-    With ``stack_icon_html`` and a cell at least 100px tall, the icon
-    takes its own band above the caption (the watchOS feature-icon
+    With ``stack_icon_html`` and a cell tall enough for the stack, the
+    icon takes its own band above the caption (the watchOS feature-icon
     pattern the entity card uses); the inline chip row is the fallback
     for genuinely short cells.
     """
     if not name or ctx.height < CAPTION_MIN_CELL_H:
         return ""
-    stacked = bool(stack_icon_html) and ctx.height >= 100
+    # The stack (icon + 10px caption + value) fits from ~64px of cell
+    # height — the old design stacked even 3x3 tiles, and it reads far
+    # better than an inline speck beside the label.
+    stacked = bool(stack_icon_html) and ctx.height >= STACK_MIN_CELL_H
     inline_icon = "" if stacked else icon_html
     reserve_em = 1.6 if inline_icon else 0.0
     text, px = fit_caption_sized(
@@ -196,7 +206,9 @@ def caption_band(
     )
     if not (text or inline_icon or stacked):
         return ""
-    size = f' style="font-size: {px:.1f}px"' if px < label_px(ctx) - 0.25 else ""
+    # Always inline the fitted size: it may sit above the kit clamp
+    # (wide cell, short word) as well as below it.
+    size = f' style="font-size: {px:.1f}px"'
     row = f'<div class="t-label caption-row"{size}>{inline_icon}{escape(text)}</div>'
     if stacked:
         return f'<div class="card-icon">{stack_icon_html}</div>{row}'

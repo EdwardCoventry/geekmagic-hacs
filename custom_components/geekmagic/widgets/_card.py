@@ -57,10 +57,12 @@ def caption_fit(
     """
     if ctx is None:
         return text, None
-    from ._cardfit import cell_box, fit_caption_sized, label_px  # noqa: PLC0415 (lazy)
+    from ._cardfit import cell_box, fit_caption_sized  # noqa: PLC0415 (lazy)
 
     fitted, px = fit_caption_sized(text, ctx, cell_box(ctx)[0], reserve_em=reserve_em)
-    return fitted, (px if px < label_px(ctx) - 0.25 else None)
+    # Always report the fitted size: it may sit ABOVE the kit clamp
+    # (wide cell, short word) as well as below it.
+    return fitted, px
 
 
 def chip_html(text: str, icon: str | None = None, color: str | None = None) -> str:

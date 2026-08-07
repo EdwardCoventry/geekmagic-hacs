@@ -247,7 +247,7 @@ class TestWeatherStripFits:
 class TestWeatherMiniStrip:
     """Short-wide cells keep a forecast instead of a lone temperature."""
 
-    @pytest.mark.parametrize(("width", "height"), [(108, 69), (111, 72), (240, 80), (240, 120)])
+    @pytest.mark.parametrize(("width", "height"), [(108, 69), (111, 72)])
     def test_short_wide_cells_show_icon_and_high(self, width, height):
         """Three tinted glyphs with their highs — no day names, no lows."""
         fragment = body(
@@ -260,6 +260,21 @@ class TestWeatherMiniStrip:
         # The strip replaces the hi/lo chips in these cells.
         assert "chips" not in fragment
         assert "26° / 14°" not in fragment
+
+    def test_wide_mini_strip_regains_lows(self):
+        """Columns wide enough set the low beside the high."""
+        fragment = body(weather().render_html(cell(240, 80), weather_state(forecast=FORECAST)))
+        assert "wx-strip mini" in fragment
+        assert "wx-lo" in fragment
+        assert "wx-day" not in fragment  # 80px has no band for day names
+
+    def test_tall_mini_strip_regains_day_names(self):
+        """From ~92px of height the day names ride above the icons."""
+        fragment = body(weather().render_html(cell(240, 120), weather_state(forecast=FORECAST)))
+        assert "wx-strip mini" in fragment
+        assert "wx-day" in fragment
+        assert "MON" in fragment
+        assert "wx-lo" in fragment
 
     def test_mini_strip_shares_the_cell_with_the_hero(self):
         """Hero row plus mini strip must both fit the content box."""

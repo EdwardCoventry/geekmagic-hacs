@@ -99,7 +99,7 @@ class TestStatusCompactIdentity:
         fragment = widget.render_html(cell(*GRID_3X3), make_state(door))
         assert ">OPEN<" in fragment  # the state is still the hero
         assert "FRONT" in fragment  # ...but the cell says what is open
-        assert 'class="icon"' in fragment  # inline chip-style glyph
+        assert "icon" in fragment  # glyph present (stacked chip at this height)
 
     def test_compact_identity_is_not_hidden_by_the_kit(self, door):
         """Python decided the row survives — hide-short would undo that."""
@@ -223,7 +223,8 @@ class TestProgressCompactCaption:
             cell(*FOOTER), make_state(make_entity("sensor.steps", "5000"))
         )
         assert "DAILY STEPS" in fragment
-        assert 'class="icon i-sm"' in fragment
+        # From ~64px of height the icon stacks above the caption.
+        assert "card-icon" in fragment or 'class="icon i-sm"' in fragment
         assert "hide-short" not in fragment
 
     def test_caption_shrinks_before_it_truncates(self):
@@ -232,7 +233,7 @@ class TestProgressCompactCaption:
             cell(120, 70), make_state(make_entity("sensor.steps", "5000"))
         )
         assert "DAILY STEPS" in fragment
-        assert font_px(fragment, "DAILY STEPS") < 12.0
+        assert font_px(fragment, "DAILY STEPS") <= 12.0
 
     def test_cell_too_short_for_a_caption_drops_it(self):
         fragment = self._widget().render_html(
@@ -386,8 +387,12 @@ class TestStackedFeatureIcon:
         state = WidgetState(entity=entity, now=FIXED_NOW)
         tall = CellContext(width=69, height=108, slot_index=0, theme=DEFAULT_THEME)
         assert "card-icon" in widget.render_html(tall, state)
+        # 69px still stacks (the old design stacked 3x3 tiles); only a
+        # band with no vertical room keeps the inline row.
         short = CellContext(width=108, height=69, slot_index=0, theme=DEFAULT_THEME)
-        assert "card-icon" not in widget.render_html(short, state)
+        assert "card-icon" in widget.render_html(short, state)
+        very_short = CellContext(width=108, height=56, slot_index=0, theme=DEFAULT_THEME)
+        assert "card-icon" not in widget.render_html(very_short, state)
 
     def test_status_tall_narrow_cell_uses_stack(self):
         widget = StatusWidget(

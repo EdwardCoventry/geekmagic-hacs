@@ -153,7 +153,11 @@ def fit_caption_sized(
     """
     metrics = metrics_for(ctx.theme)
     upper = text.upper()
-    top = label_px(ctx)
+    # The kit clamp's vw term guards UNMEASURED captions against
+    # overflow; a measured caption doesn't need it — a short "HUMID" in
+    # a wide sidebar cell may take the full 18px cap instead of being
+    # width-capped into a whisper.
+    top = max(12.0, min(0.12 * min(ctx.width, ctx.height), 18.0))
     width_em = metrics.width(upper, 1.0, "bold", metrics.label_tracking) + reserve_em
     if width_em > 0:
         px_fit = avail_w / width_em

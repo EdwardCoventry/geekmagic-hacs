@@ -301,7 +301,7 @@ class ClimateWidget(Widget):
         )
         if not (text or icon_html):
             return ""
-        size = f' style="font-size: {px:.1f}px"' if px < label_px(ctx) - 0.25 else ""
+        size = f' style="font-size: {px:.1f}px"'
         hide = " hide-short" if hide_short else ""
         return f'<div class="t-label caption-row{hide}"{size}>{icon_html}{escape(text)}</div>'
 

@@ -44,6 +44,11 @@ _MIN_HERO_PX = 12.0
 # value out entirely.
 _COMPACT_MIN_H = 40.0
 
+# Content height at which icon-band + caption + value stack (the old
+# design's tile anatomy). Below it the icon drops inline with the
+# caption; below _COMPACT_MIN_H identity goes entirely.
+_FEATURE_MIN_H = 54.0
+
 # Only wrap a value onto two lines in cells with room to spare.
 _WRAP_MIN_CELL = 130
 
@@ -171,7 +176,12 @@ class EntityWidget(Widget):
         compact_identity = not bands_kept and box_h >= _COMPACT_MIN_H
         show_caption = bool(name) and self.show_name and (bands_kept or compact_identity)
         show_icon = bool(icon) and (bands_kept or compact_identity)
-        feature_icon = show_icon and bands_kept
+        # The icon rides its own band above the caption whenever the
+        # stack fits (icon + 10px caption + value need ~54px) — the old
+        # design stacked even 3x3 tiles, and it reads far better than an
+        # inline speck. The inline chip row is only for the very
+        # shortest bands.
+        feature_icon = show_icon and box_h >= _FEATURE_MIN_H
 
         caption_band = label_px(ctx) * 1.25 if show_caption else 0.0
         share = HERO_SHARE_SOLO if not (show_caption or feature_icon) else HERO_SHARE_STACKED
