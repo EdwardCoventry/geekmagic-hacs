@@ -31,8 +31,10 @@ if TYPE_CHECKING:
 # neighbouring grid cells must carry equal icons even when one value is
 # "On" and the next is "Locked". Tall cells get a bonus: their heroes
 # are width-bound, and a fixed-ratio icon would strand the extra height
-# as empty gaps.
-_ICON_VMIN = 0.26
+# as empty gaps. The ratio is deliberately generous (a 2" panel is read
+# from across the room); the 0.32*height / 0.5*width caps below keep it
+# from crowding the value.
+_ICON_VMIN = 0.32
 _ICON_TALL_BONUS = 0.15
 _ICON_MIN_PX = 13.0
 _MAX_HERO_PX = 124.0
