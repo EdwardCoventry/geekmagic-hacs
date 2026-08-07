@@ -1746,13 +1746,20 @@ class TestMediaWidget:
         fragment = widget.render_html(ctx, make_state(self._player("idle")))
         assert "NO MEDIA" in fragment
 
-    def test_render_paused(self, ctx):
-        """Paused shows the pause placeholder, not the now-playing card."""
+    def test_render_paused_with_track_keeps_now_playing(self, ctx):
+        """Paused with a known track keeps the full card, marked PAUSED."""
         widget = self._widget()
         entity = self._player("paused", media_title="Test Song", media_artist="Test Artist")
         fragment = widget.render_html(ctx, make_state(entity))
         assert "PAUSED" in fragment
-        assert "Test Song" not in fragment
+        assert "Test Song" in fragment
+
+    def test_render_paused_without_track_is_placeholder(self, ctx):
+        """Paused with no track information gets the quiet placeholder."""
+        widget = self._widget()
+        entity = self._player("paused")
+        fragment = widget.render_html(ctx, make_state(entity))
+        assert "PAUSED" in fragment
 
     def test_render_playing_now_playing_card(self, ctx):
         widget = self._widget()

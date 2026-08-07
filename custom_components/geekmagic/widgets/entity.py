@@ -115,7 +115,11 @@ class EntityWidget(Widget):
                 value = str(raw_value) if raw_value is not None else PLACEHOLDER_VALUE
             else:
                 value = entity.state
-                if entity.entity_id.startswith("binary_sensor."):
+                if value in ("unavailable", "unknown", "none", ""):
+                    # Absence reads as absence — a quiet dimmed marker,
+                    # not a truncated "Unavail…" headline.
+                    value = PLACEHOLDER_VALUE
+                elif entity.entity_id.startswith("binary_sensor."):
                     value = translate_binary_state(value, entity.device_class)
                 elif isinstance(value, str) and value.isalpha() and len(value) <= 16:
                     # Title-case short alpha flag states ('on'→'On', 'home'→'Home')
@@ -130,6 +134,12 @@ class EntityWidget(Widget):
                     pass  # Keep original value if not numeric
             unit = entity.unit if self.show_unit else ""
             name = self.label_for(entity)
+
+        # Narrow columns: multi-char units cost the digits their size —
+        # drop them before the value has to shrink or mangle. Single-char
+        # suffixes (°, %) are cheap and keep their meaning.
+        if unit and len(unit) > 1 and ctx.width < 100:
+            unit = ""
 
         # Determine icon to use
         icon = self.icon

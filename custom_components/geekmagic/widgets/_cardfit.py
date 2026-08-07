@@ -113,10 +113,17 @@ def fit_caption(text: str, ctx: CellContext, avail_w: float) -> str:
     ``card_html`` also truncates when given ``ctx``, but from an average
     glyph width; measuring the real caps string is what keeps long entity
     names from bleeding off the panel.
+
+    A stub is worse than nothing: when truncation destroys the name's
+    identity ("GARAG…" for "GARAGE WORKSHOP TEMPERATURE"), the caption
+    drops entirely and the cell spends the room on the value. A caption
+    survives if at least 70% of its characters — or an 8-character
+    prefix — make it through.
     """
     metrics = metrics_for(ctx.theme)
-    return metrics.truncate(
-        text.upper(),
+    upper = text.upper()
+    fitted = metrics.truncate(
+        upper,
         label_px(ctx),
         avail_w,
         "bold",
@@ -124,6 +131,11 @@ def fit_caption(text: str, ctx: CellContext, avail_w: float) -> str:
         style="end",
         min_chars=3,
     )
+    if fitted != upper:
+        kept = len(fitted.rstrip("…"))
+        if kept < 8 and kept < 0.7 * len(upper):
+            return ""
+    return fitted
 
 
 def _balance(text: str, count: int = 2) -> list[str]:

@@ -300,7 +300,17 @@ class MediaWidget(Widget):
         """Render the media player widget."""
         entity = state.entity
 
-        if entity is None or entity.state in ("off", "unavailable", "unknown", "idle", "paused"):
+        # Paused WITH a track keeps the full now-playing layout (frozen
+        # progress, PAUSED caption) — a near-empty pause tile wastes the
+        # cell when we know exactly what's on. Paused without a track,
+        # and every off/idle state, get the quiet placeholder.
+        paused = entity is not None and entity.state == "paused"
+        has_track = entity is not None and bool(entity.get("media_title"))
+        if (
+            entity is None
+            or entity.state in ("off", "unavailable", "unknown", "idle")
+            or (paused and not has_track)
+        ):
             return self._render_idle(entity)
 
         # Calculate current position (accounts for elapsed playback time)
@@ -372,19 +382,29 @@ class MediaWidget(Widget):
         lines: list[str] = []
         raw_title = entity.get("media_title", "")
         title_lines = 0
+        paused = entity.state == "paused"
         if raw_title:
+            pause_reserve = 1.4 if paused else 0.0
             title, title_px, title_lines = _fit_title(
                 raw_title,
                 metrics,
-                text_width,
+                text_width - pause_reserve * _clamp_px(11.0, 0.105, 24.0, vmin),
                 max_px=_clamp_px(11.0, 0.105, 24.0, vmin),
                 max_lines=2 if ctx.height >= 170 else 1,
             )
             block_px += title_lines * title_px * 1.16
+            # A small pause glyph rides the title line when frozen — the
+            # only visible difference from playing besides the still bar.
+            pause_glyph = (
+                f'<span class="icon" style="font-size: {title_px * 0.9:.0f}px; '
+                'color: rgba(255,255,255,0.75); margin-right: 0.3em">&#xF03E4;</span>'
+                if paused
+                else ""
+            )
             lines.append(
                 f'<div style="font-size: {title_px:.1f}px; font-weight: 700; '
                 'line-height: 1.16; letter-spacing: -0.01em; color: rgba(255,255,255,0.98)">'
-                f"{escape(title)}</div>"
+                f"{pause_glyph}{escape(title)}</div>"
             )
         artist = entity.get("media_artist", "")
         if artist and self.show_artist and ctx.height >= 120:
@@ -498,7 +518,8 @@ class MediaWidget(Widget):
         metrics = _title_metrics(ctx)
         text_width = ctx.width * 0.88 - _CHROME_PX  # 6% padding each side
 
-        bands: list[str] = ['<div class="t-label hide-short">NOW PLAYING</div>']
+        caption = "PAUSED" if entity.state == "paused" else "NOW PLAYING"
+        bands: list[str] = [f'<div class="t-label hide-short">{caption}</div>']
 
         # Title / artist / album are one unit: they read as a single
         # block of "what is playing", so they get a tight internal gap and

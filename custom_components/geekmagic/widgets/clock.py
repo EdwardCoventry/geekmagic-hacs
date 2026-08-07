@@ -92,7 +92,11 @@ class ClockWidget(Widget):
         seconds = self.show_seconds and not ctx.is_compact
         if self.time_format == "12h":
             fmt = "%I:%M:%S" if seconds else "%I:%M"
-            meridiem = "" if ctx.is_compact else now.strftime("%p")
+            # Compact 3x3 tiles drop the meridiem; wide strips keep it —
+            # "07:42" without PM reads as morning on a 228x74 slot with
+            # plenty of horizontal room.
+            drop_meridiem = ctx.is_compact and ctx.width < 170
+            meridiem = "" if drop_meridiem else now.strftime("%p")
         else:
             fmt = "%H:%M:%S" if seconds else "%H:%M"
             meridiem = ""

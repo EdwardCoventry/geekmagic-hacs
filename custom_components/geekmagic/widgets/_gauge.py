@@ -87,7 +87,15 @@ def fit_caption(
     px = font_px if font_px is not None else label_px(ctx)
     per_char = px * char_em(ctx, caps=True)
     usable = (width_px if width_px is not None else ctx.width * 0.90) - reserve_em * px
-    return truncate_text(text, max(3, int(usable / per_char)))
+    fitted = truncate_text(text, max(3, int(usable / per_char)))
+    # A stub is worse than nothing: when truncation destroys the name's
+    # identity ("BATTE…"), drop the caption and let the gauge own the
+    # cell. Same rule as _cardfit.fit_caption.
+    if fitted != text:
+        kept = len(fitted.rstrip("…"))
+        if kept < 8 and kept < 0.7 * len(text):
+            return ""
+    return fitted
 
 
 def track_css(

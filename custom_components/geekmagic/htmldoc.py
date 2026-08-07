@@ -307,20 +307,29 @@ def svg_sparkline(
         return ""
     vb_w = 100.0 * max(0.4, aspect)
     vmin, vmax = min(values), max(values)
-    spread = (vmax - vmin) or 1.0
+    spread = vmax - vmin
     n = len(values) - 1
     inset = 7.0  # headroom so the dot/halo and stroke stay inside
-    pts = [
-        (
-            inset + i / n * (vb_w - 2 * inset),
-            (100 - inset) - (v - vmin) / spread * (100 - 2 * inset),
-        )
-        for i, v in enumerate(values)
-    ]
+    if spread == 0:
+        # Flat series: draw the line mid-height instead of pinned to the
+        # bottom edge (y would otherwise collapse to vmin's baseline).
+        pts = [(inset + i / n * (vb_w - 2 * inset), 50.0) for i in range(len(values))]
+    else:
+        pts = [
+            (
+                inset + i / n * (vb_w - 2 * inset),
+                (100 - inset) - (v - vmin) / spread * (100 - 2 * inset),
+            )
+            for i, v in enumerate(values)
+        ]
     line = _smooth_path(pts) if smooth else "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
     # The area fill extends to the viewBox edges (x=0 / x=vb_w) so the
     # gradient has no hard vertical seam at the line insets; the stroked
-    # line itself keeps its inset for dot/stroke headroom.
+    # line itself keeps its inset for dot/stroke headroom. A flat series
+    # fills nothing — half a cell of gradient under an unchanging value
+    # reads as data that isn't there.
+    if spread == 0:
+        fill_opacity = 0.0
     area = (
         f"M 0 {pts[0][1]:.1f} {line.replace('M', 'L', 1)} "
         f"L {vb_w:.0f} {pts[-1][1]:.1f} L {vb_w:.0f} 100 L 0 100 Z"
