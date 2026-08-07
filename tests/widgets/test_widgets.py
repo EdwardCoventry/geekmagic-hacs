@@ -754,9 +754,7 @@ class TestIconWidget:
 
         def glyph_px(size_mode: str) -> float:
             widget = IconWidget(
-                WidgetConfig(
-                    widget_type="icon", slot=0, options={"icon": "fan", "size": size_mode}
-                )
+                WidgetConfig(widget_type="icon", slot=0, options={"icon": "fan", "size": size_mode})
             )
             fragment = widget.render_html(ctx, make_state())
             return float(fragment.split("font-size: ")[1].split("px")[0])

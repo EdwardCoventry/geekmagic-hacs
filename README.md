@@ -109,10 +109,9 @@ fluidly from a 76px 3×3 cell to 240px fullscreen, shedding detail bands
 as space runs out. Themes are full stylesheets (fonts, chrome,
 backdrops, overlay effects like CRT scanlines), not just palettes.
 
-**Note:** `blitz-py` is not yet on PyPI; install it into your HA Python
-environment with a Rust toolchain
-(`pip install git+https://github.com/adrienbrault/blitz-py`). Without it
-the display shows an install hint.
+`blitz-py` ships prebuilt wheels on PyPI (Linux glibc/musl x86_64 +
+aarch64, macOS, Windows) and installs automatically with the
+integration.
 
 ### HTML Widget
 

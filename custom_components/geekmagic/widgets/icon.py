@@ -57,7 +57,12 @@ class IconWidget(Widget):
             # Unknown icon name — fall back to the help glyph.
             icon_html = mdi_span("help", "icon", style)
 
+        # Several themes paint surface and background the same colour, so
+        # the panel needs a hairline to exist at all.
         panel_style = (
-            "background: var(--surface); border-radius: var(--radius); " if self.show_panel else ""
+            "background: var(--surface); border: 1px solid var(--hairline); "
+            "border-radius: var(--radius); "
+            if self.show_panel
+            else ""
         )
         return f'<div class="cell" style="{panel_style}justify-content: center">{icon_html}</div>'

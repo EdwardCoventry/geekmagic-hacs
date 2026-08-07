@@ -7,9 +7,8 @@ Home Assistant custom integration for GeekMagic displays (SmallTV Pro and simila
 Use `uv` for all Python operations:
 
 ```bash
-uv sync                       # Install dependencies (builds blitz-py from
-                              # git — needs a Rust toolchain, first build
-                              # takes a few minutes, then cached)
+uv sync                       # Install dependencies (blitz-py comes as a
+                              # prebuilt wheel from PyPI)
 uv run pytest                 # Run tests
 uv run pytest -v              # Run tests with verbose output
 uv run ruff check .           # Lint code
@@ -146,9 +145,10 @@ browser). Pillow only composites passes and encodes JPEG/PNG.
    (scanlines, vignettes) composited on top
 6. Image converted to JPEG and uploaded to device
 
-`blitz-py` is REQUIRED for rendering (a dev dependency via git in
-`pyproject.toml`; not yet on PyPI). Without it the display shows an
-install-hint error screen.
+`blitz-py` is REQUIRED for rendering — it's in `manifest.json`
+requirements (PyPI wheels for Linux glibc/musl x86_64 + aarch64, macOS,
+Windows), so HA installs it automatically. Without it the display shows
+an install-hint error screen.
 
 Blitz engine gotchas (verified, keep in mind):
 - `var(--x)` does NOT resolve inside SVG paint attributes — pass

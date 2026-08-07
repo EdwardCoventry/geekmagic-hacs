@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import datetime
 from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
+from unicodedata import east_asian_width
 
 from ..htmldoc import css_rgb, image_data_uri, mdi_span
 
@@ -18,11 +19,20 @@ if TYPE_CHECKING:
 
 from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
+from .helpers import truncate_text
 
 # Weight names for :mod:`._textfit` matching the markup below: the title
 # is 700, everything supporting it is 600.
 _TITLE_WEIGHT = "bold"
 _SUPPORT_WEIGHT = "semibold"
+
+# Advance of a CJK / Kana / Hangul glyph: one em square. ``_textfit``
+# measures with the *embedded* faces, and neither Nunito nor DejaVu Sans
+# covers those scripts — PIL reports the narrow .notdef box while Blitz
+# falls back to a system face and draws full-width glyphs. A Japanese
+# track title is common enough that the difference has to be reserved.
+_FULLWIDTH_EM = 1.0
+_FULLWIDTH_CLASSES = ("W", "F")
 
 # Every shipped theme paints ``.root`` with up to 6px of padding plus a
 # 1px border, so the fragment is up to 7px per side narrower than
@@ -68,6 +78,30 @@ def _title_metrics(ctx: CellContext) -> TextMetrics:
     return replace(metrics_for(ctx.theme), uppercase=False)
 
 
+def _measure(metrics: TextMetrics, text: str, px: float, weight: str) -> float:
+    """Rendered width of ``text``, correcting for uncovered scripts.
+
+    Falls through to :mod:`._textfit` for anything the embedded faces
+    actually contain; see :data:`_FULLWIDTH_EM` for the rest.
+    """
+    wide = sum(1 for char in text if east_asian_width(char) in _FULLWIDTH_CLASSES)
+    if not wide:
+        return metrics.width(text, px, weight)
+    narrow = "".join(c for c in text if east_asian_width(c) not in _FULLWIDTH_CLASSES)
+    return metrics.width(narrow, px, weight) + wide * px * _FULLWIDTH_EM
+
+
+def _fit_width(metrics: TextMetrics, text: str, px: float, width: float, weight: str) -> str:
+    """Truncate ``text`` with an ellipsis until it fits ``width``."""
+    if not text or _measure(metrics, text, px, weight) <= width:
+        return text
+    for length in range(len(text) - 1, 2, -1):
+        candidate = truncate_text(text, length)
+        if _measure(metrics, candidate, px, weight) <= width:
+            return candidate
+    return truncate_text(text, 2)
+
+
 def _fit_lines(
     text: str, metrics: TextMetrics, width_px: float, font_px: float, max_lines: int
 ) -> tuple[str, int]:
@@ -85,9 +119,9 @@ def _fit_lines(
     overflowed = False
     for word in words:
         # A single word can be wider than a whole line.
-        chunk = metrics.truncate(word, font_px, width_px, _TITLE_WEIGHT)
+        chunk = _fit_width(metrics, word, font_px, width_px, _TITLE_WEIGHT)
         candidate = f"{current} {chunk}" if current else chunk
-        if metrics.width(candidate, font_px, _TITLE_WEIGHT) <= width_px:
+        if _measure(metrics, candidate, font_px, _TITLE_WEIGHT) <= width_px:
             current = candidate
         elif len(lines) + 1 < max_lines:
             lines.append(current)
@@ -97,7 +131,7 @@ def _fit_lines(
             break
     lines.append(current)
     if overflowed:
-        lines[-1] = metrics.truncate(f"{lines[-1]}…", font_px, width_px, _TITLE_WEIGHT)
+        lines[-1] = _fit_width(metrics, f"{lines[-1]}…", font_px, width_px, _TITLE_WEIGHT)
     return " ".join(lines), len(lines)
 
 
@@ -122,7 +156,7 @@ def _fit_title(
     if not text:
         return "", min_px, 0
     # Size at which the whole title would fit on a single line.
-    single_px = avail_px / (metrics.width(text, 1.0, _TITLE_WEIGHT) or 1.0)
+    single_px = avail_px / (_measure(metrics, text, 1.0, _TITLE_WEIGHT) or 1.0)
     if max_lines < 2 or single_px >= max_px * 0.8:
         allowed = 1
         font_px = min(max_px, max(min_px, single_px))
@@ -355,7 +389,7 @@ class MediaWidget(Widget):
         artist = entity.get("media_artist", "")
         if artist and self.show_artist and ctx.height >= 120:
             artist_px = _clamp_px(9.0, 0.072, 15.0, vmin)
-            artist = metrics.truncate(artist, artist_px, text_width, _SUPPORT_WEIGHT)
+            artist = _fit_width(metrics, artist, artist_px, text_width, _SUPPORT_WEIGHT)
             block_px += artist_px * 1.2 + gap_px
             lines.append(
                 f'<div style="font-size: {artist_px:.1f}px; font-weight: 600; '
@@ -499,7 +533,7 @@ class MediaWidget(Widget):
 
         artist = entity.get("media_artist", "")
         if self.show_artist and artist:
-            artist = metrics.truncate(artist, artist_px, text_width, _SUPPORT_WEIGHT)
+            artist = _fit_width(metrics, artist, artist_px, text_width, _SUPPORT_WEIGHT)
             track.append(
                 f'<div class="hide-short" style="font-size: {artist_px:.1f}px; '
                 "font-weight: 600; line-height: 1.2; color: var(--text-secondary); "
@@ -508,7 +542,7 @@ class MediaWidget(Widget):
 
         album = entity.get("media_album_name", "")
         if self.show_album and album:
-            album = metrics.truncate(album, album_px, text_width, _SUPPORT_WEIGHT)
+            album = _fit_width(metrics, album, album_px, text_width, _SUPPORT_WEIGHT)
             track.append(
                 f'<div class="hide-small" style="font-size: {album_px:.1f}px; '
                 "font-weight: 600; line-height: 1.2; color: var(--text-tertiary); "
