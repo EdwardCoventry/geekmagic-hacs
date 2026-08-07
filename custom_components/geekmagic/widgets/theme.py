@@ -719,6 +719,241 @@ body { background:
 )
 
 
+# 12. Blueprint — an engineering drawing, not a screen
+#
+# Prussian-blue drafting paper carrying a two-scale grid (fine 8px lines
+# under 40px majors, both from repeating-linear-gradients), cells drawn
+# as pure line-work — square corners, 1px strokes, no fill — and DejaVu
+# caps annotations. Accents are the four pens on a drafting desk:
+# cyanotype white-blue, amber marker, red pen, chalk green. The overlay
+# stamps corner register ticks like a plotted sheet.
+THEME_BLUEPRINT = Theme(
+    name="blueprint",
+    primary=(140, 200, 255),
+    secondary=(120, 165, 215),
+    success=(150, 220, 170),
+    warning=(255, 190, 90),
+    error=(255, 110, 100),
+    info=(140, 200, 255),
+    muted=(95, 125, 160),
+    background=(11, 42, 80),
+    surface=(16, 52, 96),
+    surface_variant=(20, 60, 108),
+    border=(90, 130, 175),
+    text_primary=(235, 244, 255),
+    text_secondary=(170, 195, 225),
+    text_tertiary=(120, 150, 185),
+    text_on_primary=(11, 42, 80),
+    accent_colors=(
+        (140, 200, 255),
+        (255, 190, 90),
+        (150, 220, 170),
+        (255, 110, 100),
+        (200, 215, 240),
+    ),
+    corner_radius=2,
+    layout_padding=8,
+    widget_padding=5,
+    gap=8,
+    rounded_font=False,
+    surface_chrome=True,
+    tint_track=False,
+    font_stack='"DejaVu Sans", sans-serif',
+    chrome_css="""
+.root { border-radius: 2px; padding: 4px;
+  border: 1px solid rgba(200,220,245,0.42); }
+.t-label { text-transform: uppercase; letter-spacing: 0.12em; }
+.t-hero, .t-value { font-weight: 700; letter-spacing: 0; }
+.chip { border-radius: 2px; background: transparent;
+        border: 1px solid rgba(200,220,245,0.30); }
+""",
+    backdrop_css="""
+body { background:
+  radial-gradient(130% 95% at 50% 0%, rgba(30,75,130,0.55) 0%, rgba(30,75,130,0) 62%),
+  repeating-linear-gradient(0deg, rgba(215,232,255,0.085) 0px, rgba(215,232,255,0.085) 1px,
+    rgba(0,0,0,0) 1px, rgba(0,0,0,0) 40px),
+  repeating-linear-gradient(90deg, rgba(215,232,255,0.085) 0px, rgba(215,232,255,0.085) 1px,
+    rgba(0,0,0,0) 1px, rgba(0,0,0,0) 40px),
+  repeating-linear-gradient(0deg, rgba(215,232,255,0.035) 0px, rgba(215,232,255,0.035) 1px,
+    rgba(0,0,0,0) 1px, rgba(0,0,0,0) 8px),
+  repeating-linear-gradient(90deg, rgba(215,232,255,0.035) 0px, rgba(215,232,255,0.035) 1px,
+    rgba(0,0,0,0) 1px, rgba(0,0,0,0) 8px),
+  linear-gradient(180deg, #0d3161 0%, #0b2a50 100%); }
+""",
+    overlay_css="""
+body { background:
+  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 3px 3px / 12px 1px no-repeat,
+  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 3px 3px / 1px 12px no-repeat,
+  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 225px 3px / 12px 1px no-repeat,
+  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 236px 3px / 1px 12px no-repeat,
+  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 3px 236px / 12px 1px no-repeat,
+  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 3px 225px / 1px 12px no-repeat,
+  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 225px 236px / 12px 1px no-repeat,
+  linear-gradient(rgba(235,244,255,0.55), rgba(235,244,255,0.55)) 236px 225px / 1px 12px no-repeat; }
+""",
+)
+
+# 13. Ink — warm newsprint, one pot of red ink
+#
+# An editorial page, not a display: cream paper, near-black ink, DejaVu
+# caps, and cells set as newspaper column blocks — a strong rule above,
+# a faint one below, no fill, no radius. Everything is ink-toned except
+# a single vermilion spot color (the "red pen"), so a glance reads like
+# a well-set broadsheet where only what matters is circled.
+THEME_INK = Theme(
+    name="ink",
+    primary=(196, 62, 42),
+    secondary=(70, 90, 130),
+    success=(64, 110, 74),
+    warning=(168, 120, 42),
+    error=(196, 62, 42),
+    info=(70, 90, 130),
+    muted=(158, 150, 138),
+    background=(246, 241, 231),
+    surface=(240, 234, 222),
+    surface_variant=(233, 226, 212),
+    border=(205, 196, 180),
+    text_primary=(30, 28, 25),
+    text_secondary=(92, 87, 79),
+    text_tertiary=(142, 135, 123),
+    text_on_primary=(246, 241, 231),
+    accent_colors=(
+        (196, 62, 42),
+        (30, 28, 25),
+        (70, 90, 130),
+        (168, 120, 42),
+        (64, 110, 74),
+    ),
+    corner_radius=0,
+    layout_padding=9,
+    widget_padding=5,
+    gap=9,
+    rounded_font=False,
+    surface_chrome=True,
+    tint_track=False,
+    bar_background=(222, 214, 199),
+    font_stack='"DejaVu Sans", sans-serif',
+    chrome_css="""
+.root { border-radius: 0; padding: 5px 3px 3px;
+  border-top: 2px solid rgba(30,28,25,0.78);
+  border-bottom: 1px solid rgba(30,28,25,0.22); }
+.t-label { text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; }
+.t-hero, .t-value { font-weight: 700; letter-spacing: -0.01em; }
+.chip { border-radius: 0; background: transparent;
+        border: 1px solid rgba(30,28,25,0.28); }
+""",
+    backdrop_css="""
+body { background:
+  radial-gradient(120% 70% at 50% -10%, #fbf7ee 0%, rgba(251,247,238,0) 55%),
+  linear-gradient(180deg, #f6f1e7 0%, #efe8da 100%); }
+""",
+)
+
+# 14. Aurora — a luminous mesh-gradient poster
+#
+# The Linear/Stripe poster look: three vast low-alpha radial washes
+# (teal, violet, magenta) drifting over near-black indigo, with cells as
+# frosted glass — translucent white with a lit top sheen — so the color
+# field glows THROUGH the interface. Accents are iridescent northern
+# hues that read as parts of the same light.
+THEME_AURORA = Theme(
+    name="aurora",
+    primary=(110, 255, 210),
+    secondary=(170, 130, 255),
+    success=(110, 255, 210),
+    warning=(255, 210, 130),
+    error=(255, 120, 190),
+    info=(130, 200, 255),
+    muted=(110, 112, 138),
+    background=(10, 10, 24),
+    surface=(24, 24, 46),
+    surface_variant=(32, 32, 58),
+    border=(58, 58, 92),
+    text_primary=(240, 240, 250),
+    text_secondary=(172, 172, 198),
+    text_tertiary=(118, 118, 146),
+    text_on_primary=(10, 10, 24),
+    accent_colors=(
+        (110, 255, 210),
+        (170, 130, 255),
+        (255, 120, 190),
+        (130, 200, 255),
+        (255, 210, 130),
+    ),
+    corner_radius=20,
+    layout_padding=8,
+    widget_padding=7,
+    gap=8,
+    surface_chrome=True,
+    tint_track_opacity=0.22,
+    chrome_css="""
+.root { border-radius: var(--radius); padding: 6px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.085), rgba(255,255,255,0.030));
+  border: 1px solid rgba(255,255,255,0.11);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10); }
+.t-hero, .t-value { font-weight: 800; letter-spacing: -0.03em; }
+""",
+    backdrop_css="""
+body { background:
+  radial-gradient(85% 65% at 12% 6%, rgba(0,220,182,0.26) 0%, rgba(0,220,182,0) 58%),
+  radial-gradient(90% 70% at 88% 22%, rgba(140,92,255,0.24) 0%, rgba(140,92,255,0) 60%),
+  radial-gradient(100% 80% at 65% 100%, rgba(255,74,160,0.17) 0%, rgba(255,74,160,0) 55%),
+  linear-gradient(180deg, #0d0d20 0%, #07070f 100%); }
+""",
+)
+
+# 15. Brutal — neo-brutalism at 240px
+#
+# Flat bone paper, white blocks with thick 2px ink borders and a HARD
+# offset shadow (no blur — the whole point), loud primary-school
+# accents, and everything set extra-bold. The shadow offset budget
+# (3px) plus border (2px) plus padding (2px) matches the chrome inset
+# the fit math reserves, so nothing clips at the cell edge.
+THEME_BRUTAL = Theme(
+    name="brutal",
+    primary=(40, 90, 255),
+    secondary=(150, 80, 255),
+    success=(0, 180, 110),
+    warning=(255, 180, 0),
+    error=(255, 70, 60),
+    info=(40, 90, 255),
+    muted=(150, 146, 136),
+    background=(240, 235, 220),
+    surface=(255, 252, 245),
+    surface_variant=(246, 242, 232),
+    border=(20, 20, 20),
+    text_primary=(20, 20, 20),
+    text_secondary=(85, 82, 75),
+    text_tertiary=(138, 133, 122),
+    text_on_primary=(255, 252, 245),
+    accent_colors=(
+        (40, 90, 255),
+        (255, 70, 60),
+        (255, 180, 0),
+        (0, 180, 110),
+        (150, 80, 255),
+    ),
+    corner_radius=6,
+    layout_padding=8,
+    widget_padding=6,
+    gap=9,
+    surface_chrome=True,
+    tint_track_opacity=0.18,
+    bar_background=(226, 220, 205),
+    chrome_css="""
+.root { width: calc(100% - 3px); height: calc(100% - 3px);
+  border-radius: var(--radius); padding: 2px;
+  background: #fffcf5; border: 2px solid #141414;
+  box-shadow: 3px 3px 0 #141414; }
+.t-label { font-weight: 800; letter-spacing: 0.04em; }
+.t-hero, .t-value { font-weight: 800; letter-spacing: -0.03em; }
+.chip { background: #f0ebdc; border: 1px solid #141414; font-weight: 700; }
+""",
+    backdrop_css="""
+body { background: #f0ebdc; }
+""",
+)
+
 # =============================================================================
 # Theme Registry
 # =============================================================================
@@ -735,6 +970,10 @@ THEMES: dict[str, Theme] = {
     "sunset": THEME_SUNSET,
     "forest": THEME_FOREST,
     "candy": THEME_CANDY,
+    "blueprint": THEME_BLUEPRINT,
+    "ink": THEME_INK,
+    "aurora": THEME_AURORA,
+    "brutal": THEME_BRUTAL,
 }
 
 DEFAULT_THEME = THEME_WATCHOS
@@ -759,9 +998,13 @@ __all__ = [
     "SYSTEM_TEAL",
     "SYSTEM_YELLOW",
     "THEMES",
+    "THEME_AURORA",
+    "THEME_BLUEPRINT",
+    "THEME_BRUTAL",
     "THEME_CANDY",
     "THEME_CLASSIC",
     "THEME_FOREST",
+    "THEME_INK",
     "THEME_LIGHT",
     "THEME_MINIMAL",
     "THEME_NEON",

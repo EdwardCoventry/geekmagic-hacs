@@ -280,7 +280,7 @@ Animations are off by default: a GIF costs upload size (~100KB vs
 
 ## Themes
 
-Choose from **11 built-in themes** that go beyond just colors — they apply a complete design system: typography (rounded Nunito font on most themes), spacing, shapes, tinted gauge tracks, and visual effects.
+Choose from **15 built-in themes** that go beyond just colors — they apply a complete design system: typography (rounded Nunito font on most themes), spacing, shapes, tinted gauge tracks, and visual effects.
 
 The default `watchOS` theme is inspired by Apple's watchOS Human Interface Guidelines: true-black background, Apple system colors (red/orange/yellow/green/mint/teal/cyan/blue/indigo/purple/pink), opacity-based text hierarchy, tinted Activity-ring style gauges, and no card chrome — widgets float on the background for maximum information density.
 
@@ -298,13 +298,20 @@ The default `watchOS` theme is inspired by Apple's watchOS Human Interface Guide
 | <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_ocean.png" alt="Ocean" width="200"> | <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_sunset.png" alt="Sunset" width="200"> | <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_forest.png" alt="Forest" width="200"> | <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_light.png" alt="Light" width="200"> | <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_candy.png" alt="Candy" width="200"> |
 | Deep blue, nautical | Warm coral/orange | Natural earth tones | Clean white background | Playful pastels |
 
+### Statement Themes
+
+| Blueprint | Ink | Aurora | Brutal |
+|:---------:|:---:|:------:|:------:|
+| <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_blueprint.png" alt="Blueprint" width="200"> | <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_ink.png" alt="Ink" width="200"> | <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_aurora.png" alt="Aurora" width="200"> | <img src="https://raw.githubusercontent.com/adrienbrault/geekmagic-hacs/main/samples/layouts/layout_theme_brutal.png" alt="Brutal" width="200"> |
+| Engineering drawing on drafting-grid paper | Warm newsprint with one pot of red ink | Luminous mesh-gradient poster, frosted glass | Neo-brutalism: hard borders, harder shadows |
+
 ---
 
 ## Features
 
 - **15 widget types**: Clock, entity, attribute list, media, chart, candlestick, text, gauge, progress, weather, status, climate, camera, and more
 - **19 layout options**: Fullscreen, grids, splits, hero variants, sidebars, and more
-- **11 visual themes**: watchOS (default), Classic, Minimal, Neon, Retro, Soft, Light, Ocean, Sunset, Forest, Candy
+- **15 visual themes**: watchOS (default), Classic, Minimal, Neon, Retro, Soft, Light, Ocean, Sunset, Forest, Candy, Blueprint, Ink, Aurora, Brutal
 - **Visual configuration**: Custom sidebar panel with live preview
 - **Global views**: Create views once, assign to multiple devices
 - **Multi-screen support**: Assign multiple views per device with auto-cycling

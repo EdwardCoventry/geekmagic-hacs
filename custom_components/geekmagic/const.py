@@ -73,6 +73,10 @@ THEME_OCEAN = "ocean"
 THEME_SUNSET = "sunset"
 THEME_FOREST = "forest"
 THEME_CANDY = "candy"
+THEME_BLUEPRINT = "blueprint"
+THEME_INK = "ink"
+THEME_AURORA = "aurora"
+THEME_BRUTAL = "brutal"
 
 # Theme display names for UI
 # watchOS is listed first so it appears at the top of the dropdown — it's
@@ -89,6 +93,10 @@ THEME_OPTIONS = {
     THEME_SUNSET: "Sunset",
     THEME_FOREST: "Forest",
     THEME_CANDY: "Candy",
+    THEME_BLUEPRINT: "Blueprint",
+    THEME_INK: "Ink",
+    THEME_AURORA: "Aurora",
+    THEME_BRUTAL: "Brutal",
 }
 
 # Layout types

@@ -100,8 +100,8 @@ class TestThemeDefaults:
         """A stale/unknown configured theme never crashes rendering."""
         assert get_theme("does-not-exist") is DEFAULT_THEME
 
-    def test_all_eleven_themes_registered(self) -> None:
-        assert len(THEMES) == 11
+    def test_all_fifteen_themes_registered(self) -> None:
+        assert len(THEMES) == 15
 
     def test_registry_matches_const_options(self) -> None:
         """The frontend dropdown sources options from const.THEME_OPTIONS.
@@ -251,7 +251,7 @@ class TestThemeCSSFields:
         vignette). Adding an overlay to a theme is a deliberate design
         decision — update this contract when you make it."""
         with_overlay = {name for name, theme in THEMES.items() if theme.overlay_css.strip()}
-        assert with_overlay == {"retro", "neon"}
+        assert with_overlay == {"retro", "neon", "blueprint"}
 
 
 # ---------------------------------------------------------------------------
