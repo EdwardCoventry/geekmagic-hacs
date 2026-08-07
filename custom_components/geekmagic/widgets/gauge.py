@@ -17,7 +17,6 @@ from ._gauge import (
     feature_icon_px,
     fit_caption_sized,
     hero_font_css,
-    hero_font_px,
     hero_metrics,
     label_px,
     track_css,
@@ -243,8 +242,12 @@ class GaugeWidget(Widget):
         if inside:
             # Inside the hole the caption is capped by the value it sits
             # under (or by the hole itself when there is no value); the
-            # width budget is the hole, not the cell.
-            cap_px = min(label_px(ctx), value_px * 0.30) if value_px else min(hole * 0.20, 26.0)
+            # width budget is the hole, not the cell. Secondary tone and
+            # a generous share of the value — tertiary at 30% read as
+            # missing on a 240px ring.
+            cap_px = (
+                min(label_px(ctx) * 1.4, value_px * 0.38) if value_px else min(hole * 0.20, 26.0)
+            )
             text, caption_px = fit_caption_sized(
                 ctx,
                 name,
@@ -255,7 +258,8 @@ class GaugeWidget(Widget):
             if text:
                 gap = f"margin-top: {value_px * 0.16:.1f}px" if value_px else ""
                 label_html += (
-                    f'<div class="t-label" style="font-size: {caption_px:.1f}px; {gap}">'
+                    f'<div class="t-label" style="font-size: {caption_px:.1f}px; '
+                    f'color: var(--text-secondary); {gap}">'
                     f"{escape(text)}</div>"
                 )
 
@@ -285,23 +289,24 @@ class GaugeWidget(Widget):
         diameter = max(_ROUND_MIN, min(avail_h, avail_w * 0.46))
         text_w = max(24.0, avail_w - diameter - gap)
         no_value = not (digits or unit)
-        caption, _band = self._caption_band(
-            ctx, name, text_w, reserve_h=_VALUE_MIN, avail_h=avail_h, no_value=no_value
-        )
-        label_html = ""
-        if digits or unit:
-            hero_px = min(
-                hero_font_px(digits, unit, text_w),
-                avail_h * (0.52 if caption else 0.74),
+        # The value renders INSIDE the hole — a ring with an empty hole
+        # and its number floating beside it reads as two broken widgets,
+        # not one gauge (Activity rings never separate the two).
+        inside = ""
+        if not no_value:
+            inside = self._value_html(
+                digits, unit, self._hole_font_px(diameter, digits, unit), color
             )
-            label_html = self._value_html(digits, unit, hero_px, color)
-        box = self._gauge_box(diameter, percent, color, track, "")
+        caption, _band = self._caption_band(
+            ctx, name, text_w, reserve_h=0.0, avail_h=avail_h, no_value=no_value
+        )
+        box = self._gauge_box(diameter, percent, color, track, inside)
         return (
             f'<div class="cell row" style="gap: {gap:.0f}px">'
             f"{box}"
             '<div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; '
             'align-items: center; justify-content: center; gap: 6%">'
-            f"{caption}{label_html}</div>"
+            f"{caption}</div>"
             "</div>"
         )
 
@@ -316,37 +321,27 @@ class GaugeWidget(Widget):
         color: str,
         track: str,
     ) -> str:
-        """Tall cell: caption above, gauge, value beneath — the row's transpose.
+        """Tall cell: caption above, then the gauge at full column width.
 
-        A circle in a 1:3 cell is bound by the *width*, so centering it
-        strands most of the column and buries the value in a hole barely
-        wider than the stroke. Lifting the value out from under the ring
-        spends the spare height on type instead of air.
+        A circle in a 1:3 cell is bound by the *width* — the extra
+        height becomes breathing room, and the value stays INSIDE the
+        hole where a gauge's reading belongs. The width-bound diameter
+        makes the hole as large as this cell can offer, so the in-hole
+        value is already the biggest this shape supports.
         """
         avail_w, avail_h = cell_box(ctx)
         no_value = not (digits or unit)
         caption, band = self._caption_band(
             ctx, name, avail_w, reserve_h=_ROUND_MIN, avail_h=avail_h, no_value=no_value
         )
-        label_html = ""
-        hero_band = 0.0
+        diameter = max(_ROUND_MIN, min(avail_w, (avail_h - band) * 0.92))
+        inside = ""
         if not no_value:
-            hero_px = min(hero_font_px(digits, unit, avail_w), avail_h * _COLUMN_VALUE_SHARE)
-            hero_band = hero_px * 1.1
-            label_html = self._value_html(digits, unit, hero_px, color)
-        # The remainder is the gauge's, minus a share left for the
-        # space-evenly gaps that keep the bands reading as bands.
-        diameter = max(_ROUND_MIN, min(avail_w, (avail_h - band - hero_band) * 0.92))
-        box = self._gauge_box(diameter, percent, color, track, "")
-        # Ring and value are ONE unit (Activity style) — grouped with a
-        # tight gap, or space-evenly floats the number to the cell's
-        # bottom edge and the ring reads as an empty broken circle.
-        gap = max(2.0, diameter * 0.06)
-        reading = (
-            '<div style="display: flex; flex-direction: column; align-items: center; '
-            f'gap: {gap:.0f}px">{box}{label_html}</div>'
-        )
-        return f'<div class="cell">{caption}{reading}</div>'
+            inside = self._value_html(
+                digits, unit, self._hole_font_px(diameter, digits, unit), color
+            )
+        box = self._gauge_box(diameter, percent, color, track, inside)
+        return f'<div class="cell">{caption}{box}</div>'
 
     @staticmethod
     def _caption_band(
