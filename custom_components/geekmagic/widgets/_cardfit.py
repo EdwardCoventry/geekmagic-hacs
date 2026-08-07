@@ -120,11 +120,11 @@ def fit_caption(text: str, ctx: CellContext, avail_w: float) -> str:
     glyph width; measuring the real caps string is what keeps long entity
     names from bleeding off the panel.
 
-    A stub is worse than nothing: when truncation destroys the name's
-    identity ("GARAG…" for "GARAGE WORKSHOP TEMPERATURE"), the caption
-    drops entirely and the cell spends the room on the value. A caption
-    survives if at least 70% of its characters — or an 8-character
-    prefix — make it through.
+    A stub is worse than nothing — but only a genuinely destroyed stub:
+    "TEMPERA…" still identifies a temperature, and even "GARAG…" says
+    which room, while "GAR…" says nothing. A caption survives when at
+    least 4 characters make it through; below that the cell spends the
+    room on the value instead.
     """
     metrics = metrics_for(ctx.theme)
     upper = text.upper()
@@ -139,7 +139,7 @@ def fit_caption(text: str, ctx: CellContext, avail_w: float) -> str:
     )
     if fitted != upper:
         kept = len(fitted.rstrip("…"))
-        if kept < 8 and kept < 0.7 * len(upper):
+        if kept < 4:
             return ""
     return fitted
 

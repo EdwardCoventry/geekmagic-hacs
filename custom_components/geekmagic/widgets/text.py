@@ -28,6 +28,10 @@ _MIN_HERO_PX = 12.0
 # Below this the cell has no room for a second line.
 _WRAP_MIN_CELL = 100
 
+# Below this content height even a compact caption row would crowd the
+# text out entirely (matches entity.py).
+_COMPACT_MIN_H = 40.0
+
 
 class TextWidget(Widget):
     """Widget that displays static or dynamic text via the card pattern.
@@ -62,7 +66,11 @@ class TextWidget(Widget):
         """Render the text widget."""
         text = self._get_text(state)
         box_w, box_h = cell_box(ctx)
-        show_caption = bool(self.config.label) and caption_visible(ctx)
+        bands_kept = caption_visible(ctx)
+        # Short cells (hero-layout footers) keep a shrunk caption row
+        # instead of dropping the label — an unlabeled "247" is noise.
+        compact_identity = not bands_kept and box_h >= _COMPACT_MIN_H
+        show_caption = bool(self.config.label) and (bands_kept or compact_identity)
         caption_band = label_px(ctx) * 1.25 if show_caption else 0.0
         share = HERO_SHARE_STACKED if show_caption else HERO_SHARE_SOLO
 
@@ -81,6 +89,7 @@ class TextWidget(Widget):
 
         return card_html(
             caption=fit_caption(self.config.label or "", ctx, box_w) if show_caption else None,
+            caption_hide="hide-short" if bands_kept else "",
             hero=hero_block(hero),
             hero_is_html=True,
             hero_color=css_rgb(self.config.color) if self.config.color else None,

@@ -11,12 +11,10 @@ from ..const import (
 from ..htmldoc import css_rgb
 from ._card import card_html
 from ._cardfit import (
-    HERO_LINE,
     HERO_SHARE_SOLO,
     HERO_SHARE_STACKED,
     caption_visible,
     cell_box,
-    fit_caption,
     fit_hero,
     hero_block,
     label_px,
@@ -28,21 +26,21 @@ if TYPE_CHECKING:
     from ..htmldoc import CellContext
     from .state import WidgetState
 
-# The feature icon reads as the cell's identifier, not its message: half
-# the hero keeps the value unmistakably first (watchOS complication
-# proportions).
-_ICON_RATIO = 0.5
+# The feature icon reads as the cell's identifier, not its message. Its
+# size comes from the CELL geometry alone, never the value length —
+# neighbouring grid cells must carry equal icons even when one value is
+# "On" and the next is "Locked". Tall cells get a bonus: their heroes
+# are width-bound, and a fixed-ratio icon would strand the extra height
+# as empty gaps.
+_ICON_VMIN = 0.26
+_ICON_TALL_BONUS = 0.15
 _ICON_MIN_PX = 13.0
 _MAX_HERO_PX = 124.0
 _MIN_HERO_PX = 12.0
 
-# A hero that is width-bound in a tall cell can leave nearly half the
-# height unspent; hand some of that slack to the icon rather than draw a
-# cell that reads half-empty. Capped well under the hero so the value
-# stays the biggest thing in the cell.
-_SLACK_TRIGGER = 0.42
-_SLACK_SHARE = 0.35
-_ICON_RATIO_MAX = 0.70
+# Below this content height even a compact caption row would crowd the
+# value out entirely.
+_COMPACT_MIN_H = 40.0
 
 # Only wrap a value onto two lines in cells with room to spare.
 _WRAP_MIN_CELL = 130
@@ -135,10 +133,11 @@ class EntityWidget(Widget):
             unit = entity.unit if self.show_unit else ""
             name = self.label_for(entity)
 
-        # Narrow columns: multi-char units cost the digits their size —
-        # drop them before the value has to shrink or mangle. Single-char
-        # suffixes (°, %) are cheap and keep their meaning.
-        if unit and len(unit) > 1 and ctx.width < 100:
+        # Narrow columns: long word units (km/h, kWh) cost the digits
+        # their size — drop them before the value has to shrink or
+        # mangle. Short suffixes (°, %, °C) are cheap and keep their
+        # meaning; a bare "22" in a footer cell reads as noise.
+        if unit and len(unit) > 2 and ctx.width < 100:
             unit = ""
 
         # Determine icon to use
@@ -151,46 +150,55 @@ class EntityWidget(Widget):
         # dimmed marker rather than a headline set in 100px dashes.
         missing = value == PLACEHOLDER_VALUE
         bands_kept = caption_visible(ctx)
-        show_caption = bool(name) and self.show_name and bands_kept
-        show_icon = bool(icon) and bands_kept
+        # Short cells (hero-layout footers, ~65px) still owe the value
+        # its identity — a bare "85" reads as noise. The caption and
+        # icon collapse into one compact inline row instead of
+        # disappearing.
+        compact_identity = not bands_kept and box_h >= _COMPACT_MIN_H
+        show_caption = bool(name) and self.show_name and (bands_kept or compact_identity)
+        show_icon = bool(icon) and (bands_kept or compact_identity)
+        feature_icon = show_icon and bands_kept
 
         caption_band = label_px(ctx) * 1.25 if show_caption else 0.0
-        share = HERO_SHARE_SOLO if not (show_caption or show_icon) else HERO_SHARE_STACKED
+        share = HERO_SHARE_SOLO if not (show_caption or feature_icon) else HERO_SHARE_STACKED
         free_h = box_h - caption_band
 
         max_hero = min(_MAX_HERO_PX, 0.34 * box_h) if missing else _MAX_HERO_PX
 
-        # Size the icon off the width-limited hero, then let it take its
-        # share of the height back out of the hero's budget.
-        loose = fit_hero(value, ctx, box_w, box_h * 4, suffix=unit, max_px=max_hero)
-        icon_px = min(max(_ICON_RATIO * loose.px, _ICON_MIN_PX), 0.32 * box_h, 0.5 * box_w)
+        icon_px = min(
+            _ICON_VMIN * min(box_w, box_h) + _ICON_TALL_BONUS * max(0.0, box_h - box_w),
+            0.32 * box_h,
+            0.5 * box_w,
+        )
+        icon_px = max(icon_px, _ICON_MIN_PX)
 
         hero = fit_hero(
             value,
             ctx,
             box_w,
-            max(16.0, (free_h - (icon_px if show_icon else 0.0)) * share),
+            max(16.0, (free_h - (icon_px if feature_icon else 0.0)) * share),
             suffix=unit,
             allow_wrap=min(ctx.width, ctx.height) >= _WRAP_MIN_CELL,
             max_px=max_hero,
             min_px=_MIN_HERO_PX,
         )
 
-        icon_px = min(icon_px, max(_ICON_RATIO * hero.px, _ICON_MIN_PX))
-        slack = free_h - (icon_px + hero.px * HERO_LINE)
-        if slack > _SLACK_TRIGGER * free_h:
-            icon_px = min(icon_px + _SLACK_SHARE * slack, 0.42 * box_w, _ICON_RATIO_MAX * hero.px)
-
         tint = css_rgb(self.config.color) if self.config.color else ctx.accent()
 
         return card_html(
-            caption=fit_caption(name, ctx, box_w) if show_caption else None,
-            icon=icon,
+            # card_html measures and truncates the caption itself (with
+            # the chip icon's reserve in compact mode).
+            caption=name if show_caption else None,
+            # Compact cells manage caption visibility themselves — the
+            # kit's hide-short must not re-hide the row it shrank for.
+            caption_hide="hide-short" if bands_kept else "",
+            icon=icon if show_icon else None,
             icon_color=tint,
-            icon_size=icon_px,
+            icon_size=icon_px if feature_icon else None,
             # The entity icon is the cell's primary visual identifier —
-            # promote it to its own band.
-            icon_role="feature",
+            # its own band when there's room, inline with the caption in
+            # compact cells.
+            icon_role="feature" if feature_icon else "chip",
             hero=hero_block(hero, suffix=unit),
             hero_color="var(--text-tertiary)" if missing else None,
             hero_is_html=True,

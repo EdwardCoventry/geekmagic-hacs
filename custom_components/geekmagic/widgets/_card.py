@@ -69,6 +69,7 @@ def chip_html(text: str, icon: str | None = None, color: str | None = None) -> s
 def card_html(
     *,
     caption: str | None = None,
+    caption_hide: str = "hide-short",
     icon: str | None = None,
     icon_color: str | None = None,
     icon_role: str = "chip",
@@ -85,6 +86,10 @@ def card_html(
 
     Args:
         caption: Caps label band (auto-hidden in short cells).
+        caption_hide: Which kit breakpoint sheds the caption row
+            ("hide-short" by default, or "" to always keep it — a widget
+            that shrinks its caption for short cells manages visibility
+            itself).
         icon: MDI icon name.
         icon_color: CSS color for the icon.
         icon_role: "feature" renders the icon as its own band above the
@@ -117,10 +122,12 @@ def card_html(
     if caption:
         reserve = 1.5 if (icon and icon_role == "chip") else 0.0
         text = caption_fit(ctx, caption.upper(), reserve_em=reserve)
-        caption_inner = escape(text)
-        if icon and icon_role == "chip":
-            caption_inner = mdi_span(icon, "icon i-sm", icon_style) + caption_inner
-        bands.append(f'<div class="t-label caption-row hide-short">{caption_inner}</div>')
+        if text or (icon and icon_role == "chip"):
+            caption_inner = escape(text)
+            if icon and icon_role == "chip":
+                caption_inner = mdi_span(icon, "icon i-sm", icon_style) + caption_inner
+            hide = f" {caption_hide}" if caption_hide else ""
+            bands.append(f'<div class="t-label caption-row{hide}">{caption_inner}</div>')
 
     hero_html = hero if hero_is_html else escape(hero)
     hero_style = f' style="color: {hero_color}"' if hero_color else ""

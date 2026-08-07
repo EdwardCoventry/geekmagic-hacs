@@ -420,8 +420,14 @@ class GaugeWidget(Widget):
         *,
         width_ratio: float = 1.0,
     ) -> str:
-        """Caps caption band, Python-truncated to the cell width."""
-        if not name:
+        """Caps caption band, Python-truncated to the cell width.
+
+        Visibility is decided here, not by the kit's ``hide-short``: a
+        bar gauge in a hero-layout footer (~65px tall) still has room
+        for its 10px label, and an unlabeled bar is a number without a
+        meaning. Only cells too short for caption + value + bar drop it.
+        """
+        if not name or ctx.height < 46:
             return ""
         text = fit_caption(
             ctx,
@@ -429,4 +435,6 @@ class GaugeWidget(Widget):
             reserve_em=1.6 if icon_html else 0.0,
             width_px=ctx.width * 0.90 * width_ratio,
         )
-        return f'<div class="t-label caption-row hide-short">{icon_html}{escape(text)}</div>'
+        if not (text or icon_html):
+            return ""
+        return f'<div class="t-label caption-row">{icon_html}{escape(text)}</div>'

@@ -7,6 +7,7 @@ Blitz rasterization is deliberately NOT exercised here (pipeline render
 tests live elsewhere).
 """
 
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -256,6 +257,10 @@ class TestTruncateText:
         result = truncate_text("very long text", 9, style="start")
         assert result.startswith("…")
         assert result.endswith("ng text")
+
+    def test_no_trailing_space_before_ellipsis(self):
+        """ "SWITCH …" reads as a floating dot-dot-dot — strip the space."""
+        assert truncate_text("SWITCH ON", 8) == "SWITCH…"
 
 
 class TestCalculatePercent:
@@ -556,6 +561,74 @@ class TestEntityWidget:
         assert "&lt;" in fragment
 
 
+class TestEntityWidgetCompactIdentity:
+    """Short footer cells keep the value's identity (regression tests).
+
+    Hero-layout footer cells (~69x65) sit below the kit's hide-short
+    breakpoint. The caption and icon must collapse into a compact inline
+    row there, not disappear — a bare "85" is a number without meaning.
+    """
+
+    FOOTER = CellContext(width=69, height=65, slot_index=0, theme=DEFAULT_THEME)
+
+    def _widget(self, **options):
+        return EntityWidget(
+            WidgetConfig(
+                widget_type="entity",
+                slot=0,
+                entity_id="sensor.living_temp",
+                label="Living",
+                options=options,
+            )
+        )
+
+    def test_footer_cell_keeps_caption(self):
+        entity = make_entity("sensor.living_temp", "22")
+        fragment = self._widget().render_html(self.FOOTER, make_state(entity))
+        assert "LIVING" in fragment
+        # The compact row manages its own visibility — hide-short would
+        # re-hide the caption the widget deliberately shrank.
+        assert "hide-short" not in fragment
+
+    def test_footer_cell_keeps_icon_inline(self):
+        entity = make_entity("sensor.living_temp", "22", {"icon": "mdi:thermometer"})
+        fragment = self._widget().render_html(self.FOOTER, make_state(entity))
+        # Inline chip icon beside the caption, not a feature band.
+        assert "i-sm" in fragment
+        assert "card-icon" not in fragment
+
+    def test_footer_cell_keeps_short_unit(self):
+        entity = make_entity("sensor.living_temp", "22", {"unit_of_measurement": "°C"})
+        fragment = self._widget().render_html(self.FOOTER, make_state(entity))
+        assert ">°C</span>" in fragment
+
+    def test_narrow_cell_drops_long_unit(self):
+        entity = make_entity("sensor.living_temp", "42", {"unit_of_measurement": "km/h"})
+        fragment = self._widget().render_html(self.FOOTER, make_state(entity))
+        assert "km/h" not in fragment
+
+    def test_tiny_cell_drops_caption(self):
+        tiny = CellContext(width=69, height=34, slot_index=0, theme=DEFAULT_THEME)
+        entity = make_entity("sensor.living_temp", "22")
+        fragment = self._widget().render_html(tiny, make_state(entity))
+        assert "LIVING" not in fragment
+
+    def test_grid_icons_same_size_across_values(self):
+        """Neighbouring grid cells carry equal icons regardless of value length."""
+        cell = CellContext(width=108, height=108, slot_index=0, theme=DEFAULT_THEME)
+
+        def icon_size(state: str) -> str:
+            entity = make_entity("sensor.x", state, {"icon": "mdi:lightbulb"})
+            fragment = EntityWidget(
+                WidgetConfig(widget_type="entity", slot=0, entity_id="sensor.x", label="X")
+            ).render_html(cell, make_state(entity))
+            match = re.search(r"card-icon.*?font-size: (\d+)px", fragment)
+            assert match is not None
+            return match.group(1)
+
+        assert icon_size("On") == icon_size("Locked")
+
+
 class TestEntityWidgetAttribute:
     """Tests for EntityWidget with attribute option (issue #38)."""
 
@@ -641,6 +714,16 @@ class TestTextWidget:
             )
         )
         assert widget.text == "Hello"
+
+    def test_footer_cell_keeps_label(self):
+        """Short footer cells keep a shrunk caption instead of dropping it."""
+        footer = CellContext(width=69, height=65, slot_index=0, theme=DEFAULT_THEME)
+        widget = TextWidget(
+            WidgetConfig(widget_type="text", slot=0, label="Setup", options={"text": "Ready"})
+        )
+        fragment = widget.render_html(footer, make_state())
+        assert "SETUP" in fragment
+        assert "hide-short" not in fragment
 
     def test_render_static_text(self, ctx):
         widget = TextWidget(WidgetConfig(widget_type="text", slot=0, options={"text": "Hello"}))
@@ -804,6 +887,23 @@ class TestGaugeWidget:
         widget = GaugeWidget(WidgetConfig(widget_type="gauge", slot=0, entity_id="sensor.cpu"))
         assert widget.show_name is True
         assert widget.show_unit is True
+
+    def test_bar_footer_cell_keeps_caption(self):
+        """A bar gauge in a short footer cell keeps its label."""
+        footer = CellContext(width=69, height=65, slot_index=0, theme=DEFAULT_THEME)
+        widget = GaugeWidget(
+            WidgetConfig(
+                widget_type="gauge",
+                slot=0,
+                entity_id="sensor.cpu",
+                label="CPU",
+                options={"style": "bar"},
+            )
+        )
+        entity = make_entity("sensor.cpu", "73", {"unit_of_measurement": "%"})
+        fragment = widget.render_html(footer, make_state(entity))
+        assert "CPU" in fragment
+        assert "hide-short" not in fragment
 
     def test_cleared_icon_normalises_to_none(self):
         """ha-icon-picker writes ``""`` when cleared (issue #125)."""
