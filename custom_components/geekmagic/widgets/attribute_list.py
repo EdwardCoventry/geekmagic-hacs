@@ -123,9 +123,7 @@ class AttributeListWidget(Widget):
         count = max(1, len(items))
 
         title_h = caption_px * 1.9
-        show_title = (
-            bool(title) and ctx.width >= 100 and (usable_h - title_h) / count >= _ROW_MIN
-        )
+        show_title = bool(title) and ctx.width >= 100 and (usable_h - title_h) / count >= _ROW_MIN
         rows_h = usable_h - (title_h if show_title else 0.0)
 
         if items and rows_h / count < _ROW_MIN:

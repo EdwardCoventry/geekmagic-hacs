@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
-from unicodedata import east_asian_width
 
 from ..htmldoc import css_rgb, image_data_uri, mdi_span
 
@@ -13,88 +13,28 @@ if TYPE_CHECKING:
     from PIL import Image
 
     from ..htmldoc import CellContext
+    from ._textfit import TextMetrics
     from .state import EntityState, WidgetState
 
+from ._textfit import metrics_for
 from .base import Widget, WidgetConfig
 
-# ---------------------------------------------------------------------------
-# Text metrics
-#
-# Blitz renders no ``text-overflow: ellipsis`` and does not clip text with
-# ``overflow: hidden``, so a media title — arbitrary user data — has to be
-# fitted in Python. An "average character width" is not good enough here:
-# in Nunito an "i" is 0.30em where a "W" is 1.13em and the ellipsis is
-# 0.75em, which is exactly the difference between one rendered line and
-# two. So measure properly.
-#
-# Each table holds the advance of printable ASCII 32..126 for one embedded
-# family at weight 700, encoded as ``chr(48 + round(em / 0.025))``. They
-# were measured by rasterising "H<c>H" and subtracting "HH". Estimates
-# land within ~3% of the real advance and always on the high side, so the
-# engine fits at least as much as we assumed.
-# ---------------------------------------------------------------------------
-_ADV_STEP = 0.025
-_ADV_FALLBACK = 0.62  # non-ASCII proportional glyph (accented Latin, Greek…)
-_ADV_FULLWIDTH = 1.05  # CJK / Kana / Hangul — one em square, plus margin
+# Weight names for :mod:`._textfit` matching the markup below: the title
+# is 700, everything supporting it is 600.
+_TITLE_WEIGHT = "bold"
+_SUPPORT_WEIGHT = "semibold"
 
-_ADV_ROUNDED = (
-    ";:BHHVM:>>BH:A:=HHHHHHHHHH::HHHBVNLKOHGNO;>KGSNOJOLIINM]KJH>=>HD"
-    "?FHCHF?HG::F=SGGHH@D?GERFEC@<@H"
-)
-_ADV_WIDE = (
-    ">BEQLXS<BBEQ?A??LLLLLLLLLL@@LLLGXONMQKKQQ??OIXQRMROMKPO\\OMMB?BQD"
-    "DKMHMKAML>>K>ZLKMMDHCLJUJJGL?LQ"
-)
-_ELLIPSIS_EM = {_ADV_ROUNDED: 0.75, _ADV_WIDE: 1.00}
-
-# Padding+border themes paint on ``.root`` (up to 6px padding + a 1px
-# border per side). That inset shrinks the fragment below ``ctx.width``
-# and lives inside ``theme.chrome_css``, which widgets cannot parse — so
-# reserve the worst case rather than clip on a chromed theme.
+# Every shipped theme paints ``.root`` with up to 6px of padding plus a
+# 1px border, so the fragment is up to 7px per side narrower than
+# ``ctx.width``. That inset lives in ``theme.chrome_css``, which widgets
+# cannot parse — reserve the worst case rather than clip on a chromed
+# theme. (Matches ``_cardfit._CHROME_INSET``.)
 _CHROME_PX = 14.0
 
 # Shared inset for the album-art overlay: text, progress bar and label all
 # align to the same optical margin on every cell size.
 _INSET = "clamp(5px, 5.5vmin, 14px)"
 _ART_BAR_H = "clamp(2px, 1.4vmin, 4px)"
-
-
-def _advance_table(ctx: CellContext) -> str:
-    """Glyph advance table for the theme's body font."""
-    return _ADV_ROUNDED if getattr(ctx.theme, "rounded_font", True) else _ADV_WIDE
-
-
-def _text_em(text: str, table: str) -> float:
-    """Width of ``text`` in em, from the measured advance table."""
-    total = 0.0
-    ellipsis = _ELLIPSIS_EM[table]
-    for char in text:
-        index = ord(char) - 32
-        if 0 <= index < len(table):
-            total += (ord(table[index]) - 48) * _ADV_STEP
-        elif char == "…":
-            total += ellipsis
-        elif east_asian_width(char) in ("W", "F"):
-            total += _ADV_FULLWIDTH
-        else:
-            total += _ADV_FALLBACK
-    return total
-
-
-def _clip_em(text: str, budget_em: float, table: str) -> str:
-    """Truncate ``text`` with an ellipsis so it fits ``budget_em``."""
-    if _text_em(text, table) <= budget_em:
-        return text
-    limit = budget_em - _ELLIPSIS_EM[table]
-    kept: list[str] = []
-    used = 0.0
-    for char in text:
-        width = _text_em(char, table)
-        if used + width > limit:
-            break
-        used += width
-        kept.append(char)
-    return "".join(kept).rstrip() + "…"
 
 
 def _clamp_px(min_px: float, vmin_ratio: float, max_px: float, vmin: float) -> float:
@@ -107,18 +47,35 @@ def _inset_px(ctx: CellContext) -> float:
     return _clamp_px(5.0, 0.055, 14.0, min(ctx.width, ctx.height))
 
 
-def _fit_one_line(text: str, width_px: float, font_px: float, table: str) -> str:
-    """Fit ``text`` on a single line of ``width_px``."""
-    return _clip_em(text, width_px / font_px, table)
+def _artist_px(vmin: float) -> float:
+    """Artist band size in the text-only card."""
+    return _clamp_px(10.0, 0.10, 18.0, vmin)
 
 
-def _fit_lines(text: str, budget_em: float, max_lines: int, table: str) -> tuple[str, int]:
+def _album_px(vmin: float) -> float:
+    """Album band size in the text-only card."""
+    return _clamp_px(9.0, 0.085, 14.0, vmin)
+
+
+def _title_metrics(ctx: CellContext) -> TextMetrics:
+    """Measurer for the widget's own text bands.
+
+    ``metrics_for`` reports the uppercasing a theme applies to the *kit*
+    classes (retro uppercases ``.t-hero``/``.t-label``/…). The title,
+    artist and album bands are plain divs, so they keep their case —
+    measuring them as caps would needlessly cost a character or two.
+    """
+    return replace(metrics_for(ctx.theme), uppercase=False)
+
+
+def _fit_lines(
+    text: str, metrics: TextMetrics, width_px: float, font_px: float, max_lines: int
+) -> tuple[str, int]:
     """Greedy-wrap ``text`` and hard-truncate it to ``max_lines`` lines.
 
-    Returns the fitted string (the engine re-wraps it at the same budget)
-    and the number of lines it occupies. The budget comes from measured
-    advances rounded up, so the rendered block never overflows the line
-    count reported here.
+    Returns the fitted string (the engine re-wraps it at the same width)
+    and the number of lines it occupies, so callers can budget height
+    against the lines the title will really claim.
     """
     words = text.split()
     if not words:
@@ -127,9 +84,10 @@ def _fit_lines(text: str, budget_em: float, max_lines: int, table: str) -> tuple
     current = ""
     overflowed = False
     for word in words:
-        chunk = _clip_em(word, budget_em, table)  # a word wider than a whole line
+        # A single word can be wider than a whole line.
+        chunk = metrics.truncate(word, font_px, width_px, _TITLE_WEIGHT)
         candidate = f"{current} {chunk}" if current else chunk
-        if _text_em(candidate, table) <= budget_em:
+        if metrics.width(candidate, font_px, _TITLE_WEIGHT) <= width_px:
             current = candidate
         elif len(lines) + 1 < max_lines:
             lines.append(current)
@@ -139,14 +97,14 @@ def _fit_lines(text: str, budget_em: float, max_lines: int, table: str) -> tuple
             break
     lines.append(current)
     if overflowed:
-        lines[-1] = _clip_em(f"{lines[-1]}…", budget_em, table)
+        lines[-1] = metrics.truncate(f"{lines[-1]}…", font_px, width_px, _TITLE_WEIGHT)
     return " ".join(lines), len(lines)
 
 
 def _fit_title(
     text: str,
+    metrics: TextMetrics,
     avail_px: float,
-    table: str,
     *,
     max_px: float,
     max_lines: int,
@@ -163,17 +121,17 @@ def _fit_title(
     text = " ".join(text.split())
     if not text:
         return "", min_px, 0
-    total_em = _text_em(text, table) or 1.0
-    single_px = avail_px / total_em  # size at which the whole title fits one line
+    # Size at which the whole title would fit on a single line.
+    single_px = avail_px / (metrics.width(text, 1.0, _TITLE_WEIGHT) or 1.0)
     if max_lines < 2 or single_px >= max_px * 0.8:
         allowed = 1
         font_px = min(max_px, max(min_px, single_px))
     else:
         allowed = 2
         # Two lines double the usable width, less a margin for the uneven
-        # split a word-wrap actually produces.
+        # split a real word-wrap produces.
         font_px = min(max_px, max(min_px, 2 * single_px * 0.92))
-    fitted, lines = _fit_lines(text, avail_px / font_px, allowed, table)
+    fitted, lines = _fit_lines(text, metrics, avail_px, font_px, allowed)
     return fitted, font_px, lines
 
 
@@ -201,7 +159,7 @@ def _art_scrim(cell_h: int, block_px: float) -> str:
     ramp = ", ".join(f"rgba(0,0,0,{a:.2f}) {p * 100:.0f}%" for p, a in stops)
     return (
         '<div style="position: absolute; left: 0; right: 0; bottom: 0; '
-        f'height: {(1.0 - start) * 100:.0f}%; '
+        f"height: {(1.0 - start) * 100:.0f}%; "
         f'background: linear-gradient(to bottom, {ramp})"></div>'
     )
 
@@ -368,7 +326,7 @@ class MediaWidget(Widget):
         uri = image_data_uri(image)
 
         vmin = min(ctx.width, ctx.height)
-        table = _advance_table(ctx)
+        metrics = _title_metrics(ctx)
         text_width = ctx.width - 2 * _inset_px(ctx) - _CHROME_PX
 
         show_bar = self.show_progress and duration > 0
@@ -383,8 +341,8 @@ class MediaWidget(Widget):
         if raw_title:
             title, title_px, title_lines = _fit_title(
                 raw_title,
+                metrics,
                 text_width,
-                table,
                 max_px=_clamp_px(11.0, 0.105, 24.0, vmin),
                 max_lines=2 if ctx.height >= 170 else 1,
             )
@@ -397,7 +355,7 @@ class MediaWidget(Widget):
         artist = entity.get("media_artist", "")
         if artist and self.show_artist and ctx.height >= 120:
             artist_px = _clamp_px(9.0, 0.072, 15.0, vmin)
-            artist = _fit_one_line(artist, text_width, artist_px, table)
+            artist = metrics.truncate(artist, artist_px, text_width, _SUPPORT_WEIGHT)
             block_px += artist_px * 1.2 + gap_px
             lines.append(
                 f'<div style="font-size: {artist_px:.1f}px; font-weight: 600; '
@@ -413,7 +371,7 @@ class MediaWidget(Widget):
             block_px += time_px * 1.2 + gap_px
             lines.append(
                 f'<div style="font-size: {time_px:.1f}px; font-weight: 600; '
-                'line-height: 1.2; letter-spacing: 0.02em; '
+                "line-height: 1.2; letter-spacing: 0.02em; "
                 'color: rgba(255,255,255,0.5); white-space: nowrap">'
                 f"{escape(time_str)}</div>"
             )
@@ -465,6 +423,34 @@ class MediaWidget(Widget):
             "</div>"
         )
 
+    def _title_height_budget(self, ctx: CellContext, entity: EntityState, duration: float) -> float:
+        """Vertical space the title may claim in the text-only card.
+
+        Everything else in the cell has a known height (the fluid kit's
+        clamps are mirrored here), and the ``.hide-*`` breakpoints decide
+        which bands exist at this size — so what is left over is the
+        title's. Without this the card silently overflows the cell,
+        because Blitz never clips.
+        """
+        vmin = min(ctx.width, ctx.height)
+        short = ctx.height < 100  # .hide-short
+        small = ctx.height < 130 or ctx.width < 130  # .hide-small
+        available = ctx.height * 0.90 - _CHROME_PX  # 5% padding top and bottom
+
+        reserved = 0.10 * ctx.height  # space-evenly needs slack to breathe
+        if not short:  # the NOW PLAYING caption (.t-label, line-height 1)
+            reserved += min(15.0, max(10.0, min(0.10 * vmin, 0.075 * ctx.width)))
+        if not short and self.show_artist and entity.get("media_artist", ""):
+            reserved += _artist_px(vmin) * 1.2
+        if not small and self.show_album and entity.get("media_album_name", ""):
+            reserved += _album_px(vmin) * 1.2
+        if self.show_progress and duration > 0:
+            reserved += _clamp_px(3.0, 0.02, 5.0, vmin)
+            if not short:  # elapsed / total row plus its top margin
+                reserved += _clamp_px(9.0, 0.065, 12.0, vmin) * 1.2
+                reserved += _clamp_px(4.0, 0.025, 8.0, vmin)
+        return max(13.0, available - reserved)
+
     def _render_now_playing(
         self,
         ctx: CellContext,
@@ -475,7 +461,7 @@ class MediaWidget(Widget):
     ) -> str:
         """Text-only now-playing card (no album art)."""
         vmin = min(ctx.width, ctx.height)
-        table = _advance_table(ctx)
+        metrics = _title_metrics(ctx)
         text_width = ctx.width * 0.88 - _CHROME_PX  # 6% padding each side
 
         bands: list[str] = ['<div class="t-label hide-short">NOW PLAYING</div>']
@@ -485,13 +471,11 @@ class MediaWidget(Widget):
         # the cell's space-evenly only separates caption | track | progress.
         track: list[str] = []
 
-        artist_px = _clamp_px(10.0, 0.10, 18.0, vmin)
-        album_px = _clamp_px(9.0, 0.085, 14.0, vmin)
-        title_budget = self._title_height_budget(
-            ctx, vmin, artist_px, album_px, entity, duration
-        )
+        artist_px = _artist_px(vmin)
+        album_px = _album_px(vmin)
+        title_budget = self._title_height_budget(ctx, entity, duration)
         max_lines = 2 if ctx.height >= 90 else 1
-        title_args = (entity.get("media_title", "Unknown"), text_width, table)
+        title_args = (entity.get("media_title", "Unknown"), metrics, text_width)
         title, title_px, title_lines = _fit_title(
             *title_args,
             max_px=min(_clamp_px(13.0, 0.20, 40.0, vmin), title_budget / 1.14),
@@ -515,7 +499,7 @@ class MediaWidget(Widget):
 
         artist = entity.get("media_artist", "")
         if self.show_artist and artist:
-            artist = _fit_one_line(artist, text_width, artist_px, table)
+            artist = metrics.truncate(artist, artist_px, text_width, _SUPPORT_WEIGHT)
             track.append(
                 f'<div class="hide-short" style="font-size: {artist_px:.1f}px; '
                 "font-weight: 600; line-height: 1.2; color: var(--text-secondary); "
@@ -524,7 +508,7 @@ class MediaWidget(Widget):
 
         album = entity.get("media_album_name", "")
         if self.show_album and album:
-            album = _fit_one_line(album, text_width, album_px, table)
+            album = metrics.truncate(album, album_px, text_width, _SUPPORT_WEIGHT)
             track.append(
                 f'<div class="hide-small" style="font-size: {album_px:.1f}px; '
                 "font-weight: 600; line-height: 1.2; color: var(--text-tertiary); "

@@ -28,7 +28,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 from .icons import get_mdi_char
 
@@ -214,6 +214,32 @@ def render_document(
     except Exception:
         _LOGGER.exception("Blitz render failed")
         return None
+
+
+def composite_premultiplied(
+    canvas: Image.Image, source: Image.Image, pos: tuple[int, int]
+) -> None:
+    """Composite a PREMULTIPLIED-alpha RGBA image onto an RGB canvas.
+
+    ``blitz_py.render_rgba`` returns premultiplied alpha. Pasting that
+    through PIL's straight-alpha mask (``paste(img, pos, img)``) applies
+    alpha twice, crushing translucent pixels (a 16% tint lands at ~3%).
+    Correct premultiplied-over is ``dst = src + dst * (1 - a)``.
+    """
+    r, g, b, a = source.split()
+    inv = a.point(lambda v: 255 - v)
+    box = (pos[0], pos[1], pos[0] + source.width, pos[1] + source.height)
+    region = canvas.crop(box)
+    dr, dg, db = region.split()[:3]
+    out = Image.merge(
+        "RGB",
+        (
+            ImageChops.add(ImageChops.multiply(dr, inv), r),
+            ImageChops.add(ImageChops.multiply(dg, inv), g),
+            ImageChops.add(ImageChops.multiply(db, inv), b),
+        ),
+    )
+    canvas.paste(out, pos)
 
 
 def image_data_uri(image: Image.Image) -> str:

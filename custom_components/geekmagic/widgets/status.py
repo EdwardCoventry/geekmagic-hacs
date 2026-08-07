@@ -162,7 +162,7 @@ class _Row:
             f'align-items: center; gap: {gap:.1f}px">'
             f"{self._lead_html(icon_px, icon_col)}"
             f'<span style="flex: 1; min-width: 0; font-size: {name_px:.1f}px; '
-            'font-weight: 600; line-height: 1.05; white-space: nowrap; '
+            "font-weight: 600; line-height: 1.05; white-space: nowrap; "
             f'color: var(--text-primary)">{escape(name)}</span>'
             f"{pill_html}"
             "</div>"

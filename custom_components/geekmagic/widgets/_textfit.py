@@ -91,9 +91,7 @@ class TextMetrics:
     def _measured(self, text: str) -> str:
         return text.upper() if self.uppercase else text
 
-    def width(
-        self, text: str, px: float, weight: str = "semibold", tracking: float = 0.0
-    ) -> float:
+    def width(self, text: str, px: float, weight: str = "semibold", tracking: float = 0.0) -> float:
         """Rendered width of ``text`` at ``px``.
 
         ``tracking`` is CSS ``letter-spacing`` in em; browsers add one

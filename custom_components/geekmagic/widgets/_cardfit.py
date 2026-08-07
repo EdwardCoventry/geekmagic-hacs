@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import TYPE_CHECKING
 
-from ._textfit import metrics_for
+from ._textfit import LABEL_TRACKING, metrics_for
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
@@ -176,6 +176,11 @@ class HeroFit:
         """The fitted value as one string."""
         return " ".join(self.lines)
 
+    @property
+    def wrapped(self) -> bool:
+        """True when the value was laid out over several lines."""
+        return len(self.lines) > 1
+
 
 def fit_hero(
     text: str,
@@ -256,13 +261,17 @@ def suffix_width_em(suffix: str, ctx: CellContext, *, scale: float = SUFFIX_SCAL
 
 
 def hero_block(
-    fit: HeroFit,
+    fit: HeroFit | str,
+    px: float | None = None,
     *,
     suffix: str = "",
     suffix_scale: float = SUFFIX_SCALE,
     tracking: float | None = None,
 ) -> str:
     """The hero band: fitted value plus an optional secondary suffix.
+
+    Takes the :class:`HeroFit` (which carries the line layout), or a
+    ``text, px`` pair for single-line heroes.
 
     Rendered as a block child of ``.t-hero``: a block child suppresses
     the parent's line-box strut, so the band is exactly as tall as the
@@ -276,8 +285,13 @@ def hero_block(
     keeps it on the value's baseline — smaller and secondary, the way a
     unit should read.
     """
-    multiline = len(fit.lines) > 1
-    style = f"font-size: {fit.px:.1f}px; line-height: {WRAP_LINE if multiline else HERO_LINE}"
+    if isinstance(fit, HeroFit):
+        lines, size = fit.lines, fit.px
+    else:
+        lines, size = (fit,), float(px or 0.0)
+
+    multiline = len(lines) > 1
+    style = f"font-size: {size:.1f}px; line-height: {WRAP_LINE if multiline else HERO_LINE}"
     if tracking is not None:
         style += f"; letter-spacing: {tracking}em"
 
@@ -290,14 +304,9 @@ def hero_block(
         )
 
     body = "".join(
-        f"<div>{escape(line)}{tail if i == len(fit.lines) - 1 else ''}</div>"
+        f"<div>{escape(line)}{tail if i == len(lines) - 1 else ''}</div>"
         if multiline
         else f"{escape(line)}{tail}"
-        for i, line in enumerate(fit.lines)
+        for i, line in enumerate(lines)
     )
     return f'<div style="{style}">{body}</div>'
-
-
-def px_css(value: float) -> str:
-    """Format a fitted pixel size for CSS."""
-    return f"{value:.1f}px"

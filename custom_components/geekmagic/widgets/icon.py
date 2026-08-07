@@ -21,7 +21,7 @@ _INK_WIDTH = 1.0
 # Share of the box the glyph takes. "huge" is the cell; "regular" is a
 # deliberate half-cell mark — big enough to read across a room, small
 # enough to leave the cell breathing.
-_SIZE_SHARES = {"huge": 0.94, "regular": 0.52}
+_SIZE_SHARES = {"huge": 0.94, "regular": 0.60}
 _MIN_PX = 14.0
 
 

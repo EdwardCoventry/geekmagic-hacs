@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from html import escape
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -9,26 +10,33 @@ from ..htmldoc import css_rgb, image_data_uri, mdi_span
 
 if TYPE_CHECKING:
     from ..htmldoc import CellContext
+    from ._textfit import TextMetrics
     from .state import WidgetState
 
+from ._textfit import LABEL_TRACKING, metrics_for
 from .base import Widget, WidgetConfig
-from .helpers import truncate_text
 
-# Measured worst-case glyph advance (em per character) for UPPERCASE
-# strings at ~0.10em tracking, plus a safety margin: Nunito ~0.75,
-# DejaVu ~0.82. Blitz has no text-overflow, so the capsule label and the
-# placeholder caption are both fitted in Python.
-_AVG_CAPS_ROUNDED = 0.78
-_AVG_CAPS_WIDE = 0.86
+# Both strings this widget draws are rendered uppercase, so they are
+# measured uppercase too — Blitz has no text-overflow, and caps are the
+# widest form of a name.
+_CAPSULE_TRACKING = 0.10
+_LABEL_WEIGHT = "bold"
 
-# Padding+border themes paint on ``.root`` (retro/minimal 5px, light 6px,
-# watchOS 0), which shrinks the fragment below ``ctx.width``. It lives in
-# ``theme.chrome_css`` where widgets can't read it — reserve worst case.
-_CHROME_PX = 6.0
+# Every shipped theme paints ``.root`` with up to 6px of padding plus a
+# 1px border, so the fragment is up to 7px per side narrower than
+# ``ctx.width``. That inset lives in ``theme.chrome_css``, which widgets
+# cannot parse — reserve the worst case rather than clip on a chromed
+# theme. (Matches ``_cardfit._CHROME_INSET``.)
+_CHROME_PX = 14.0
 
 # Shared optical margin for the label capsule — matches the media widget's
 # album-art overlay so a camera and a media cell sit on the same grid.
 _INSET = "clamp(5px, 5.5vmin, 14px)"
+
+
+def _caps_metrics(ctx: CellContext) -> TextMetrics:
+    """Measurer for this widget's always-uppercase text."""
+    return replace(metrics_for(ctx.theme), uppercase=True)
 
 
 class CameraWidget(Widget):
@@ -82,12 +90,16 @@ class CameraWidget(Widget):
 
     def _render_placeholder(self, ctx: CellContext) -> str:
         """Offline / no-snapshot state — a quiet caption, not an alarm."""
-        label = self.config.label or "No Image"
+        # Mirrors the kit's .t-label sizing, clamp(10px, min(10vmin,
+        # 7.5vw), 15px), so the caption is measured as it will be drawn.
         font_px = min(15.0, max(10.0, 0.10 * min(ctx.width, ctx.height), 0.075 * ctx.width))
-        avg = _AVG_CAPS_ROUNDED if getattr(ctx.theme, "rounded_font", True) else _AVG_CAPS_WIDE
-        # .t-label tracks at 0.14em, a touch wider than the capsule.
-        usable = ctx.width * 0.88 - _CHROME_PX
-        label = truncate_text(label, max(4, int(usable / (font_px * (avg + 0.04)))))
+        label = _caps_metrics(ctx).truncate(
+            self.config.label or "No Image",
+            font_px,
+            ctx.width * 0.88 - _CHROME_PX,
+            _LABEL_WEIGHT,
+            tracking=LABEL_TRACKING,
+        )
         return (
             '<div class="cell" style="justify-content: center; gap: 3.5vmin">'
             f"{mdi_span('camera', 'icon i-md', 'color: var(--text-secondary)')}"
@@ -106,13 +118,15 @@ class CameraWidget(Widget):
         vmin = min(ctx.width, ctx.height)
         font_px = min(12.0, max(8.0, 0.062 * vmin))
         inset_px = min(14.0, max(5.0, 0.055 * vmin))
-        avg = _AVG_CAPS_ROUNDED if getattr(ctx.theme, "rounded_font", True) else _AVG_CAPS_WIDE
         # Subtract the two insets, the capsule's 0.72em side padding, its
         # 1px borders and the theme chrome before fitting glyphs.
         usable = ctx.width - 2 * inset_px - 1.44 * font_px - 2 - _CHROME_PX
-        label = truncate_text(
+        label = _caps_metrics(ctx).truncate(
             self.label_for(state.entity, fallback="Camera"),
-            max(3, int(usable / (font_px * avg))),
+            font_px,
+            max(12.0, usable),
+            _LABEL_WEIGHT,
+            tracking=_CAPSULE_TRACKING,
         )
         color = css_rgb(self.config.color) if self.config.color else "rgba(255,255,255,0.95)"
         return (

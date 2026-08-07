@@ -183,7 +183,7 @@ class EntityWidget(Widget):
             # The entity icon is the cell's primary visual identifier —
             # promote it to its own band.
             icon_role="feature",
-            hero=hero_block(hero.text, hero.px, suffix=unit, wrapped=hero.wrapped),
+            hero=hero_block(hero, suffix=unit),
             hero_color="var(--text-tertiary)" if missing else None,
             hero_is_html=True,
             ctx=ctx,

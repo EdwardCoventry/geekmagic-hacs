@@ -228,9 +228,7 @@ class GaugeWidget(Widget):
                 widest = hole * 0.86 / max(1, len(name)) / char_em(ctx, caps=True)
                 caption_px = max(10.0, min(hole * 0.20, 26.0, widest))
             gap = f"margin-top: {value_px * 0.16:.1f}px" if value_px else ""
-            caption_text = fit_caption(
-                ctx, name.upper(), width_px=hole * 0.86, font_px=caption_px
-            )
+            caption_text = fit_caption(ctx, name.upper(), width_px=hole * 0.86, font_px=caption_px)
             label_html += (
                 f'<div class="t-label" style="font-size: {caption_px:.1f}px; {gap}">'
                 f"{escape(caption_text)}</div>"
@@ -380,10 +378,13 @@ class GaugeWidget(Widget):
         # Tall cell: caption above, bar taking every spare pixel, value
         # under it. The value stays deliberately smaller than a
         # horizontal bar's hero so the column of colour stays the subject.
+        # The bar's ``flex: 1`` leaves space-evenly nothing to distribute,
+        # so the breathing room between the bands is explicit here.
         caption = self._caption(ctx, name, icon_html)
         hero = self._hero(digits, unit, color, cap_vw=27.0, cap_vmin=30.0)
+        gap = max(4.0, min(14.0, ctx.height * 0.045))
         return (
-            '<div class="cell">'
+            f'<div class="cell" style="gap: {gap:.0f}px">'
             f"{caption}"
             '<div style="flex: 1 1 auto; min-height: 0; width: 100%; display: flex; '
             f'justify-content: center">{vbar}</div>'

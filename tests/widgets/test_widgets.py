@@ -449,7 +449,11 @@ class TestEntityWidget:
             attributes={"friendly_name": "Temperature", "unit_of_measurement": "°C"}
         )
         fragment = widget.render_html(ctx, make_state(entity))
-        assert "23.5°C" in fragment
+        # Value and unit are split typographically: fitted digits, with
+        # the unit smaller and secondary on the same baseline.
+        assert ">23.5<" in fragment
+        assert 't-unit" style="font-size: 0.46em' in fragment
+        assert ">°C</span>" in fragment
         assert "TEMPERATURE" in fragment  # caption is uppercased
 
     def test_render_door_sensor_shows_open(self, ctx):
@@ -665,7 +669,10 @@ class TestTextWidget:
         )
         entities = {"sensor.other": make_entity("sensor.other", "dynamic value")}
         fragment = widget.render_html(ctx, make_state(entities=entities))
-        assert "dynamic value" in fragment
+        # Text too long for one line is laid out over fitted line boxes
+        # (the engine wraps against the flex item, not the cell padding).
+        assert ">dynamic</div>" in fragment
+        assert ">value</div>" in fragment
 
     def test_get_entities_includes_dynamic_entity(self):
         widget = TextWidget(
@@ -742,11 +749,20 @@ class TestIconWidget:
         assert "rgb(255, 0, 0)" in fragment
 
     def test_huge_size_fills_cell(self, ctx):
-        widget = IconWidget(
-            WidgetConfig(widget_type="icon", slot=0, options={"icon": "fan", "size": "huge"})
-        )
-        fragment = widget.render_html(ctx, make_state())
-        assert "76vmin" in fragment
+        """The glyph is sized to the cell it got: "huge" fills it,
+        "regular" is a deliberate half-cell mark."""
+
+        def glyph_px(size_mode: str) -> float:
+            widget = IconWidget(
+                WidgetConfig(
+                    widget_type="icon", slot=0, options={"icon": "fan", "size": size_mode}
+                )
+            )
+            fragment = widget.render_html(ctx, make_state())
+            return float(fragment.split("font-size: ")[1].split("px")[0])
+
+        assert glyph_px("huge") > glyph_px("regular") > 0.35 * ctx.height
+        assert glyph_px("huge") < ctx.height
 
     def test_show_panel_adds_surface(self, ctx):
         widget = IconWidget(
@@ -1905,7 +1921,7 @@ class TestAttributeListWidget:
         )
         fragment = widget.render_html(ctx, make_state(entity))
         assert "BUS INFO" in fragment  # title
-        assert "Route" in fragment
+        assert "ROUTE" in fragment  # row labels are caps, like the title
         assert ">42<" in fragment
         assert "Downtown" in fragment
         assert "5 min" in fragment  # 'state' special key -> entity state
@@ -1937,7 +1953,7 @@ class TestAttributeListWidget:
             )
         )
         fragment = widget.render_html(ctx, make_state())
-        assert "Foo" in fragment
+        assert "FOO" in fragment  # row labels are caps
         assert "--" in fragment
 
     def test_format_value_types(self):

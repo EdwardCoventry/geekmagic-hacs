@@ -156,6 +156,8 @@ _DIGIT_EM = 0.65
 # A unit renders at this share of the hero size (mirrors the kit ratio
 # between .t-hero and .t-unit).
 _UNIT_RATIO = 0.38
+# Line box hugging the numerals (see value_unit_html).
+_HERO_LINE_HEIGHT = 0.8
 
 
 def hero_metrics(digits: str, unit: str = "") -> float:
@@ -205,17 +207,26 @@ def value_unit_html(
     The unit keeps its own (smaller, lighter) type so "73" reads as the
     number and "%" as an annotation — the same relationship Apple uses
     for every large metric.
+
+    Digits have no descenders, so the kit's line box leaves dead space
+    under them and the next band drifts away; ``_HERO_LINE_HEIGHT``
+    hugs the numerals instead, which is what makes the caption / value /
+    bar gaps read even.
     """
     if not digits and not unit:
         return ""
-    hero_style = f"font-size: {hero_css};" if hero_css else ""
+    hero_style = f"line-height: {_HERO_LINE_HEIGHT};"
+    if hero_css:
+        hero_style += f" font-size: {hero_css};"
     if color:
         hero_style += f" color: {color};"
-    hero_attr = f' style="{hero_style.strip()}"' if hero_style else ""
+    hero_attr = f' style="{hero_style.strip()}"'
     hero_html = f'<span class="{hero_class}"{hero_attr}>{escape(digits)}</span>'
     if not unit:
         return hero_html
-    unit_style = f"font-size: {unit_css};" if unit_css else ""
+    unit_style = f"line-height: {_HERO_LINE_HEIGHT};"
+    if unit_css:
+        unit_style += f" font-size: {unit_css};"
     if unit_color:
         unit_style += f" color: {unit_color};"
     unit_attr = f' style="{unit_style.strip()}"' if unit_style else ""

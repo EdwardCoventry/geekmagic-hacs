@@ -22,6 +22,7 @@ from ..htmldoc import (
     CellContext,
     build_cell_document,
     build_fullscreen_document,
+    composite_premultiplied,
     render_document,
 )
 from ..widgets.state import WidgetState
@@ -222,14 +223,16 @@ class Layout(ABC):
             document = build_cell_document(fragment, theme)
             cell = render_document(document, cell_w, cell_h, scale=scale)
             if cell is not None:
-                canvas.paste(cell, (x1 * scale, y1 * scale), cell)
+                # Blitz returns premultiplied alpha — a plain
+                # paste-with-mask would apply alpha twice.
+                composite_premultiplied(canvas, cell, (x1 * scale, y1 * scale))
 
         # 3. Overlay
         if theme.overlay_css:
             overlay_doc = build_fullscreen_document(theme, theme.overlay_css)
             overlay = render_document(overlay_doc, self.width, self.height, scale=scale)
             if overlay is not None:
-                canvas.paste(overlay, (0, 0), overlay)
+                composite_premultiplied(canvas, overlay, (0, 0))
 
     def _render_missing_blitz(self, canvas: Image.Image, draw: ImageDraw.ImageDraw) -> None:
         """Paint an instructive error screen when blitz-py is missing."""

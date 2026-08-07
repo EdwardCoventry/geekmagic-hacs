@@ -72,9 +72,7 @@ def cell_inner(ctx: CellContext) -> tuple[float, float]:
     return max(1.0, ctx.width - 2 * inset), max(1.0, ctx.height - 2 * inset)
 
 
-def cell_box(
-    ctx: CellContext, pad_x: float = 0.04, pad_y: float = 0.04
-) -> tuple[float, float]:
+def cell_box(ctx: CellContext, pad_x: float = 0.04, pad_y: float = 0.04) -> tuple[float, float]:
     """Content box inside a ``.cell`` using *percentage* padding.
 
     ``pad_x``/``pad_y`` are the fractions in the fragment's ``padding``
@@ -115,8 +113,10 @@ def label_px(ctx: CellContext) -> float:
 def blend(color: Color, background: Color, alpha: float) -> tuple[int, int, int]:
     """``color`` at ``alpha`` over ``background``, as opaque RGB."""
     a = max(0.0, min(1.0, alpha))
-    return tuple(  # type: ignore[return-value]
-        round(c * a + b * (1.0 - a)) for c, b in zip(color, background, strict=False)
+    return (
+        round(color[0] * a + background[0] * (1.0 - a)),
+        round(color[1] * a + background[1] * (1.0 - a)),
+        round(color[2] * a + background[2] * (1.0 - a)),
     )
 
 

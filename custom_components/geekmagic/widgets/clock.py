@@ -133,11 +133,9 @@ class ClockWidget(Widget):
         return card_html(
             caption=fit_caption(self.config.label or "", ctx, box_w) if show_caption else None,
             hero=hero_block(
-                hero.text,
-                hero.px,
+                hero,
                 suffix=meridiem,
                 suffix_scale=_MERIDIEM_SCALE,
-                wrapped=hero.wrapped,
                 tracking=_TIME_TRACKING,
             ),
             hero_is_html=True,

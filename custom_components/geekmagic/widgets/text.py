@@ -81,7 +81,7 @@ class TextWidget(Widget):
 
         return card_html(
             caption=fit_caption(self.config.label or "", ctx, box_w) if show_caption else None,
-            hero=hero_block(hero.text, hero.px, wrapped=hero.wrapped),
+            hero=hero_block(hero),
             hero_is_html=True,
             hero_color=css_rgb(self.config.color) if self.config.color else None,
             ctx=ctx,
