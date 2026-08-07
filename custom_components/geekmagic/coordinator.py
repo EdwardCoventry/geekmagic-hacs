@@ -89,7 +89,7 @@ from .widgets.chart import ChartWidget
 from .widgets.clock import ClockWidget
 from .widgets.icon import IconWidget
 from .widgets.media import MediaWidget
-from .widgets.state import EntityState, WidgetState
+from .widgets.state import WidgetState, build_entity_states
 from .widgets.text import TextWidget
 from .widgets.theme import get_theme
 from .widgets.weather import WeatherWidget
@@ -732,28 +732,8 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
             if widget is None:
                 continue
 
-            # Build EntityState for primary entity
-            primary_entity = None
-            if widget.config.entity_id:
-                ha_state = self.hass.states.get(widget.config.entity_id)
-                if ha_state:
-                    primary_entity = EntityState(
-                        entity_id=ha_state.entity_id,
-                        state=ha_state.state,
-                        attributes=dict(ha_state.attributes),
-                    )
-
-            # Build EntityState for additional entities
-            additional: dict[str, EntityState] = {}
-            for eid in widget.get_entities():
-                if eid != widget.config.entity_id:
-                    ha_state = self.hass.states.get(eid)
-                    if ha_state:
-                        additional[eid] = EntityState(
-                            entity_id=ha_state.entity_id,
-                            state=ha_state.state,
-                            attributes=dict(ha_state.attributes),
-                        )
+            # Snapshot primary + additional entity dependencies
+            primary_entity, additional = build_entity_states(self.hass.states.get, widget)
 
             # Get pre-fetched chart history
             history: list[float] = []
