@@ -58,6 +58,7 @@ from .const import (
     LAYOUT_THREE_COLUMN,
     LAYOUT_THREE_ROW,
     MAX_BACKOFF_MULTIPLIER,
+    MAX_IMAGE_SIZE,
     THEME_WATCHOS,
 )
 from .device import DeviceState, GeekMagicDevice, RenderedDashboardRequest, SpaceInfo
@@ -835,7 +836,22 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
             if frames:
                 gif_data = self.renderer.to_gif(frames, fps=fps, rotation=rotation)
                 png_data = self.renderer.to_png(frames[0], rotation=rotation)
-                return gif_data, png_data, "dashboard.gif"
+                if len(gif_data) <= MAX_IMAGE_SIZE:
+                    return gif_data, png_data, "dashboard.gif"
+                # The frame cap bounds typical output but not the encoded
+                # byte size — high-entropy content can still blow the
+                # device's upload budget. Ship the first frame as a still
+                # instead of an upload the device would reject.
+                _LOGGER.warning(
+                    "Animated GIF is %d bytes (budget %d); uploading a still frame instead",
+                    len(gif_data),
+                    MAX_IMAGE_SIZE,
+                )
+                jpeg_quality = self.options.get(CONF_JPEG_QUALITY, DEFAULT_JPEG_QUALITY)
+                jpeg_data = self.renderer.to_jpeg(
+                    frames[0], quality=jpeg_quality, rotation=rotation
+                )
+                return jpeg_data, png_data, "dashboard.jpg"
             _LOGGER.warning("Animated render failed; falling back to a still frame")
 
         img, draw = self.renderer.create_canvas(background=layout.theme.background)
