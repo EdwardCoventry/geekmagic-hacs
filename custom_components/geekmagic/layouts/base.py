@@ -20,12 +20,14 @@ from ..const import DISPLAY_HEIGHT, DISPLAY_WIDTH
 from ..htmldoc import (
     HAS_BLITZ,
     HAS_FRAMES,
+    HAS_LAYERS,
     CellContext,
     build_cell_document,
     build_fullscreen_document,
     composite_premultiplied,
     render_document,
     render_document_frames,
+    render_layers_image,
 )
 from ..widgets.state import WidgetState
 from ..widgets.theme import DEFAULT_THEME, Theme
@@ -39,6 +41,17 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _ERROR_FRAGMENT = '<div class="cell"><div class="t-label">WIDGET ERROR</div></div>'
+
+# Glow underlay for themes that opt in (neon): each cell is painted
+# once blurred beneath its sharp pass, the classic phosphor-bloom look.
+# Blur is in device px at scale 1 (multiplied by the render scale).
+_GLOW_BLUR_PX = 3.5
+_GLOW_OPACITY = 0.55
+
+
+def _css_hex(color: tuple[int, int, int]) -> str:
+    """RGB tuple as a #rrggbb hex string (render_layers background)."""
+    return f"#{color[0]:02x}{color[1]:02x}{color[2]:02x}"
 
 
 @dataclass
@@ -170,6 +183,79 @@ class Layout(ABC):
         if 0 <= index < len(self.slots):
             self.slots[index].widget = widget
 
+    def _cell_documents(
+        self, widget_states: dict[int, WidgetState]
+    ) -> list[tuple[Slot, str, bool]]:
+        """(slot, cell document, animated) for every placed widget."""
+        theme = self.theme
+        cells: list[tuple[Slot, str, bool]] = []
+        for slot in self.slots:
+            widget = slot.widget
+            if widget is None:
+                continue
+            x1, y1, x2, y2 = slot.rect
+            ctx = CellContext(width=x2 - x1, height=y2 - y1, slot_index=slot.index, theme=theme)
+            state = widget_states.get(slot.index, WidgetState())
+            try:
+                fragment = widget.render_html(ctx, state)
+            except Exception:
+                _LOGGER.exception("Widget %s failed to render", type(widget).__name__)
+                fragment = _ERROR_FRAGMENT
+            cells.append((slot, build_cell_document(fragment, theme), widget.is_animated()))
+        return cells
+
+    def _layer_specs(
+        self,
+        cells: list[tuple[Slot, str, bool]],
+        scale: float,
+        *,
+        with_overlay: bool = True,
+    ) -> list[dict]:
+        """Layer list for ``render_layers``: backdrop, cells, overlay.
+
+        Cell layers are clipped to their rects by the engine — the same
+        containment the per-cell rasters used to provide. Glow themes
+        paint each cell once blurred beneath its sharp pass.
+        ``with_overlay=False`` leaves the theme overlay off (the animated
+        path composites it above per-frame cells instead).
+        """
+        theme = self.theme
+        backdrop_css = theme.backdrop_css or "body { background: var(--bg); }"
+        layers: list[dict] = [
+            {
+                "html": build_fullscreen_document(theme, backdrop_css),
+                "width": self.width,
+                "height": self.height,
+                "scale": scale,
+            }
+        ]
+        for slot, document, animated in cells:
+            x1, y1, x2, y2 = slot.rect
+            # "_animated" marks layers render_animation must clock per
+            # frame; it is stripped before reaching the engine.
+            spec = {
+                "html": document,
+                "width": x2 - x1,
+                "height": y2 - y1,
+                "x": x1 * scale,
+                "y": y1 * scale,
+                "scale": scale,
+                "_animated": animated,
+            }
+            if theme.glow_effect:
+                layers.append({**spec, "blur": _GLOW_BLUR_PX * scale, "opacity": _GLOW_OPACITY})
+            layers.append(spec)
+        if with_overlay and theme.overlay_css:
+            layers.append(
+                {
+                    "html": build_fullscreen_document(theme, theme.overlay_css),
+                    "width": self.width,
+                    "height": self.height,
+                    "scale": scale,
+                }
+            )
+        return layers
+
     def render(
         self,
         renderer: Renderer,
@@ -178,9 +264,10 @@ class Layout(ABC):
     ) -> None:
         """Render the screen through the Blitz pipeline.
 
-        Composites the theme backdrop, each widget cell (rasterized at
-        its slot size with transparent background), and the optional
-        theme overlay onto the canvas behind ``draw``.
+        On blitz-py >= 0.4.0 the whole screen — theme backdrop, widget
+        cells at their slot rects, optional overlay — is composited
+        engine-side in one ``render_layers`` call. Older engines fall
+        back to per-document rendering with Pillow compositing.
 
         Args:
             renderer: Renderer instance (canvas scale + encoding)
@@ -197,42 +284,53 @@ class Layout(ABC):
 
         if widget_states is None:
             widget_states = {}
+        cells = self._cell_documents(widget_states)
 
-        # 1. Backdrop
+        if HAS_LAYERS:
+            layers = [
+                {k: v for k, v in spec.items() if not k.startswith("_")}
+                for spec in self._layer_specs(cells, scale)
+            ]
+            surface = render_layers_image(
+                layers,
+                self.width * scale,
+                self.height * scale,
+                background=_css_hex(theme.background),
+            )
+            if surface is not None:
+                canvas.paste(surface, (0, 0))
+                return
+            # Engine-side compositing failed — fall through to legacy.
+
+        self._render_legacy(canvas, cells, scale)
+
+    def _render_legacy(
+        self, canvas: Image.Image, cells: list[tuple[Slot, str, bool]], scale: int
+    ) -> None:
+        """Per-document rendering + Pillow compositing (blitz-py < 0.4)."""
+        theme = self.theme
         backdrop_css = theme.backdrop_css or "body { background: var(--bg); }"
-        backdrop_doc = build_fullscreen_document(theme, backdrop_css)
-        backdrop = render_document(backdrop_doc, self.width, self.height, scale=scale)
+        backdrop = render_document(
+            build_fullscreen_document(theme, backdrop_css), self.width, self.height, scale=scale
+        )
         if backdrop is not None:
             canvas.paste(backdrop.convert("RGB"), (0, 0))
 
-        # 2. Widget cells
-        for slot in self.slots:
-            widget = slot.widget
-            if widget is None:
-                continue
-
+        for slot, document, _animated in cells:
             x1, y1, x2, y2 = slot.rect
-            cell_w, cell_h = x2 - x1, y2 - y1
-            ctx = CellContext(width=cell_w, height=cell_h, slot_index=slot.index, theme=theme)
-            state = widget_states.get(slot.index, WidgetState())
-
-            try:
-                fragment = widget.render_html(ctx, state)
-            except Exception:
-                _LOGGER.exception("Widget %s failed to render", type(widget).__name__)
-                fragment = _ERROR_FRAGMENT
-
-            document = build_cell_document(fragment, theme)
-            cell = render_document(document, cell_w, cell_h, scale=scale)
+            cell = render_document(document, x2 - x1, y2 - y1, scale=scale)
             if cell is not None:
                 # Blitz returns premultiplied alpha — a plain
                 # paste-with-mask would apply alpha twice.
                 composite_premultiplied(canvas, cell, (x1 * scale, y1 * scale))
 
-        # 3. Overlay
         if theme.overlay_css:
-            overlay_doc = build_fullscreen_document(theme, theme.overlay_css)
-            overlay = render_document(overlay_doc, self.width, self.height, scale=scale)
+            overlay = render_document(
+                build_fullscreen_document(theme, theme.overlay_css),
+                self.width,
+                self.height,
+                scale=scale,
+            )
             if overlay is not None:
                 composite_premultiplied(canvas, overlay, (0, 0))
 
@@ -261,6 +359,68 @@ class Layout(ABC):
             widget_states = {}
         scale = renderer.scale
         theme = self.theme
+        cells = self._cell_documents(widget_states)
+
+        # blitz-py 0.4.0's render_layers documents a per-layer ``time``
+        # but does not apply it (animations render at t=0) — so the
+        # static base goes through one layered call and the animated
+        # cells still come from render_frames, composited per frame.
+        # Fold the per-frame compositing back into render_layers once
+        # the clock works upstream.
+        if HAS_LAYERS:
+            static_cells = [c for c in cells if not c[2]]
+            base = render_layers_image(
+                [
+                    {k: v for k, v in spec.items() if not k.startswith("_")}
+                    for spec in self._layer_specs(static_cells, scale, with_overlay=False)
+                ],
+                self.width * scale,
+                self.height * scale,
+                background=_css_hex(theme.background),
+            )
+            if base is not None:
+                animated: list[tuple[tuple[int, int], list[Image.Image]]] = []
+                for slot, document, _ in (c for c in cells if c[2]):
+                    x1, y1, x2, y2 = slot.rect
+                    frames = render_document_frames(document, x2 - x1, y2 - y1, times, scale=scale)
+                    if frames:
+                        animated.append(((x1 * scale, y1 * scale), frames))
+                        continue
+                    still = render_document(document, x2 - x1, y2 - y1, scale=scale)
+                    if still is not None:
+                        composite_premultiplied(base, still, (x1 * scale, y1 * scale))
+
+                overlay = None
+                if theme.overlay_css:
+                    overlay = render_document(
+                        build_fullscreen_document(theme, theme.overlay_css),
+                        self.width,
+                        self.height,
+                        scale=scale,
+                    )
+
+                canvases: list[Image.Image] = []
+                for i in range(len(times)):
+                    frame = base.copy()
+                    for pos, frames in animated:
+                        composite_premultiplied(frame, frames[min(i, len(frames) - 1)], pos)
+                    if overlay is not None:
+                        composite_premultiplied(frame, overlay, (0, 0))
+                    canvases.append(frame)
+                return canvases
+            # Engine-side compositing failed — fall through to legacy.
+
+        return self._render_animation_legacy(renderer, cells, times, scale)
+
+    def _render_animation_legacy(
+        self,
+        renderer: Renderer,
+        cells: list[tuple[Slot, str, bool]],
+        times: list[float],
+        scale: int,
+    ) -> list[Image.Image] | None:
+        """Frame rendering with Pillow compositing (blitz-py < 0.4)."""
+        theme = self.theme
 
         # Static base: backdrop + every non-animated cell, rendered once.
         base, _ = renderer.create_canvas(background=theme.background)
@@ -273,22 +433,11 @@ class Layout(ABC):
         if backdrop is not None:
             base.paste(backdrop.convert("RGB"), (0, 0))
 
-        for slot in self.slots:
-            widget = slot.widget
-            if widget is None:
-                continue
+        for slot, document, is_animated in cells:
             x1, y1, x2, y2 = slot.rect
             cell_w, cell_h = x2 - x1, y2 - y1
-            ctx = CellContext(width=cell_w, height=cell_h, slot_index=slot.index, theme=theme)
-            state = widget_states.get(slot.index, WidgetState())
-            try:
-                fragment = widget.render_html(ctx, state)
-            except Exception:
-                _LOGGER.exception("Widget %s failed to render", type(widget).__name__)
-                fragment = _ERROR_FRAGMENT
-            document = build_cell_document(fragment, theme)
             pos = (x1 * scale, y1 * scale)
-            if widget.is_animated():
+            if is_animated:
                 frames = render_document_frames(document, cell_w, cell_h, times, scale=scale)
                 if frames:
                     animated.append((pos, frames))

@@ -98,7 +98,10 @@ class TestStatusCompactIdentity:
         )
         fragment = widget.render_html(cell(*GRID_3X3), make_state(door))
         assert ">OPEN<" in fragment  # the state is still the hero
-        assert "FRONT" in fragment  # ...but the cell says what is open
+        # ...but the cell says what is open. Truncation keeps the short
+        # discriminating last word ("FRO… DOOR" beats "FRONT…" — it
+        # still distinguishes FRO…/BAC… pairs AND says it's a door).
+        assert "FRO" in fragment and "DOOR" in fragment
         assert "icon" in fragment  # glyph present (stacked chip at this height)
 
     def test_compact_identity_is_not_hidden_by_the_kit(self, door):
@@ -114,7 +117,7 @@ class TestStatusCompactIdentity:
             WidgetConfig(widget_type="status", slot=0, entity_id="binary_sensor.front_door")
         )
         fragment = widget.render_html(cell(*GRID_3X3), make_state(door))
-        assert font_px(fragment, "FRONT") <= 10.0
+        assert font_px(fragment, "FRO") <= 10.0
 
     def test_stack_bands_are_not_hidden_below_the_kit_breakpoint(self, door):
         """A 96px cell is sized for its chip and caption — and keeps them."""
