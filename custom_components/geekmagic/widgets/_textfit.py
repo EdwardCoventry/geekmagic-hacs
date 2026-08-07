@@ -2,66 +2,67 @@
 
 Blitz draws no ``text-overflow`` ellipsis and does not clip text to
 ``overflow: hidden``, so anything that might not fit has to be measured
-and truncated before it reaches the markup. These helpers measure with
-the *embedded* faces Blitz rasterizes with, so the estimate matches what
-lands on the panel.
+and truncated before it reaches the markup. Measurement goes through
+``blitz_py.measure_text`` (>= 0.3.0) — the engine's own shaper over the
+same embedded font collection it rasterizes with, one source of truth
+for layout math done in Python. That includes the engine's system-font
+fallback, so CJK titles measure at their real fullwidth advance.
 
 Measurement is theme-aware, which matters more than it sounds: themes
 are full stylesheets. ``retro`` and ``minimal`` render in DejaVu Sans
-(markedly wider than Nunito) and ``retro`` additionally uppercases every
-kit text class. Measuring Nunito mixed-case for a cell that will draw
-DejaVu caps is how captions end up bleeding off the edge of a 240px
-panel.
+(markedly wider than Nunito) and ``retro`` additionally uppercases the
+kit's label class. Measuring Nunito mixed-case for a cell that will
+draw DejaVu caps is how captions end up bleeding off the edge of a
+240px panel.
 
 The module also answers the inverse question — "how big can this string
 be and still fit?" — which is how hero values get sized to their cell
 instead of to a one-size-fits-all ``clamp()``.
 
-.. note:: blitz-py >= 0.3.0 (unpublished as of 0.2.0) is slated to ship
-   ``blitz_py.measure_text(...)`` — measurement by the engine's own text
-   stack. Once it lands, replace the PIL measurements here (and the CJK
-   fullwidth-em reservation in :meth:`TextMetrics.width`) with it. The
-   true fix remains native ``text-overflow: ellipsis`` in blitz-dom,
-   tracked upstream in the blitz-py repo (docs/UPSTREAM.md there).
+The true fix remains native ``text-overflow: ellipsis`` in blitz-dom,
+tracked upstream in the blitz-py repo (docs/UPSTREAM.md there).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
 from typing import TYPE_CHECKING
-from unicodedata import east_asian_width
-
-from PIL import ImageFont
 
 from .helpers import truncate_text
+
+try:
+    from blitz_py import measure_text as _measure_text
+except ImportError:  # pragma: no cover - blitz-py is a hard requirement
+    _measure_text = None
 
 if TYPE_CHECKING:
     from .theme import Theme
 
-_FONTS_DIR = Path(__file__).parent.parent / "fonts"
+# CSS family names as registered by the embedded font collection.
+_FAMILY_CSS = {"nunito": "Nunito", "dejavu": "DejaVu Sans"}
+# Kit weight names -> CSS numeric weights. DejaVu only embeds 400/700;
+# the engine's font matching collapses the rest onto the nearest face,
+# the same way the rendered document does.
+_WEIGHT_NUM = {"regular": 400.0, "semibold": 600.0, "bold": 700.0, "extrabold": 800.0}
 
-# (family, weight) -> embedded font file. Weight names mirror the fluid
-# kit (.t-label/.chip 600-700, .t-hero 800). DejaVu only ships two
-# weights, so everything above regular collapses onto Bold.
-_FACES = {
-    ("nunito", "regular"): "Nunito-Regular.ttf",
-    ("nunito", "semibold"): "Nunito-SemiBold.ttf",
-    ("nunito", "bold"): "Nunito-Bold.ttf",
-    ("nunito", "extrabold"): "Nunito-ExtraBold.ttf",
-    ("dejavu", "regular"): "DejaVuSans.ttf",
-    ("dejavu", "semibold"): "DejaVuSans-Bold.ttf",
-    ("dejavu", "bold"): "DejaVuSans-Bold.ttf",
-    ("dejavu", "extrabold"): "DejaVuSans-Bold.ttf",
-}
-
-# Measure once at this size and scale linearly — TrueType advances are
-# linear in size, so one cached face per (family, weight) covers all.
+# Measure once at this size and scale linearly — glyph advances are
+# linear in size, so one cached measurement per (text, family, weight)
+# covers every render size.
 _REF_PX = 200
 
-# Fallback average glyph width (em) when a font file is missing.
+# Fallback average glyph width (em) when blitz-py is unavailable (the
+# integration then only ever draws the install-hint screen anyway).
 _FALLBACK_EM = 0.60
+
+
+@lru_cache(maxsize=1)
+def _font_collection() -> tuple[bytes, ...]:
+    """The embedded faces, as the engine's ``fonts=`` parameter."""
+    from ..htmldoc import get_font_bytes  # noqa: PLC0415 (avoid import cycle at module load)
+
+    return get_font_bytes()
+
 
 # Letter-spacing assumptions for the kit's .t-label. The kit ships
 # 0.06em (tight on purpose: tracking is horizontal space that could be
@@ -73,31 +74,25 @@ LABEL_TRACKING = 0.12  # worst case, kept for callers without a theme
 KIT_LABEL_TRACKING = 0.06
 HERO_TRACKING = 0.0  # minimal resets the kit's -0.035em to 0
 
-# East-Asian wide/fullwidth glyphs (CJK, Kana, Hangul) are not covered by
-# the embedded faces: PIL reports the narrow .notdef box while Blitz
-# falls back to a system face and draws them full-width. Reserve a full
-# em for each so Japanese/Chinese/Korean titles never overflow the cell.
-_FULLWIDTH_CLASSES = ("W", "F")
-_FULLWIDTH_EM = 1.0
 
-
-@lru_cache(maxsize=16)
-def _face(family: str, weight: str) -> ImageFont.FreeTypeFont | None:
-    """Load an embedded face at the reference size."""
-    name = _FACES.get((family, weight)) or _FACES[("nunito", "semibold")]
-    try:
-        return ImageFont.truetype(str(_FONTS_DIR / name), _REF_PX)
-    except OSError:  # pragma: no cover - only when fonts are missing
-        return None
-
-
-@lru_cache(maxsize=2048)
+@lru_cache(maxsize=4096)
 def _ref_width(text: str, family: str, weight: str) -> float:
-    """Advance width of ``text`` at the reference size, in px."""
-    face = _face(family, weight)
-    if face is None:  # pragma: no cover - only when fonts are missing
+    """Advance width of ``text`` at the reference size, in px.
+
+    Shaped by the engine itself (Parley over the embedded collection,
+    with the same system fallback the renderer uses), so the number IS
+    what lands on the panel.
+    """
+    if _measure_text is None:  # pragma: no cover - install-hint path only
         return len(text) * _REF_PX * _FALLBACK_EM
-    return float(face.getlength(text))
+    width, _height = _measure_text(
+        text,
+        font_size=float(_REF_PX),
+        font_family=_FAMILY_CSS.get(family, "Nunito"),
+        font_weight=_WEIGHT_NUM.get(weight, 600.0),
+        fonts=_font_collection(),
+    )
+    return float(width)
 
 
 @dataclass(frozen=True)
@@ -118,21 +113,14 @@ class TextMetrics:
 
         ``tracking`` is CSS ``letter-spacing`` in em; browsers add one
         gap per character (including a trailing one), so that is what is
-        modelled here. East-Asian wide glyphs reserve a full em each —
-        the embedded faces don't cover them, and Blitz draws them
-        full-width from a system fallback while PIL would report the
-        narrow ``.notdef`` box.
+        modelled here. CJK and every other script the embedded faces
+        lack are shaped through the engine's own fallback, so their
+        advances are the rendered ones — no reservation hacks.
         """
         if not text:
             return 0.0
         measured = self._measured(text)
-        wide = sum(1 for c in measured if east_asian_width(c) in _FULLWIDTH_CLASSES)
-        if wide:
-            narrow = "".join(c for c in measured if east_asian_width(c) not in _FULLWIDTH_CLASSES)
-            base = _ref_width(narrow, self.family, weight) * px / _REF_PX if narrow else 0.0
-            base += wide * px * _FULLWIDTH_EM
-        else:
-            base = _ref_width(measured, self.family, weight) * px / _REF_PX
+        base = _ref_width(measured, self.family, weight) * px / _REF_PX
         return base + tracking * px * len(measured)
 
     def fit_font_size(
