@@ -8,6 +8,11 @@
 
 A Home Assistant custom integration for GeekMagic displays (SmallTV Pro, Ultra, and similar ESP8266/ESP32-based devices).
 
+This Homeberry-maintained fork adds explicit HelloCubic-Lite detection and a
+fullscreen `codex_quota` widget for weekly Codex remaining capacity. Missing
+or unavailable readings render as a grey ring with `--`; they are never shown
+as a genuine `0%` quota.
+
 > **How it works:** This integration renders dashboard images directly in Home Assistant using Python/Pillow and pushes them to your GeekMagic device over HTTP. It supports the known stock firmware profiles and the newer SD_PRO-style firmware used by some Ultra units.
 
 ---

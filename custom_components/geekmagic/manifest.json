@@ -7,19 +7,20 @@
     "recorder"
   ],
   "codeowners": [
-    "@adrienbrault"
+    "@adrienbrault",
+    "@EdwardCoventry"
   ],
   "config_flow": true,
   "dependencies": [
     "http"
   ],
-  "documentation": "https://github.com/adrienbrault/geekmagic-hacs",
+  "documentation": "https://github.com/EdwardCoventry/geekmagic-hacs",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/adrienbrault/geekmagic-hacs/issues",
+  "issue_tracker": "https://github.com/EdwardCoventry/geekmagic-hacs/issues",
   "requirements": [
     "pillow>=10.0.0",
     "palettable>=3.3.0",
     "blitz-py>=0.4.2"
   ],
-  "version": "1.3.1"
+  "version": "1.3.2"
 }

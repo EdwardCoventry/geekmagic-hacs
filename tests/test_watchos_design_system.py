@@ -366,6 +366,20 @@ _FORBIDDEN_COLOR_TOKENS: tuple[tuple[str, str], ...] = (
 _NEUTRAL_HEX = {"#000", "#fff", "#000000", "#ffffff"}
 _HEX_ALLOWED: dict[str, set[str]] = {
     "camera.py": _NEUTRAL_HEX,
+    # Purpose-built quota face has an explicit product palette independent
+    # of the selectable dashboard theme.
+    "codex_quota.py": {
+        "#000",
+        "#fff",
+        "#000000",
+        "#2f3136",
+        "#9a9da3",
+        "#39d353",
+        "#e6a23c",
+        "#e5484d",
+        "#c7cbd1",
+        "#ebedf0",
+    },
     "media.py": _NEUTRAL_HEX,
 }
 

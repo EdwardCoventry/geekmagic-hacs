@@ -207,3 +207,15 @@ async def test_detects_sdpro_profile_from_theme_list() -> None:
     profile = await detect_firmware_profile(transport)
 
     assert profile.capabilities.profile_id == MODEL_SD_PRO
+
+
+@pytest.mark.asyncio
+async def test_detects_hellocubic_lite_as_stock_ultra() -> None:
+    """HelloCubic-Lite exposes the proven stock-Ultra image flow."""
+    transport = FakeTransport({"/v.json": {"m": "HelloCubic-Lite", "v": "V7.1.24"}})
+
+    profile = await detect_firmware_profile(transport)
+
+    assert isinstance(profile, StockUltraProfile)
+    assert profile.capabilities.profile_id == MODEL_ULTRA
+    assert profile.capabilities.supports_rendered_dashboard is True

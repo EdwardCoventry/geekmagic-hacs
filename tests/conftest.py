@@ -1,5 +1,6 @@
 """Test fixtures for GeekMagic integration."""
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -34,6 +35,16 @@ def _init_pycares_thread():
 
 
 _init_pycares_thread()
+
+
+@pytest.fixture
+def event_loop_policy(request: pytest.FixtureRequest) -> asyncio.AbstractEventLoopPolicy:
+    """Allow the socketpair needed to create Windows asyncio event loops."""
+    policy = asyncio.get_event_loop_policy()
+    if sys.platform == "win32":
+        request.getfixturevalue("socket_enabled")
+        policy._loop_factory = asyncio.SelectorEventLoop  # type: ignore[attr-defined]
+    return policy
 
 
 @pytest.fixture

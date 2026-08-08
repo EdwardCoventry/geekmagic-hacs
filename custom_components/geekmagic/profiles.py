@@ -753,7 +753,7 @@ async def detect_firmware_profile(transport: DeviceTransport) -> FirmwareProfile
                 model_name=model_name or None,
                 firmware_version=firmware_version,
             )
-        if "ultra" in model_key:
+        if "ultra" in model_key or "hellocubic-lite" in model_key:
             return StockUltraProfile(
                 transport,
                 model_name=model_name or None,
