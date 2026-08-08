@@ -231,18 +231,19 @@ class CodexQuotaWidget(Widget):
                 "<style>",
                 ".cq{position:absolute;inset:0;background:#000;color:#fff;overflow:hidden;"
                 "font-family:'Nunito','DejaVu Sans',sans-serif;font-weight:900}",
-                ".cq-ring{position:absolute;inset:0;width:100%;height:100%;overflow:visible}",
+                ".cq-ring{position:absolute;inset:0;width:100%;height:100%;overflow:visible;"
+                "z-index:1}",
                 ".cq-ring circle{fill:none}",
                 ".cq-main{position:absolute;left:50%;top:43%;transform:translate(-50%,-50%);"
-                "font-size:68px;line-height:.9;letter-spacing:-5px;white-space:nowrap;"
-                "font-weight:900}",
+                "font-size:64px;line-height:.9;letter-spacing:-6px;white-space:nowrap;"
+                "font-weight:900;z-index:2}",
                 ".cq-footer{position:absolute;left:0;right:0;bottom:5px;text-align:center;"
-                "font-size:23px;line-height:1;font-weight:900;white-space:nowrap}",
+                "font-size:23px;line-height:1;font-weight:900;white-space:nowrap;z-index:2}",
                 ".cq-refresh{font-size:26px;margin-right:7px}",
                 ".cq-empty .cq-main{top:50%;font-size:48px;letter-spacing:-3px}",
                 ".cq-reset{position:absolute;inset:0;display:flex;flex-direction:column;"
                 "align-items:center;justify-content:center;color:#39D353;font-size:58px;"
-                "line-height:.92;letter-spacing:-3px;text-align:center}",
+                "line-height:.92;letter-spacing:-3px;text-align:center;z-index:2}",
                 ".cq-full-a{animation:cq-a 2s steps(1,end) infinite}",
                 ".cq-full-b{animation:cq-b 2s steps(1,end) infinite}",
                 "@keyframes cq-a{0%,49.99%{opacity:1}50%,100%{opacity:0}}",
