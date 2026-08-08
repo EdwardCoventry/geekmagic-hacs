@@ -96,6 +96,7 @@ def test_normal_is_colored_percent_with_footer() -> None:
     html = render("93")
     assert ">93%<" in html
     assert "#39D353" in html
+    assert 'stroke-width="38"' in html
     assert "cq-footer" in html.split("</style>", 1)[1]
 
 

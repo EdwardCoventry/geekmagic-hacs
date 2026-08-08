@@ -205,10 +205,13 @@ class CodexQuotaWidget(Widget):
         offset = circumference * (1 - percent / 100)
         return (
             f'<svg class="cq-ring" viewBox="0 0 240 240">'
-            f'<circle cx="120" cy="{center_y}" r="{radius}" stroke="{TRACK}" />'
+            f'<g transform="rotate(-90 120 {center_y})">'
+            f'<circle cx="120" cy="{center_y}" r="{radius}" stroke="{TRACK}" '
+            f'stroke-width="38" />'
             f'<circle class="cq-progress" cx="120" cy="{center_y}" r="{radius}" '
-            f'stroke="{color}" stroke-dasharray="{circumference:.2f}" '
-            f'stroke-dashoffset="{offset:.2f}" /></svg>'
+            f'stroke="{color}" stroke-width="38" stroke-linecap="round" '
+            f'stroke-dasharray="{circumference:.2f}" '
+            f'stroke-dashoffset="{offset:.2f}" /></g></svg>'
         )
 
     @staticmethod
@@ -229,15 +232,13 @@ class CodexQuotaWidget(Widget):
                 ".cq{position:absolute;inset:0;background:#000;color:#fff;overflow:hidden;"
                 "font-family:'Nunito','DejaVu Sans',sans-serif;font-weight:900}",
                 ".cq-ring{position:absolute;inset:0;width:100%;height:100%;overflow:visible}",
-                ".cq-ring circle{fill:none;stroke-width:38;stroke-linecap:round;"
-                "transform:rotate(-90deg);transform-origin:120px 104px}",
+                ".cq-ring circle{fill:none}",
                 ".cq-main{position:absolute;left:50%;top:43%;transform:translate(-50%,-50%);"
                 "font-size:68px;line-height:.9;letter-spacing:-5px;white-space:nowrap;"
                 "font-weight:900}",
                 ".cq-footer{position:absolute;left:0;right:0;bottom:5px;text-align:center;"
                 "font-size:23px;line-height:1;font-weight:900;white-space:nowrap}",
                 ".cq-refresh{font-size:26px;margin-right:7px}",
-                ".cq-empty .cq-ring circle{transform-origin:120px 120px}",
                 ".cq-empty .cq-main{top:50%;font-size:48px;letter-spacing:-3px}",
                 ".cq-reset{position:absolute;inset:0;display:flex;flex-direction:column;"
                 "align-items:center;justify-content:center;color:#39D353;font-size:58px;"
