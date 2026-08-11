@@ -78,6 +78,7 @@ from .layouts.split import (
     ThreeRowLayout,
 )
 from .renderer import Renderer
+from .time_utils import resolve_hass_timezone
 from .widgets import WIDGET_CLASSES
 from .widgets.base import WidgetConfig
 from .widgets.camera import CameraWidget
@@ -719,13 +720,12 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         Returns:
             Dict mapping slot index to WidgetState
         """
-        from datetime import UTC
         from zoneinfo import ZoneInfo
 
         states: dict[int, WidgetState] = {}
 
         # Get current time with HA timezone
-        tz = getattr(self.hass.config, "time_zone_obj", None) or UTC
+        tz = resolve_hass_timezone(self.hass.config)
         now = datetime.now(tz=tz)
 
         for slot in layout.slots:

@@ -102,22 +102,34 @@ class TestPreviewTimezone:
         # Should fall back to base timezone on invalid timezone
         assert str(widget_now.tzinfo) == "Europe/Paris"
 
-    def test_hass_timezone_fallback_to_utc(self):
-        """Test that missing time_zone_obj falls back to UTC."""
-        from datetime import UTC
+    def test_hass_timezone_uses_configured_name_without_time_zone_obj(self):
+        """Modern HA config can expose only the configured timezone name."""
+        from custom_components.geekmagic.time_utils import resolve_hass_timezone
 
-        # Mock hass config without time_zone_obj
         mock_config = MagicMock()
         del mock_config.time_zone_obj  # Remove the attribute
+        mock_config.time_zone = "Europe/London"
 
-        tz = getattr(mock_config, "time_zone_obj", None) or UTC
-        assert tz == UTC
+        assert str(resolve_hass_timezone(mock_config)) == "Europe/London"
 
     def test_hass_timezone_uses_config(self):
         """Test that time_zone_obj from config is used."""
+        from custom_components.geekmagic.time_utils import resolve_hass_timezone
+
         mock_config = MagicMock()
         mock_config.time_zone_obj = ZoneInfo("Asia/Tokyo")
 
-        tz = getattr(mock_config, "time_zone_obj", None)
+        tz = resolve_hass_timezone(mock_config)
         assert tz is not None
         assert str(tz) == "Asia/Tokyo"
+
+    def test_hass_timezone_falls_back_to_utc_for_invalid_name(self):
+        from datetime import UTC
+
+        from custom_components.geekmagic.time_utils import resolve_hass_timezone
+
+        mock_config = MagicMock()
+        del mock_config.time_zone_obj
+        mock_config.time_zone = "Not/A_Zone"
+
+        assert resolve_hass_timezone(mock_config) == UTC

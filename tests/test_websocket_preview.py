@@ -124,3 +124,13 @@ class TestPreviewWidgetStates:
         assert states[2].entity is not None
         assert states[2].entity.entity_id == "sensor.temp"
         assert states[2].entities == {}
+
+    def test_preview_uses_configured_timezone_name(self):
+        hass = make_hass()
+        hass.config.time_zone_obj = None
+        hass.config.time_zone = "Europe/London"
+        states = _build_preview_widget_states(
+            hass, {0: self._html_widget("{{ state }}")}, {}, {}, {}
+        )
+
+        assert str(states[0].now.tzinfo) == "Europe/London"

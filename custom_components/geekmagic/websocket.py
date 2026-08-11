@@ -29,6 +29,7 @@ from .const import (
     THEME_OPTIONS,
 )
 from .renderer import Renderer
+from .time_utils import resolve_hass_timezone
 from .widgets import WIDGET_TYPE_SCHEMAS
 from .widgets.base import WidgetConfig
 from .widgets.state import WidgetState, build_entity_states
@@ -453,11 +454,10 @@ def _build_preview_widget_states(
     ``states()`` / ``state_attr()`` / ``is_state()`` template
     references, multi-entity widgets).
     """
-    from datetime import UTC
     from zoneinfo import ZoneInfo
 
     widget_states: dict[int, WidgetState] = {}
-    tz = getattr(hass.config, "time_zone_obj", None) or UTC
+    tz = resolve_hass_timezone(hass.config)
     now = datetime.now(tz=tz)
 
     for slot, widget in widgets.items():
