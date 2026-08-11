@@ -112,7 +112,7 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert html.index("Pause") < html.index("Lunch") < html.index("Close")
     assert "68%" in html
     assert "46%" in html
-    assert '<span class="hbd-guidance-primary"><span>OPEN</span><span>WINDOW</span>' in html
+    assert '<span class="hbd-guidance-primary"><span>WINDOW</span><span>OPEN</span>' in html
     assert '<span class="hbd-guidance-detail"><span>UNTIL</span><span>2PM</span>' in html
     assert mdi_span("window-open-variant", "hbd-guidance-icon") in html
     assert mdi_span("calendar-clock", "hbd-week-icon") in html
@@ -134,16 +134,19 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert "gap:2px;color:#C7CBD1" in html
     assert ".hbd-guidance-window_open,.hbd-guidance-window_keep_open{color:#F5F7FA;" in html
     assert "background:rgba(245,247,250,.12)" in html
-    assert "height:30px;display:flex;align-items:center;gap:3px" in html
+    assert "height:30px;display:grid;grid-template-columns:18px max-content max-content" in html
+    assert "grid-template-rows:22px 30px;row-gap:7px" in html
     assert "border:1px solid;border-radius:14px" in html
-    assert "flex:0 0 auto;align-self:center" in html
-    assert ".hbd-guidance-primary,.hbd-guidance-detail{height:22px;display:flex" in html
+    assert "justify-self:center;align-self:center" in html
+    assert ".hbd-guidance-primary,.hbd-guidance-detail{height:22px;display:grid" in html
     assert ".hbd-guidance-primary{font-size:11px;font-weight:1000" in html
     assert '<div class="hbd-climate-row"><div class="hbd-date-block">' in html
     assert '<div class="hbd-climate-row"><div class="hbd-guidance' in html
     assert "hbd-temperatures" not in html
     assert "hbd-codex-stats" not in html
-    assert ".hbd-bar{height:23px" in html
+    assert ".hbd-bar{height:30px" in html
+    assert ".hbd-codex-top{display:grid" in html
+    assert "transform:translateY(-7px)" in html
     assert "border-bottom" not in html and "border-left" not in html
     assert "hbd-full-b" not in html.split("</style>", 1)[1]
 
@@ -208,10 +211,10 @@ def test_compact_thermal_guidance_variants_render_semantic_icons_and_text():
         (
             "window_open",
             "window-open-variant",
-            ("OPEN", "WINDOW", "UNTIL", "2PM"),
+            ("WINDOW", "OPEN", "UNTIL", "2PM"),
             NOW.replace(hour=14, minute=0),
         ),
-        ("window_closed", "window-closed-variant", ("CLOSED", "WINDOW"), None),
+        ("window_closed", "window-closed-variant", ("WINDOW", "CLOSED"), None),
         ("heating", "radiator", ("HEATING", "TO 21°"), None),
         ("holding", "thermostat", ("HOLDING", "AT 21°"), None),
         (
@@ -244,5 +247,5 @@ def test_all_day_window_guidance_uses_compact_copy():
 
     html = widget().render_html(CTX, current)
 
-    assert '<span class="hbd-guidance-primary"><span>OPEN</span><span>WINDOW</span>' in html
+    assert '<span class="hbd-guidance-primary"><span>WINDOW</span><span>OPEN</span>' in html
     assert '<span class="hbd-guidance-detail"><span>ALL</span><span>DAY</span>' in html

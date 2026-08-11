@@ -22,5 +22,5 @@
     "palettable>=3.3.0",
     "blitz-py>=0.4.2"
   ],
-  "version": "1.3.12"
+  "version": "1.3.13"
 }

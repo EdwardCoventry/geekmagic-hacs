@@ -271,13 +271,13 @@ class HomeberryDashboardWidget(Widget):
         primary = ("STATUS", "UNKNOWN")
         detail: tuple[str, str] | None = None
         if kind in {"window_open", "window_keep_open"}:
-            primary = ("OPEN", "WINDOW")
+            primary = ("WINDOW", "OPEN")
             if guidance.all_day:
                 detail = ("ALL", "DAY")
             elif guidance.until_at is not None:
                 detail = ("UNTIL", self._guidance_time(guidance.until_at))
         elif kind == "window_closed":
-            primary = ("CLOSED", "WINDOW")
+            primary = ("WINDOW", "CLOSED")
         elif kind == "heating":
             target = (
                 "--°"
@@ -428,22 +428,24 @@ font-family:'Nunito','DejaVu Sans',sans-serif;font-weight:900}
 grid-template-rows:157px 67px;
 row-gap:4px}
 .hbd-hero{display:grid;grid-template-columns:minmax(0,1fr) 64px;
-grid-template-rows:67px 54px 36px;min-width:0}
+grid-template-rows:62px 59px 36px;min-width:0}
 .hbd-time{grid-column:1;grid-row:1;font-family:'Nunito','DejaVu Sans',sans-serif;
 font-size:74px;font-weight:700;font-variant-numeric:tabular-nums;line-height:.88;
 letter-spacing:-5.5px;align-self:end}
 .hbd-climate-rows{grid-column:1/-1;grid-row:2;align-self:stretch;display:grid;
-grid-template-rows:24px 30px;row-gap:0;min-width:0}
-.hbd-climate-row{display:flex;align-items:flex-end;justify-content:space-between;min-width:0}
-.hbd-date-block{height:24px;color:#C7CBD1;font-size:18px;line-height:1;
-letter-spacing:.8px;display:flex;align-items:flex-end;white-space:nowrap}
-.hbd-guidance{height:30px;display:flex;align-items:center;gap:3px;padding:0 5px 0 4px;
+grid-template-rows:22px 30px;row-gap:7px;min-width:0}
+.hbd-climate-row{display:flex;align-items:center;justify-content:space-between;min-width:0}
+.hbd-date-block{height:22px;color:#C7CBD1;font-size:18px;line-height:1;
+letter-spacing:.8px;display:flex;align-items:center;white-space:nowrap}
+.hbd-guidance{height:30px;display:grid;grid-template-columns:18px max-content max-content;
+align-items:center;column-gap:4px;padding:0 5px 0 4px;
 border:1px solid;border-radius:14px;box-sizing:border-box;font-size:15px;line-height:1;
 white-space:nowrap;min-width:0;overflow:hidden}
 .hbd-guidance-icon{font-family:'Material Design Icons';font-size:18px;line-height:1;
-flex:0 0 auto;align-self:center}
-.hbd-guidance-primary,.hbd-guidance-detail{height:22px;display:flex;flex-direction:column;
-align-items:flex-start;justify-content:flex-end;gap:0;line-height:1;flex:0 0 auto}
+justify-self:center;align-self:center}
+.hbd-guidance-primary,.hbd-guidance-detail{height:22px;display:grid;
+grid-template-rows:repeat(2,1fr);align-items:center;row-gap:0;line-height:1}
+.hbd-guidance-primary>span,.hbd-guidance-detail>span{display:flex;align-items:center;height:11px}
 .hbd-guidance-primary{font-size:11px;font-weight:1000;letter-spacing:.15px}
 .hbd-guidance-detail{font-size:10px;font-weight:900;letter-spacing:.2px}
 .hbd-guidance-window_open,.hbd-guidance-window_keep_open{color:#F5F7FA;
@@ -452,7 +454,8 @@ background:rgba(245,247,250,.12)}
 color:#C7CBD1;background:rgba(199,203,209,.12)}
 .hbd-guidance-heating{color:#FF9F0A;background:rgba(255,159,10,.18)}
 .hbd-guidance-holding{color:#39D353;background:rgba(57,211,83,.18)}
-.hbd-weather-art{grid-column:2;grid-row:1;width:64px;height:64px;display:block;align-self:end}
+.hbd-weather-art{grid-column:2;grid-row:1;width:62px;height:62px;display:block;
+align-self:end;justify-self:end}
 .hbd-temperature{height:24px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
 .hbd-temperature-label{font-size:16px;line-height:1;letter-spacing:.5px;padding-bottom:2px}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
@@ -467,11 +470,13 @@ overflow:hidden;text-overflow:ellipsis}
 .hbd-chip-more{height:27px;min-width:27px;padding:0 5px;border-radius:14px;
 color:#C7CBD1;display:flex;align-items:center;justify-content:center;font-size:13px;
 line-height:1;box-sizing:border-box;flex:0 0 auto}
-.hbd-codex{height:67px;display:grid;grid-template-rows:34px 23px;row-gap:6px;
+.hbd-codex{height:67px;display:grid;grid-template-rows:34px 23px;row-gap:3px;
 align-content:center}
-.hbd-codex-top{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:center}
-.hbd-bar{height:23px;width:100%;border-radius:12px;background:#2F3136;overflow:hidden}
-.hbd-bar-fill{height:100%;border-radius:12px}
+.hbd-codex-top{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:center;
+transform:translateY(-7px)}
+.hbd-bar{height:30px;width:100%;border-radius:15px;background:#2F3136;overflow:hidden;
+transform:translateY(-7px)}
+.hbd-bar-fill{height:100%;border-radius:15px}
 .hbd-percent{grid-column:1;font-size:30px;line-height:1;text-align:left;
 letter-spacing:-1.5px;justify-self:start}
 .hbd-week-progress{grid-column:2;color:#C7CBD1;font-size:19px;line-height:1;display:flex;
