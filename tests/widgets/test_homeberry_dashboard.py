@@ -73,7 +73,8 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert "68%" in html
     assert 'class="hbd-refresh"' in html
     assert "3d 5h" in html
-    assert html.index("68%") < html.index('class="hbd-bar"') < html.index("3d 5h")
+    assert html.index("68%") < html.index("3d 5h") < html.index('class="hbd-bar"')
+    assert 'class="hbd-codex-top"' in html
     assert ".hbd-home-icon" in html and "color:#C7CBD1" in html
     assert "border-bottom" not in html and "border-left" not in html
     assert "hbd-full-b" not in html.split("</style>", 1)[1]

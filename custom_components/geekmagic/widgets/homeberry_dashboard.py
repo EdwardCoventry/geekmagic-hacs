@@ -142,7 +142,7 @@ class HomeberryDashboardWidget(Widget):
         )
 
     @staticmethod
-    def _quota_bar(snapshot: HomeberryDashboardSnapshot) -> str:
+    def _quota_parts(snapshot: HomeberryDashboardSnapshot) -> tuple[str, str]:
         if snapshot.quota_mode is QuotaMode.UNAVAILABLE:
             percent = 0
             percent_text = "--%"
@@ -152,9 +152,9 @@ class HomeberryDashboardWidget(Widget):
             percent_text = f"{percent}%"
             color = snapshot.quota_color
         return (
-            f'<div class="hbd-percent" style="color:{color}">{percent_text}</div>'
+            f'<div class="hbd-percent" style="color:{color}">{percent_text}</div>',
             '<div class="hbd-bar"><div class="hbd-bar-fill" '
-            f'style="width:{percent}%;background:{color}"></div></div>'
+            f'style="width:{percent}%;background:{color}"></div></div>',
         )
 
     @staticmethod
@@ -227,36 +227,37 @@ class HomeberryDashboardWidget(Widget):
             "</svg>"
         )
         reset_text = snapshot.reset_text
-        quota = self._quota_bar(snapshot)
+        quota_percent, quota_bar = self._quota_parts(snapshot)
         css = """
 <style>
 .hbd{position:absolute;inset:0;overflow:hidden;background:#000;color:#f5f7fa;
 font-family:'Nunito','DejaVu Sans',sans-serif;font-weight:900}
 .hbd-dashboard,.hbd-reset{position:absolute;inset:0}
-.hbd-dashboard{padding:9px 13px 8px;box-sizing:border-box}
-.hbd-hero{height:137px;display:grid;grid-template-columns:minmax(0,1fr) 72px}
-.hbd-clock{display:grid;grid-template-rows:76px 38px;align-content:center;padding:0 10px 0 1px;
+.hbd-dashboard{padding:7px 13px 8px;box-sizing:border-box}
+.hbd-hero{height:168px;display:grid;grid-template-columns:minmax(0,1fr) 76px}
+.hbd-clock{display:grid;grid-template-rows:87px 29px 39px;align-content:center;
+padding:0 8px 0 1px;
 box-sizing:border-box}
-.hbd-time{font-family:'Nunito','DejaVu Sans',sans-serif;font-size:66px;font-weight:700;
-font-variant-numeric:tabular-nums;line-height:.9;letter-spacing:-5px;align-self:end}
-.hbd-date{font-size:16px;line-height:1;margin-top:6px;color:#C7CBD1;letter-spacing:1.4px;
+.hbd-time{font-family:'Nunito','DejaVu Sans',sans-serif;font-size:70px;font-weight:700;
+font-variant-numeric:tabular-nums;line-height:.88;letter-spacing:-5px;align-self:end}
+.hbd-date{font-size:17px;line-height:1;margin-top:5px;color:#C7CBD1;letter-spacing:1.2px;
 align-self:start}
-.hbd-weather{display:grid;grid-template-rows:76px 38px;align-content:center;justify-items:center;
-box-sizing:border-box}
-.hbd-weather-art{width:58px;height:58px;display:block;align-self:end}
-.hbd-temp{font-size:34px;line-height:1;margin-top:5px;color:#F5F7FA;letter-spacing:-2px;
+.hbd-weather{display:grid;grid-template-rows:87px 42px 26px;align-content:center;
+justify-items:center;box-sizing:border-box}
+.hbd-weather-art{width:64px;height:64px;display:block;align-self:end}
+.hbd-temp{font-size:38px;line-height:1;margin-top:4px;color:#F5F7FA;letter-spacing:-2px;
 align-self:start}
-.hbd-scene{height:38px;display:flex;align-items:center;gap:8px;padding:0 1px;box-sizing:border-box}
-.hbd-home-icon{font-family:'Material Design Icons';font-size:24px;line-height:1;color:#C7CBD1}
-.hbd-scene-name{font-size:20px;line-height:1;letter-spacing:.8px;white-space:nowrap;overflow:hidden}
-.hbd-codex{height:48px;display:grid;grid-template-columns:50px minmax(0,1fr) 59px;
-align-items:center;column-gap:7px}
-.hbd-bar{height:12px;min-width:0;border-radius:9px;background:#2F3136;overflow:hidden}
+.hbd-scene{display:flex;align-items:center;align-self:center;gap:8px;min-width:0}
+.hbd-home-icon{font-family:'Material Design Icons';font-size:25px;line-height:1;color:#C7CBD1}
+.hbd-scene-name{font-size:22px;line-height:1;letter-spacing:.7px;white-space:nowrap;overflow:hidden}
+.hbd-codex{height:57px;display:grid;grid-template-rows:31px 18px;row-gap:4px}
+.hbd-codex-top{display:flex;align-items:center;justify-content:space-between}
+.hbd-bar{height:18px;width:100%;border-radius:11px;background:#2F3136;overflow:hidden}
 .hbd-bar-fill{height:100%;border-radius:9px}
-.hbd-percent{font-size:22px;line-height:1;text-align:left;letter-spacing:-1px}
-.hbd-reset-count{display:flex;align-items:center;gap:3px;color:#C7CBD1;font-size:15px;
-line-height:1;white-space:nowrap;justify-self:end}
-.hbd-refresh{width:17px;height:17px;display:block;flex:0 0 auto}
+.hbd-percent{font-size:28px;line-height:1;text-align:left;letter-spacing:-1.5px}
+.hbd-reset-count{display:flex;align-items:center;gap:4px;color:#C7CBD1;font-size:18px;
+line-height:1;white-space:nowrap}
+.hbd-refresh{width:19px;height:19px;display:block;flex:0 0 auto}
 .hbd-full-a,.hbd-full-b{position:absolute;inset:0}
 .hbd-full-a{animation:hbd-a 2s steps(1,end) infinite}
 .hbd-full-b{animation:hbd-b 2s steps(1,end) infinite}
@@ -270,13 +271,14 @@ color:#39D353;font-size:58px;line-height:.92;letter-spacing:-3px;text-align:cent
             '<div class="hbd-dashboard">'
             '<div class="hbd-hero"><div class="hbd-clock">'
             f'<div class="hbd-time">{snapshot.time_text}</div>'
-            f'<div class="hbd-date">{snapshot.date_text}</div></div>'
+            f'<div class="hbd-date">{snapshot.date_text}</div>'
+            f'<div class="hbd-scene">{home_icon}'
+            f'<div class="hbd-scene-name">{escape(snapshot.scene_text)}</div></div></div>'
             f'<div class="hbd-weather">{weather_art}'
             f'<div class="hbd-temp">{escape(snapshot.temperature_text)}</div></div></div>'
-            f'<div class="hbd-scene">{home_icon}'
-            f'<div class="hbd-scene-name">{escape(snapshot.scene_text)}</div></div>'
-            f'<div class="hbd-codex">{quota}<div class="hbd-reset-count">'
-            f'{reset_icon}{escape(reset_text)}</div></div></div>'
+            f'<div class="hbd-codex"><div class="hbd-codex-top">{quota_percent}'
+            f'<div class="hbd-reset-count">{reset_icon}{escape(reset_text)}</div></div>'
+            f'{quota_bar}</div></div>'
         )
         if snapshot.quota_mode is not QuotaMode.FULL:
             return css + f'<div class="hbd">{dashboard}</div>'
