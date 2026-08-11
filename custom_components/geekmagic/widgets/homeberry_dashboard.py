@@ -44,6 +44,7 @@ class TemperatureSnapshot:
 
     label: str
     value_text: str
+    is_hottest: bool
 
 
 @dataclass(frozen=True)
@@ -132,18 +133,35 @@ class HomeberryDashboardWidget(Widget):
         weather = self._additional(state, "weather_entity_id")
         scene = self._additional(state, "scene_entity_id")
 
-        temperatures: list[TemperatureSnapshot] = []
+        resolved_temperatures: list[tuple[str, int | None]] = []
         for label, attribute in (
             ("OUT", "outdoor_temperature_c"),
             ("IN", "indoor_temperature_c"),
         ):
-            value_text = "--°"
+            display_temperature = None
             if scene is not None:
                 with suppress(TypeError, ValueError):
                     raw_temperature = scene.attributes.get(attribute)
                     if raw_temperature is not None:
-                        value_text = f"{round(float(raw_temperature))}°"
-            temperatures.append(TemperatureSnapshot(label=label, value_text=value_text))
+                        display_temperature = round(float(raw_temperature))
+            resolved_temperatures.append((label, display_temperature))
+
+        available_temperatures = [
+            value for _, value in resolved_temperatures if value is not None
+        ]
+        hottest_temperature = (
+            max(available_temperatures)
+            if len(available_temperatures) == len(resolved_temperatures)
+            else None
+        )
+        temperatures = [
+            TemperatureSnapshot(
+                label=label,
+                value_text=f"{value}°" if value is not None else "--°",
+                is_hottest=value is not None and value == hottest_temperature,
+            )
+            for label, value in resolved_temperatures
+        ]
 
         condition = str(weather.state if weather is not None else "unknown").strip().lower()
         if condition in {"", "unknown", "unavailable"}:
@@ -404,7 +422,9 @@ class HomeberryDashboardWidget(Widget):
         thermal_guidance = self._thermal_guidance_html(snapshot)
         temperature_rows = [
             '<div class="hbd-temperature">'
-            f'<span class="hbd-temperature-label">{item.label}</span>'
+            f'<span class="hbd-temperature-label'
+            f'{" hbd-temperature-hottest" if item.is_hottest else ""}">'
+            f'{item.label}</span>'
             f'<span class="hbd-temperature-value">{escape(item.value_text)}</span></div>'
             for item in snapshot.temperatures
         ]
@@ -460,6 +480,8 @@ color:#C7CBD1;background:rgba(199,203,209,.12)}
 align-self:end;justify-self:end}
 .hbd-temperature{height:24px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
 .hbd-temperature-label{font-size:16px;line-height:1;letter-spacing:.5px;padding-bottom:2px}
+.hbd-temperature-hottest{text-decoration-line:underline;text-decoration-thickness:2px;
+text-underline-offset:2px}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
 text-align:right}
 .hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:end;gap:4px;

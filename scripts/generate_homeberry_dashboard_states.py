@@ -93,6 +93,11 @@ THERMAL_STATES = {
     },
 }
 QUOTA_ALIGNMENT_STATES = ("1", "9", "10", "68", "99", "100")
+TEMPERATURE_COMPARISON_STATES = {
+    "out-hotter": (27.6, 22.4),
+    "in-hotter": (18.2, 23.1),
+    "equal-displayed": (22.4, 22.3),
+}
 
 
 def _layout() -> FullscreenLayout:
@@ -119,6 +124,8 @@ def _state(
     *,
     scene: str = "Movie",
     thermal_guidance: dict[str, object] | None = None,
+    outdoor_temperature: float = 27.6,
+    indoor_temperature: float = 22.4,
 ) -> WidgetState:
     return WidgetState(
         entity=EntityState(
@@ -134,8 +141,8 @@ def _state(
                 {
                     "active_scene_id": scene.lower(),
                     "scene_chips": SCENE_CHIPS,
-                    "indoor_temperature_c": 22.4,
-                    "outdoor_temperature_c": 27.6,
+                    "indoor_temperature_c": indoor_temperature,
+                    "outdoor_temperature_c": outdoor_temperature,
                     "thermal_guidance": thermal_guidance
                     or THERMAL_STATES["window-open-until"],
                 },
@@ -149,13 +156,22 @@ def _still(
     quota: str,
     *,
     thermal_guidance: dict[str, object] | None = None,
+    outdoor_temperature: float = 27.6,
+    indoor_temperature: float = 22.4,
 ) -> Image.Image:
     renderer = Renderer()
     canvas, draw = renderer.create_canvas()
     _layout().render(
         renderer,
         draw,
-        {0: _state(quota, thermal_guidance=thermal_guidance)},
+        {
+            0: _state(
+                quota,
+                thermal_guidance=thermal_guidance,
+                outdoor_temperature=outdoor_temperature,
+                indoor_temperature=indoor_temperature,
+            )
+        },
     )
     return renderer.finalize(canvas)
 
@@ -200,12 +216,27 @@ def generate(output: Path) -> dict[str, object]:
     for index, rendered in enumerate(quota_images):
         quota_sheet.paste(rendered, ((index % 3) * 240, (index // 3) * 240))
     quota_sheet.save(output / "homeberry-dashboard-quota-alignment-storyboard.png")
+
+    temperature_images = []
+    for name, (outdoor, indoor) in TEMPERATURE_COMPARISON_STATES.items():
+        rendered = _still(
+            "68", outdoor_temperature=outdoor, indoor_temperature=indoor
+        )
+        rendered.save(output / f"homeberry-dashboard-temperature-{name}.png")
+        temperature_images.append(rendered)
+    temperature_sheet = Image.new("RGB", (720, 240), "black")
+    for index, rendered in enumerate(temperature_images):
+        temperature_sheet.paste(rendered, (index * 240, 0))
+    temperature_sheet.save(
+        output / "homeberry-dashboard-temperature-storyboard.png"
+    )
     manifest = {
         "display_size": [240, 240],
         "normal_quota": 68,
         "full_animation_frame_times": [0.0, 1.0],
         "thermal_storyboard_order": list(THERMAL_STATES),
         "quota_alignment_storyboard_order": list(QUOTA_ALIGNMENT_STATES),
+        "temperature_storyboard_order": list(TEMPERATURE_COMPARISON_STATES),
         "files": sorted(path.name for path in output.iterdir() if path.is_file()),
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

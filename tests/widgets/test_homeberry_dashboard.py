@@ -153,6 +153,58 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert "hbd-full-b" not in html.split("</style>", 1)[1]
 
 
+@pytest.mark.parametrize(
+    ("outdoor", "indoor", "underlined_labels"),
+    [
+        (27.6, 22.4, {"OUT"}),
+        (18.2, 23.1, {"IN"}),
+        (22.4, 22.3, {"OUT", "IN"}),
+    ],
+)
+def test_hottest_displayed_temperature_labels_are_underlined(
+    outdoor, indoor, underlined_labels
+):
+    current = state()
+    attributes = current.entities[SCENE].attributes
+    attributes["outdoor_temperature_c"] = outdoor
+    attributes["indoor_temperature_c"] = indoor
+
+    snapshot = widget().snapshot(current)
+    assert {item.label for item in snapshot.temperatures if item.is_hottest} == (
+        underlined_labels
+    )
+
+    html = widget().render_html(CTX, current)
+    for label in ("OUT", "IN"):
+        class_name = (
+            "hbd-temperature-label hbd-temperature-hottest"
+            if label in underlined_labels
+            else "hbd-temperature-label"
+        )
+        assert f'<span class="{class_name}">{label}</span>' in html
+    assert "hbd-temperature-value hbd-temperature-hottest" not in html
+
+
+@pytest.mark.parametrize(
+    "missing_attributes",
+    [
+        ("indoor_temperature_c",),
+        ("outdoor_temperature_c",),
+        ("indoor_temperature_c", "outdoor_temperature_c"),
+    ],
+)
+def test_unavailable_temperatures_do_not_receive_hotter_underlines(
+    missing_attributes,
+):
+    current = state()
+    for attribute in missing_attributes:
+        current.entities[SCENE].attributes.pop(attribute)
+
+    snapshot = widget().snapshot(current)
+
+    assert not any(item.is_hottest for item in snapshot.temperatures)
+
+
 def test_full_quota_alternates_dashboard_and_reset_faces():
     dashboard = widget()
     html = dashboard.render_html(CTX, state("100"))
