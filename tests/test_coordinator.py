@@ -1,5 +1,6 @@
 """Tests for GeekMagic coordinator multi-screen support."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -156,6 +157,32 @@ class TestCoordinatorEventRefresh:
             await hass.async_block_till_done()
 
         call_later.assert_called_once()
+        coordinator.async_request_refresh.assert_awaited_once_with()
+        assert coordinator.event_refresh_diagnostics["request_count"] == 1
+        assert coordinator.event_refresh_diagnostics["last_reasons"] == ["event"]
+
+    @pytest.mark.asyncio
+    async def test_real_home_assistant_state_event_requests_refresh(
+        self, hass, coordinator_device
+    ):
+        coordinator = GeekMagicCoordinator(
+            hass,
+            coordinator_device,
+            {
+                CONF_WIDGETS: [
+                    {"type": "entity", "slot": 0, "entity_id": "sensor.room"}
+                ]
+            },
+        )
+        coordinator.async_request_refresh = AsyncMock()  # type: ignore[method-assign]
+        coordinator.start_event_refresh()
+
+        hass.states.async_set("sensor.room", "21")
+        await hass.async_block_till_done()
+        await asyncio.sleep(0.3)
+        await hass.async_block_till_done()
+        coordinator.stop_event_refresh()
+
         coordinator.async_request_refresh.assert_awaited_once_with()
 
 

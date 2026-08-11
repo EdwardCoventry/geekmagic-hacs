@@ -305,6 +305,7 @@ def ws_devices_list(
                     CONF_SCREEN_CYCLE_INTERVAL, DEFAULT_SCREEN_CYCLE_INTERVAL
                 ),
                 "online": coordinator.last_update_success,
+                "event_refresh": coordinator.event_refresh_diagnostics,
             }
         )
     connection.send_result(msg["id"], {"devices": devices})

@@ -363,6 +363,10 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         self._event_listener_cancels: list[Callable[[], None]] = []
         self._event_refresh_cancel: Callable[[], None] | None = None
         self._event_refresh_started = False
+        self._pending_event_refresh_reasons: set[str] = set()
+        self._last_event_refresh_reasons: tuple[str, ...] = ()
+        self._last_event_refresh_at: str | None = None
+        self._event_refresh_count = 0
 
         # Device state (updated on refresh)
         self._device_state: DeviceState | None = None
@@ -435,6 +439,19 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         if self._event_refresh_cancel is not None:
             self._event_refresh_cancel()
             self._event_refresh_cancel = None
+        self._pending_event_refresh_reasons.clear()
+
+    @property
+    def event_refresh_diagnostics(self) -> dict[str, Any]:
+        """Return non-secret event subscription diagnostics."""
+        return {
+            "enabled": self._event_refresh_started,
+            "tracked_entities": sorted(self._tracked_entity_ids()),
+            "last_reasons": list(self._last_event_refresh_reasons),
+            "last_requested_at": self._last_event_refresh_at,
+            "request_count": self._event_refresh_count,
+            "debounce_seconds": EVENT_REFRESH_DEBOUNCE_SECONDS,
+        }
 
     def _tracked_entity_ids(self) -> set[str]:
         """Return every entity dependency declared by configured widgets."""
@@ -478,14 +495,15 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
     @callback
     def _handle_dependency_change(self, _event: Any) -> None:
-        self._schedule_event_refresh()
+        self._schedule_event_refresh("entity")
 
     @callback
     def _handle_minute_boundary(self, _now: datetime) -> None:
-        self._schedule_event_refresh()
+        self._schedule_event_refresh("minute")
 
     @callback
-    def _schedule_event_refresh(self) -> None:
+    def _schedule_event_refresh(self, reason: str = "event") -> None:
+        self._pending_event_refresh_reasons.add(reason)
         if self._event_refresh_cancel is not None:
             return
         self._event_refresh_cancel = async_call_later(
@@ -497,6 +515,10 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
     @callback
     def _dispatch_event_refresh(self, _now: datetime) -> None:
         self._event_refresh_cancel = None
+        self._last_event_refresh_reasons = tuple(sorted(self._pending_event_refresh_reasons))
+        self._pending_event_refresh_reasons.clear()
+        self._last_event_refresh_at = dt_util.utcnow().isoformat()
+        self._event_refresh_count += 1
         self.hass.async_create_task(self.async_request_refresh())
 
     def _migrate_options(self, options: dict[str, Any]) -> dict[str, Any]:
