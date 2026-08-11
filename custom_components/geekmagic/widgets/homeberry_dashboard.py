@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from ..htmldoc import mdi_span
 from .base import Widget
 from .codex_quota import (
+    CRITICAL_RED,
     EMPTY_RING,
     TRACK,
     QuotaMode,
@@ -149,11 +150,12 @@ class HomeberryDashboardWidget(Widget):
         available_temperatures = [
             value for _, value in resolved_temperatures if value is not None
         ]
-        hottest_temperature = (
-            max(available_temperatures)
-            if len(available_temperatures) == len(resolved_temperatures)
-            else None
-        )
+        hottest_temperature = None
+        if (
+            len(available_temperatures) == len(resolved_temperatures)
+            and available_temperatures[0] != available_temperatures[1]
+        ):
+            hottest_temperature = max(available_temperatures)
         temperatures = [
             TemperatureSnapshot(
                 label=label,
@@ -485,7 +487,7 @@ align-self:end;justify-self:end;transform:translateY(-6px)}
 .hbd-temperature-label{width:38px;height:19px;box-sizing:border-box;display:flex;
 align-items:center;justify-content:center;font-size:16px;line-height:1;letter-spacing:.5px;
 border:1px solid transparent;border-radius:14px;transform:translateY(-5px)}
-.hbd-temperature-hottest{border-color:currentColor}
+.hbd-temperature-hottest{color:#F5F7FA;background:__HOT_RED__;border-color:__HOT_RED__}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
 text-align:right}
 .hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:center;gap:4px;
@@ -521,7 +523,7 @@ color:#39D353;font-size:58px;line-height:.92;letter-spacing:-3px;text-align:cent
 @keyframes hbd-a{0%,49.99%{opacity:1}50%,100%{opacity:0}}
 @keyframes hbd-b{0%,49.99%{opacity:0}50%,100%{opacity:1}}
 </style>
-"""
+""".replace("__HOT_RED__", CRITICAL_RED)
         dashboard = (
             '<div class="hbd-dashboard">'
             '<div class="hbd-hero">'

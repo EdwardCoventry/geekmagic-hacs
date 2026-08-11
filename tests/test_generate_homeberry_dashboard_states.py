@@ -41,7 +41,7 @@ def test_generator_writes_dashboard_and_both_reset_frames(tmp_path: Path):
         assert animation.info["duration"] == 1000
 
 
-def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Path):
+def test_hotter_temperature_renders_as_a_single_red_chip(tmp_path: Path):
     manifest = MODULE.generate(tmp_path)
 
     assert manifest["temperature_storyboard_order"] == [
@@ -50,17 +50,14 @@ def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Pat
         "equal-displayed",
     ]
 
-    def has_outline_edges(
-        image: Image.Image,
-        top_box: tuple[int, int, int, int],
-        bottom_box: tuple[int, int, int, int],
+    def has_red_chip(
+        image: Image.Image, box: tuple[int, int, int, int]
     ) -> bool:
-        rgb = image.convert("RGB")
-        return all(
-            min(pixel) > 100
-            for box in (top_box, bottom_box)
-            for pixel in rgb.crop(box).getdata()
+        red_pixels = sum(
+            red > 180 and green < 120 and blue < 120
+            for red, green, blue in image.convert("RGB").crop(box).getdata()
         )
+        return red_pixels > 100
 
     with (
         Image.open(
@@ -71,14 +68,14 @@ def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Pat
             tmp_path / "homeberry-dashboard-temperature-equal-displayed.png"
         ) as equal,
     ):
-        out_outline = ((154, 69, 176, 70), (154, 88, 176, 89))
-        in_outline = ((154, 105, 176, 106), (154, 124, 176, 125))
-        assert has_outline_edges(out_hotter, *out_outline)
-        assert not has_outline_edges(out_hotter, *in_outline)
-        assert not has_outline_edges(in_hotter, *out_outline)
-        assert has_outline_edges(in_hotter, *in_outline)
-        assert has_outline_edges(equal, *out_outline)
-        assert has_outline_edges(equal, *in_outline)
+        out_chip = (145, 68, 184, 89)
+        in_chip = (145, 104, 184, 125)
+        assert has_red_chip(out_hotter, out_chip)
+        assert not has_red_chip(out_hotter, in_chip)
+        assert not has_red_chip(in_hotter, out_chip)
+        assert has_red_chip(in_hotter, in_chip)
+        assert not has_red_chip(equal, out_chip)
+        assert not has_red_chip(equal, in_chip)
 
 
 def test_dashboard_visual_bands_have_identical_six_pixel_gaps(tmp_path: Path):

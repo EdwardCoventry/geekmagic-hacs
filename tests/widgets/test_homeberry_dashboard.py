@@ -163,7 +163,7 @@ def test_dashboard_renders_scene_weather_and_quota():
     [
         (27.6, 22.4, {"OUT"}),
         (18.2, 23.1, {"IN"}),
-        (22.4, 22.3, {"OUT", "IN"}),
+        (22.4, 22.3, set()),
     ],
 )
 def test_hottest_displayed_temperature_labels_are_outlined(
@@ -188,6 +188,7 @@ def test_hottest_displayed_temperature_labels_are_outlined(
         )
         assert f'<span class="{class_name}">{label}</span>' in html
     assert "hbd-temperature-value hbd-temperature-hottest" not in html
+    assert ".hbd-temperature-hottest{color:#F5F7FA;background:#E5484D;" in html
 
 
 @pytest.mark.parametrize(
