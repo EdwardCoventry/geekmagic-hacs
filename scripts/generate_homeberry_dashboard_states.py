@@ -21,9 +21,19 @@ from custom_components.geekmagic.widgets.state import EntityState, WidgetState
 
 NOW = datetime(2026, 8, 11, 9, 42, tzinfo=UTC)
 CODEX = "sensor.codex_usage_codex_weekly_remaining"
-TEMP = "sensor.temp_temperature"
 WEATHER = "weather.forecast_home"
 SCENE = "sensor.homeberry_runtime_active_scene"
+SCENE_CHIPS = [
+    {"id": "movie", "label": "Movie", "icon": "movie-open", "color": "#D477FF"},
+    {
+        "id": "curtains_close",
+        "label": "Close",
+        "icon": "curtains-closed",
+        "color": "#72849A",
+    },
+    {"id": "lunch", "label": "Lunch", "icon": "food", "color": "#F4A261"},
+    {"id": "pause", "label": "Pause", "icon": "pause", "color": "#A9ADB5"},
+]
 
 
 def _layout() -> FullscreenLayout:
@@ -36,7 +46,6 @@ def _layout() -> FullscreenLayout:
                 slot=0,
                 entity_id=CODEX,
                 options={
-                    "temperature_entity_id": TEMP,
                     "weather_entity_id": WEATHER,
                     "scene_entity_id": SCENE,
                 },
@@ -54,9 +63,17 @@ def _state(quota: str, *, scene: str = "Movie") -> WidgetState:
             {"secondary_reset_at": (NOW + timedelta(days=3, hours=5)).timestamp()},
         ),
         entities={
-            TEMP: EntityState(TEMP, "25.6", {"unit_of_measurement": "°C"}),
             WEATHER: EntityState(WEATHER, "partlycloudy", {"temperature": 20}),
-            SCENE: EntityState(SCENE, scene, {"active_scene_id": scene.lower()}),
+            SCENE: EntityState(
+                SCENE,
+                scene,
+                {
+                    "active_scene_id": scene.lower(),
+                    "scene_chips": SCENE_CHIPS,
+                    "indoor_temperature_c": 22.4,
+                    "outdoor_temperature_c": 27.6,
+                },
+            ),
         },
         now=NOW,
     )

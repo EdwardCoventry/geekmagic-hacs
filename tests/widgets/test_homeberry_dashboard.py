@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from custom_components.geekmagic.htmldoc import CellContext
+from custom_components.geekmagic.htmldoc import CellContext, mdi_span
 from custom_components.geekmagic.widgets import WIDGET_CLASSES, WidgetConfig
 from custom_components.geekmagic.widgets.homeberry_dashboard import HomeberryDashboardWidget
 from custom_components.geekmagic.widgets.state import EntityState, WidgetState
@@ -10,10 +10,20 @@ from custom_components.geekmagic.widgets.theme import DEFAULT_THEME
 
 NOW = datetime(2026, 8, 11, 9, 42, tzinfo=UTC)
 CTX = CellContext(width=240, height=240, slot_index=0, theme=DEFAULT_THEME)
-TEMP = "sensor.temp_temperature"
 WEATHER = "weather.forecast_home"
 SCENE = "sensor.homeberry_runtime_active_scene"
 CODEX = "sensor.codex_usage_codex_weekly_remaining"
+SCENE_CHIPS = [
+    {"id": "movie", "label": "Movie", "icon": "movie-open", "color": "#D477FF"},
+    {
+        "id": "curtains_close",
+        "label": "Close",
+        "icon": "curtains-closed",
+        "color": "#72849A",
+    },
+    {"id": "lunch", "label": "Lunch", "icon": "food", "color": "#F4A261"},
+    {"id": "pause", "label": "Pause", "icon": "pause", "color": "#A9ADB5"},
+]
 
 
 def widget() -> HomeberryDashboardWidget:
@@ -22,7 +32,6 @@ def widget() -> HomeberryDashboardWidget:
             widget_type="homeberry_dashboard",
             entity_id=CODEX,
             options={
-                "temperature_entity_id": TEMP,
                 "weather_entity_id": WEATHER,
                 "scene_entity_id": SCENE,
             },
@@ -38,9 +47,17 @@ def state(quota: str = "68") -> WidgetState:
             {"secondary_reset_at": (NOW + timedelta(days=3, hours=5)).timestamp()},
         ),
         entities={
-            TEMP: EntityState(TEMP, "25.6", {"unit_of_measurement": "°C"}),
             WEATHER: EntityState(WEATHER, "partlycloudy", {"temperature": 20}),
-            SCENE: EntityState(SCENE, "Movie", {"active_scene_id": "movie"}),
+            SCENE: EntityState(
+                SCENE,
+                "Pause",
+                {
+                    "active_scene_id": "pause",
+                    "scene_chips": SCENE_CHIPS,
+                    "indoor_temperature_c": 22.4,
+                    "outdoor_temperature_c": 27.6,
+                },
+            ),
         },
         now=NOW,
     )
@@ -50,32 +67,56 @@ def test_dashboard_resolves_all_homeberry_glance_values():
     snapshot = widget().snapshot(state())
 
     assert snapshot.time_text == "09:42"
-    assert snapshot.date_text == "TUE 11 AUG"
-    assert snapshot.temperature_text == "26°"
+    assert snapshot.weekday_text == "TUE"
+    assert snapshot.date_text == "11 AUG"
+    assert [(item.label, item.value_text) for item in snapshot.temperatures] == [
+        ("IN", "22°"),
+        ("OUT", "28°"),
+    ]
     assert snapshot.weather_condition == "partlycloudy"
-    assert snapshot.scene_text == "MOVIE"
+    assert [chip.scene_id for chip in snapshot.scene_chips] == [
+        "movie",
+        "curtains_close",
+        "lunch",
+        "pause",
+    ]
     assert snapshot.quota_remaining == 68
+    assert snapshot.week_progress == 54
     assert snapshot.reset_text == "3d 5h"
 
 
 def test_dashboard_declares_all_entity_dependencies():
-    assert widget().get_entities() == [CODEX, TEMP, WEATHER, SCENE]
+    assert widget().get_entities() == [CODEX, WEATHER, SCENE]
 
 
 def test_dashboard_renders_scene_weather_and_quota():
     html = widget().render_html(CTX, state())
 
     assert "09:42" in html
-    assert "26°" in html
+    assert "TUE 11 AUG" in html
+    assert "IN" in html and "22°" in html
+    assert "OUT" in html and "28°" in html
     assert "PARTLY CLOUDY" not in html
     assert "hbd-weather-art" in html
-    assert "MOVIE" in html
+    assert "Pause" in html and "Lunch" in html and "Close" in html
+    assert "Movie" not in html
+    assert "+1" in html
+    assert html.index("Pause") < html.index("Lunch") < html.index("Close")
     assert "68%" in html
+    assert "54%" in html
+    assert mdi_span("calendar-clock", "hbd-week-icon") in html
     assert 'class="hbd-refresh"' in html
     assert "3d 5h" in html
-    assert html.index("68%") < html.index("3d 5h") < html.index('class="hbd-bar"')
+    assert html.index("68%") < html.index("54%") < html.index("3d 5h")
+    assert html.index("3d 5h") < html.index('class="hbd-bar"')
     assert 'class="hbd-codex-top"' in html
-    assert ".hbd-home-icon" in html and "color:#C7CBD1" in html
+    assert mdi_span("movie-open", "hbd-chip-icon") not in html
+    assert mdi_span("pause", "hbd-chip-icon") in html
+    assert mdi_span("food", "hbd-chip-icon") in html
+    assert mdi_span("curtains-closed", "hbd-chip-icon") in html
+    assert ".hbd-dashboard{padding:8px" in html
+    assert "grid-template-rows:153px 67px" in html
+    assert ".hbd-bar{height:23px" in html
     assert "border-bottom" not in html and "border-left" not in html
     assert "hbd-full-b" not in html.split("</style>", 1)[1]
 
@@ -93,3 +134,43 @@ def test_full_quota_alternates_dashboard_and_reset_faces():
 
 def test_widget_is_registered():
     assert WIDGET_CLASSES["homeberry_dashboard"] is HomeberryDashboardWidget
+
+
+def test_missing_scene_metadata_is_explicitly_unavailable():
+    current = state()
+    current.entities[SCENE] = EntityState(SCENE, "Movie", {"active_scene_id": "movie"})
+
+    html = widget().render_html(CTX, current)
+
+    assert "NO SCENE DATA" in html
+    assert mdi_span("alert-circle-outline", "hbd-chip-icon") in html
+
+
+def test_missing_homeberry_temperatures_are_explicitly_unavailable():
+    current = state()
+    current.entities[SCENE].attributes.pop("indoor_temperature_c")
+    current.entities[SCENE].attributes.pop("outdoor_temperature_c")
+
+    html = widget().render_html(CTX, current)
+
+    assert html.count("--°") == 2
+
+
+def test_week_progress_tracks_elapsed_fraction_of_week():
+    just_reset = state()
+    just_reset.entity.attributes["secondary_reset_at"] = (NOW + timedelta(days=7)).timestamp()
+    reset_due = state()
+    reset_due.entity.attributes["secondary_reset_at"] = NOW.timestamp()
+
+    assert widget().snapshot(just_reset).week_progress == 0
+    assert widget().snapshot(reset_due).week_progress == 100
+
+
+def test_week_progress_is_unavailable_without_reset_timestamp():
+    current = state()
+    current.entity.attributes.clear()
+
+    snapshot = widget().snapshot(current)
+
+    assert snapshot.week_progress is None
+    assert "--%" in widget().render_html(CTX, current)

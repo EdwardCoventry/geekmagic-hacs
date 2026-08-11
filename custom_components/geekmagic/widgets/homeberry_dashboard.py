@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from ..htmldoc import mdi_span
 from .base import Widget
 from .codex_quota import (
     EMPTY_RING,
+    TRACK,
     QuotaMode,
     color_for_mode,
     format_reset_countdown,
@@ -27,17 +29,37 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class SceneChipSnapshot:
+    """One Homeberry scene chip, in canonical queue order."""
+
+    scene_id: str
+    label: str
+    icon: str
+    color: str
+
+
+@dataclass(frozen=True)
+class TemperatureSnapshot:
+    """One explicitly located Homeberry temperature reading."""
+
+    label: str
+    value_text: str
+
+
+@dataclass(frozen=True)
 class HomeberryDashboardSnapshot:
     """Resolved values used by the dashboard renderer."""
 
     time_text: str
+    weekday_text: str
     date_text: str
-    temperature_text: str
+    temperatures: tuple[TemperatureSnapshot, TemperatureSnapshot]
     weather_condition: str
-    scene_text: str
+    scene_chips: tuple[SceneChipSnapshot, ...]
     quota_remaining: int | None
     quota_mode: QuotaMode
     quota_color: str
+    week_progress: int | None
     reset_text: str
 
 
@@ -45,18 +67,12 @@ class HomeberryDashboardWidget(Widget):
     """Render time, indoor climate, scene, and weekly Codex quota."""
 
     WIDGET_TYPE: ClassVar[str] = "homeberry_dashboard"
+    _HEX_COLOR: ClassVar[re.Pattern[str]] = re.compile(r"^#[0-9a-fA-F]{6}$")
     SCHEMA: ClassVar[dict[str, Any]] = {
         "name": "Homeberry Dashboard",
         "needs_entity": True,
         "entity_domains": ["sensor"],
         "options": [
-            {
-                "key": "temperature_entity_id",
-                "type": "entity",
-                "label": "Temperature entity",
-                "domains": ["sensor"],
-                "required": True,
-            },
             {
                 "key": "weather_entity_id",
                 "type": "entity",
@@ -82,7 +98,7 @@ class HomeberryDashboardWidget(Widget):
 
     def get_entities(self) -> list[str]:
         entities = super().get_entities()
-        for key in ("temperature_entity_id", "weather_entity_id", "scene_entity_id"):
+        for key in ("weather_entity_id", "scene_entity_id"):
             entity_id = str(self.config.options.get(key) or "").strip()
             if entity_id:
                 entities.append(entity_id)
@@ -101,25 +117,55 @@ class HomeberryDashboardWidget(Widget):
 
     def snapshot(self, state: WidgetState) -> HomeberryDashboardSnapshot:
         now = state.now or datetime.now(tz=UTC)
-        temperature = self._additional(state, "temperature_entity_id")
         weather = self._additional(state, "weather_entity_id")
         scene = self._additional(state, "scene_entity_id")
 
-        temperature_text = "--°"
-        if temperature is not None:
-            with suppress(TypeError, ValueError):
-                temperature_text = f"{round(float(temperature.state))}°"
+        temperatures: list[TemperatureSnapshot] = []
+        for label, attribute in (
+            ("IN", "indoor_temperature_c"),
+            ("OUT", "outdoor_temperature_c"),
+        ):
+            value_text = "--°"
+            if scene is not None:
+                with suppress(TypeError, ValueError):
+                    raw_temperature = scene.attributes.get(attribute)
+                    if raw_temperature is not None:
+                        value_text = f"{round(float(raw_temperature))}°"
+            temperatures.append(TemperatureSnapshot(label=label, value_text=value_text))
 
         condition = str(weather.state if weather is not None else "unknown").strip().lower()
         if condition in {"", "unknown", "unavailable"}:
             condition = "unknown"
 
-        scene_value = str(scene.state if scene is not None else "unknown").strip()
-        scene_text = (
-            "NO SCENE"
-            if scene_value.lower() in {"", "unknown", "unavailable"}
-            else scene_value.upper()
-        )
+        scene_chips: list[SceneChipSnapshot] = []
+        raw_scene_chips = scene.attributes.get("scene_chips") if scene is not None else None
+        if isinstance(raw_scene_chips, list):
+            for raw_chip in raw_scene_chips:
+                if not isinstance(raw_chip, dict):
+                    continue
+                scene_id = str(raw_chip.get("id") or "").strip()
+                label = str(raw_chip.get("label") or "").strip()
+                icon = str(raw_chip.get("icon") or "").strip()
+                color = str(raw_chip.get("color") or "").strip()
+                if not (scene_id and label and icon):
+                    continue
+                scene_chips.append(
+                    SceneChipSnapshot(
+                        scene_id=scene_id,
+                        label=label,
+                        icon=icon,
+                        color=color if self._HEX_COLOR.fullmatch(color) else EMPTY_RING,
+                    )
+                )
+        if not scene_chips:
+            scene_chips.append(
+                SceneChipSnapshot(
+                    scene_id="unavailable",
+                    label="NO SCENE DATA",
+                    icon="alert-circle-outline",
+                    color=EMPTY_RING,
+                )
+            )
 
         remaining = parse_remaining_percent(state.entity)
         mode = quota_mode(remaining)
@@ -129,20 +175,28 @@ class HomeberryDashboardWidget(Widget):
                 "reset_at_attribute", "secondary_reset_at"
             ),
         )
+        reset_seconds = seconds_until(reset_at, now)
+        week_progress = None
+        if reset_seconds is not None:
+            week_seconds = 7 * 24 * 60 * 60
+            elapsed_seconds = max(0.0, min(float(week_seconds), week_seconds - reset_seconds))
+            week_progress = round(100 * elapsed_seconds / week_seconds)
         return HomeberryDashboardSnapshot(
             time_text=now.strftime("%H:%M"),
-            date_text=now.strftime("%a %d %b").upper(),
-            temperature_text=temperature_text,
+            weekday_text=now.strftime("%a").upper(),
+            date_text=now.strftime("%d %b").upper(),
+            temperatures=(temperatures[0], temperatures[1]),
             weather_condition=condition,
-            scene_text=scene_text,
+            scene_chips=tuple(scene_chips),
             quota_remaining=remaining,
             quota_mode=mode,
             quota_color=color_for_mode(mode),
-            reset_text=format_reset_countdown(seconds_until(reset_at, now)),
+            week_progress=week_progress,
+            reset_text=format_reset_countdown(reset_seconds),
         )
 
     @staticmethod
-    def _quota_parts(snapshot: HomeberryDashboardSnapshot) -> tuple[str, str]:
+    def _quota_parts(snapshot: HomeberryDashboardSnapshot) -> tuple[str, str, str]:
         if snapshot.quota_mode is QuotaMode.UNAVAILABLE:
             percent = 0
             percent_text = "--%"
@@ -151,8 +205,11 @@ class HomeberryDashboardWidget(Widget):
             percent = snapshot.quota_remaining or 0
             percent_text = f"{percent}%"
             color = snapshot.quota_color
+        week_text = "--%" if snapshot.week_progress is None else f"{snapshot.week_progress}%"
+        week_icon = mdi_span("calendar-clock", "hbd-week-icon")
         return (
             f'<div class="hbd-percent" style="color:{color}">{percent_text}</div>',
+            f'<div class="hbd-week-progress">{week_icon}<span>{week_text}</span></div>',
             '<div class="hbd-bar"><div class="hbd-bar-fill" '
             f'style="width:{percent}%;background:{color}"></div></div>',
         )
@@ -213,11 +270,42 @@ class HomeberryDashboardWidget(Widget):
                 )
         return svg_start + body + "</svg>"
 
+    @staticmethod
+    def _chip_background(color: str) -> str:
+        red, green, blue = (int(color[index : index + 2], 16) for index in (1, 3, 5))
+        return f"rgba({red},{green},{blue},.18)"
+
+    def _scene_chips_html(self, snapshot: HomeberryDashboardSnapshot) -> str:
+        """Render newest three queued scenes and summarize older entries."""
+        visible = tuple(reversed(snapshot.scene_chips[-3:]))
+        parts: list[str] = []
+        for chip in visible:
+            color = chip.color
+            parts.append(
+                '<div class="hbd-chip" '
+                f'style="color:{color};border-color:{color};'
+                f'background:{self._chip_background(color)}">'
+                f'{mdi_span(chip.icon, "hbd-chip-icon")}'
+                f'<span class="hbd-chip-label">{escape(chip.label)}</span></div>'
+            )
+        overflow = len(snapshot.scene_chips) - len(visible)
+        if overflow:
+            parts.append(
+                f'<div class="hbd-chip-more" style="background:{TRACK}">+{overflow}</div>'
+            )
+        return "".join(parts)
+
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         del ctx
         snapshot = self.snapshot(state)
         weather_art = self._weather_art(snapshot.weather_condition)
-        home_icon = mdi_span("home-lightbulb", "hbd-home-icon")
+        scene_chips = self._scene_chips_html(snapshot)
+        temperature_rows = "".join(
+            '<div class="hbd-temperature">'
+            f'<span class="hbd-temperature-label">{item.label}</span>'
+            f'<span class="hbd-temperature-value">{escape(item.value_text)}</span></div>'
+            for item in snapshot.temperatures
+        )
         reset_icon = (
             '<svg class="hbd-refresh" viewBox="0 0 20 20" aria-hidden="true">'
             '<path d="M16.5 6.5A7 7 0 1 0 17 14" fill="none" '
@@ -227,37 +315,51 @@ class HomeberryDashboardWidget(Widget):
             "</svg>"
         )
         reset_text = snapshot.reset_text
-        quota_percent, quota_bar = self._quota_parts(snapshot)
+        quota_percent, week_progress, quota_bar = self._quota_parts(snapshot)
         css = """
 <style>
 .hbd{position:absolute;inset:0;overflow:hidden;background:#000;color:#f5f7fa;
 font-family:'Nunito','DejaVu Sans',sans-serif;font-weight:900}
 .hbd-dashboard,.hbd-reset{position:absolute;inset:0}
-.hbd-dashboard{padding:7px 13px 8px;box-sizing:border-box}
-.hbd-hero{height:168px;display:grid;grid-template-columns:minmax(0,1fr) 76px}
-.hbd-clock{display:grid;grid-template-rows:87px 29px 39px;align-content:center;
-padding:0 8px 0 1px;
-box-sizing:border-box}
-.hbd-time{font-family:'Nunito','DejaVu Sans',sans-serif;font-size:70px;font-weight:700;
-font-variant-numeric:tabular-nums;line-height:.88;letter-spacing:-5px;align-self:end}
-.hbd-date{font-size:17px;line-height:1;margin-top:5px;color:#C7CBD1;letter-spacing:1.2px;
-align-self:start}
-.hbd-weather{display:grid;grid-template-rows:87px 42px 26px;align-content:center;
-justify-items:center;box-sizing:border-box}
-.hbd-weather-art{width:64px;height:64px;display:block;align-self:end}
-.hbd-temp{font-size:38px;line-height:1;margin-top:4px;color:#F5F7FA;letter-spacing:-2px;
-align-self:start}
-.hbd-scene{display:flex;align-items:center;align-self:center;gap:8px;min-width:0}
-.hbd-home-icon{font-family:'Material Design Icons';font-size:25px;line-height:1;color:#C7CBD1}
-.hbd-scene-name{font-size:22px;line-height:1;letter-spacing:.7px;white-space:nowrap;overflow:hidden}
-.hbd-codex{height:57px;display:grid;grid-template-rows:31px 18px;row-gap:4px}
+.hbd-dashboard{padding:8px;box-sizing:border-box;display:grid;grid-template-rows:153px 67px;
+row-gap:4px}
+.hbd-hero{display:grid;grid-template-columns:minmax(0,1fr) 64px;
+grid-template-rows:70px 51px 32px;min-width:0}
+.hbd-time{grid-column:1;grid-row:1;font-family:'Nunito','DejaVu Sans',sans-serif;
+font-size:74px;font-weight:700;font-variant-numeric:tabular-nums;line-height:.88;
+letter-spacing:-5.5px;align-self:end}
+.hbd-date-block{grid-column:1;grid-row:2;align-self:start;height:24px;color:#C7CBD1;
+font-size:18px;line-height:1;letter-spacing:.8px;display:flex;align-items:flex-end}
+.hbd-weather-art{grid-column:2;grid-row:1;width:64px;height:64px;display:block;align-self:end}
+.hbd-temperatures{grid-column:1/-1;grid-row:2;justify-self:end;align-self:center;
+display:flex;flex-direction:column;gap:1px;color:#F5F7FA}
+.hbd-temperature{height:24px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
+.hbd-temperature-label{font-size:16px;line-height:1;letter-spacing:.5px;padding-bottom:2px}
+.hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
+text-align:right}
+.hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:end;gap:4px;
+min-width:0;overflow:hidden}
+.hbd-chip{height:27px;display:flex;align-items:center;gap:2px;padding:0 6px 0 4px;
+border:1px solid;border-radius:14px;box-sizing:border-box;min-width:0;flex:0 1 auto}
+.hbd-chip-icon{font-family:'Material Design Icons';font-size:15px;line-height:1;flex:0 0 auto}
+.hbd-chip-label{font-size:13px;line-height:1;letter-spacing:.1px;white-space:nowrap;
+overflow:hidden;text-overflow:ellipsis}
+.hbd-chip-more{height:27px;min-width:27px;padding:0 5px;border-radius:14px;
+color:#C7CBD1;display:flex;align-items:center;justify-content:center;font-size:13px;
+line-height:1;box-sizing:border-box;flex:0 0 auto}
+.hbd-codex{height:67px;display:grid;grid-template-rows:34px 23px;row-gap:6px;
+align-content:center}
 .hbd-codex-top{display:flex;align-items:center;justify-content:space-between}
-.hbd-bar{height:18px;width:100%;border-radius:11px;background:#2F3136;overflow:hidden}
-.hbd-bar-fill{height:100%;border-radius:9px}
-.hbd-percent{font-size:28px;line-height:1;text-align:left;letter-spacing:-1.5px}
-.hbd-reset-count{display:flex;align-items:center;gap:4px;color:#C7CBD1;font-size:18px;
+.hbd-bar{height:23px;width:100%;border-radius:12px;background:#2F3136;overflow:hidden}
+.hbd-bar-fill{height:100%;border-radius:12px}
+.hbd-percent{font-size:30px;line-height:1;text-align:left;letter-spacing:-1.5px}
+.hbd-codex-stats{display:flex;align-items:center;gap:9px}
+.hbd-week-progress{color:#C7CBD1;font-size:19px;line-height:1;display:flex;
+align-items:center;gap:3px;white-space:nowrap}
+.hbd-week-icon{font-family:'Material Design Icons';font-size:20px;line-height:1}
+.hbd-reset-count{display:flex;align-items:center;gap:4px;color:#C7CBD1;font-size:19px;
 line-height:1;white-space:nowrap}
-.hbd-refresh{width:19px;height:19px;display:block;flex:0 0 auto}
+.hbd-refresh{width:20px;height:20px;display:block;flex:0 0 auto}
 .hbd-full-a,.hbd-full-b{position:absolute;inset:0}
 .hbd-full-a{animation:hbd-a 2s steps(1,end) infinite}
 .hbd-full-b{animation:hbd-b 2s steps(1,end) infinite}
@@ -269,14 +371,14 @@ color:#39D353;font-size:58px;line-height:.92;letter-spacing:-3px;text-align:cent
 """
         dashboard = (
             '<div class="hbd-dashboard">'
-            '<div class="hbd-hero"><div class="hbd-clock">'
+            '<div class="hbd-hero">'
             f'<div class="hbd-time">{snapshot.time_text}</div>'
-            f'<div class="hbd-date">{snapshot.date_text}</div>'
-            f'<div class="hbd-scene">{home_icon}'
-            f'<div class="hbd-scene-name">{escape(snapshot.scene_text)}</div></div></div>'
-            f'<div class="hbd-weather">{weather_art}'
-            f'<div class="hbd-temp">{escape(snapshot.temperature_text)}</div></div></div>'
-            f'<div class="hbd-codex"><div class="hbd-codex-top">{quota_percent}'
+            f'<div class="hbd-date-block">{snapshot.weekday_text} {snapshot.date_text}</div>'
+            f'{weather_art}'
+            f'<div class="hbd-temperatures">{temperature_rows}</div>'
+            f'<div class="hbd-scene">{scene_chips}</div></div>'
+            '<div class="hbd-codex"><div class="hbd-codex-top">'
+            f'<div class="hbd-codex-stats">{quota_percent}{week_progress}</div>'
             f'<div class="hbd-reset-count">{reset_icon}{escape(reset_text)}</div></div>'
             f'{quota_bar}</div></div>'
         )
