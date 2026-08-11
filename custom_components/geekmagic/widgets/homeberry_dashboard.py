@@ -450,16 +450,16 @@ font-family:'Nunito','DejaVu Sans',sans-serif;font-weight:900}
 grid-template-rows:164px 64px;
 row-gap:4px}
 .hbd-hero{display:grid;grid-template-columns:minmax(0,1fr) 64px;
-grid-template-rows:62px 60px 42px;min-width:0}
+grid-template-rows:62px 64px 38px;min-width:0}
 .hbd-time{grid-column:1;grid-row:1;font-family:'Nunito','DejaVu Sans',sans-serif;
 font-size:74px;font-weight:700;font-variant-numeric:tabular-nums;line-height:.88;
 letter-spacing:-5.5px;align-self:end}
 .hbd-climate-rows{grid-column:1/-1;grid-row:2;align-self:stretch;display:grid;
-grid-template-rows:22px 36px;row-gap:2px;min-width:0}
+grid-template-rows:22px 38px;row-gap:4px;min-width:0}
 .hbd-climate-row{display:flex;align-items:center;justify-content:space-between;min-width:0}
 .hbd-date-block{height:22px;color:#C7CBD1;font-size:18px;line-height:1;
 letter-spacing:.8px;display:flex;align-items:center;white-space:nowrap}
-.hbd-guidance{height:36px;display:grid;grid-template-columns:20px max-content max-content;
+.hbd-guidance{height:38px;display:grid;grid-template-columns:20px max-content max-content;
 align-items:center;column-gap:4px;padding:0 5px 0 4px;
 border:1px solid;border-radius:14px;box-sizing:border-box;font-size:16px;line-height:1;
 white-space:nowrap;min-width:0;overflow:hidden}
@@ -487,7 +487,7 @@ border:1px solid transparent;border-radius:14px}
 .hbd-temperature-hottest{border-color:currentColor}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
 text-align:right}
-.hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:end;gap:4px;
+.hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:center;gap:4px;
 min-width:0;overflow:hidden}
 .hbd-chip{height:27px;display:flex;align-items:center;gap:2px;padding:0 6px 0 4px;
 border:1px solid;border-radius:14px;box-sizing:border-box;min-width:0;flex:0 1 auto}

@@ -72,7 +72,7 @@ def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Pat
         ) as equal,
     ):
         out_outline = ((155, 66, 175, 67), (155, 87, 175, 88))
-        in_outline = ((155, 97, 175, 98), (155, 118, 175, 119))
+        in_outline = ((155, 100, 175, 101), (155, 121, 175, 122))
         assert has_outline_edges(out_hotter, *out_outline)
         assert not has_outline_edges(out_hotter, *in_outline)
         assert not has_outline_edges(in_hotter, *out_outline)
