@@ -420,14 +420,21 @@ class HomeberryDashboardWidget(Widget):
         weather_art = self._weather_art(snapshot.weather_condition)
         scene_chips = self._scene_chips_html(snapshot)
         thermal_guidance = self._thermal_guidance_html(snapshot)
-        temperature_rows = [
-            '<div class="hbd-temperature">'
-            f'<span class="hbd-temperature-label'
-            f'{" hbd-temperature-hottest" if item.is_hottest else ""}">'
-            f'{item.label}</span>'
-            f'<span class="hbd-temperature-value">{escape(item.value_text)}</span></div>'
-            for item in snapshot.temperatures
-        ]
+        temperature_rows = []
+        for item in snapshot.temperatures:
+            hottest_class = " hbd-temperature-hottest" if item.is_hottest else ""
+            underline = (
+                '<span class="hbd-temperature-underline"></span>'
+                if item.is_hottest
+                else ""
+            )
+            temperature_rows.append(
+                '<div class="hbd-temperature">'
+                f'<span class="hbd-temperature-label{hottest_class}">'
+                f'<span>{item.label}</span>{underline}</span>'
+                f'<span class="hbd-temperature-value">{escape(item.value_text)}</span>'
+                '</div>'
+            )
         outdoor_temperature, indoor_temperature = temperature_rows
         reset_icon = (
             '<svg class="hbd-refresh" viewBox="0 0 20 20" aria-hidden="true">'
@@ -479,9 +486,10 @@ color:#C7CBD1;background:rgba(199,203,209,.12)}
 .hbd-weather-art{grid-column:2;grid-row:1;width:62px;height:62px;display:block;
 align-self:end;justify-self:end}
 .hbd-temperature{height:24px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
-.hbd-temperature-label{font-size:16px;line-height:1;letter-spacing:.5px;padding-bottom:2px}
-.hbd-temperature-hottest{text-decoration-line:underline;text-decoration-thickness:2px;
-text-underline-offset:2px}
+.hbd-temperature-label{position:relative;font-size:16px;line-height:1;letter-spacing:.5px;
+padding-bottom:2px}
+.hbd-temperature-underline{position:absolute;left:0;right:.5px;bottom:-1px;height:2px;
+background:currentColor;border-radius:1px}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
 text-align:right}
 .hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:end;gap:4px;

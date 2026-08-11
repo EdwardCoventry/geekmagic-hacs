@@ -181,7 +181,14 @@ def test_hottest_displayed_temperature_labels_are_underlined(
             if label in underlined_labels
             else "hbd-temperature-label"
         )
-        assert f'<span class="{class_name}">{label}</span>' in html
+        label_html = f'<span class="{class_name}"><span>{label}</span>'
+        assert label_html in html
+        label_tail = html.split(label_html, 1)[1].split(
+            '<span class="hbd-temperature-value"', 1
+        )[0]
+        assert ("hbd-temperature-underline" in label_tail) is (
+            label in underlined_labels
+        )
     assert "hbd-temperature-value hbd-temperature-hottest" not in html
 
 

@@ -39,3 +39,34 @@ def test_generator_writes_dashboard_and_both_reset_frames(tmp_path: Path):
     with Image.open(tmp_path / "homeberry-dashboard-full-reset.gif") as animation:
         assert animation.n_frames == 2
         assert animation.info["duration"] == 1000
+
+
+def test_temperature_comparison_underlines_render_into_output_pixels(tmp_path: Path):
+    manifest = MODULE.generate(tmp_path)
+
+    assert manifest["temperature_storyboard_order"] == [
+        "out-hotter",
+        "in-hotter",
+        "equal-displayed",
+    ]
+
+    def has_solid_underline(image: Image.Image, box: tuple[int, int, int, int]) -> bool:
+        return all(min(pixel) > 180 for pixel in image.convert("RGB").crop(box).getdata())
+
+    with (
+        Image.open(
+            tmp_path / "homeberry-dashboard-temperature-out-hotter.png"
+        ) as out_hotter,
+        Image.open(tmp_path / "homeberry-dashboard-temperature-in-hotter.png") as in_hotter,
+        Image.open(
+            tmp_path / "homeberry-dashboard-temperature-equal-displayed.png"
+        ) as equal,
+    ):
+        out_underline = (145, 88, 179, 90)
+        in_underline = (164, 121, 179, 123)
+        assert has_solid_underline(out_hotter, out_underline)
+        assert not has_solid_underline(out_hotter, in_underline)
+        assert not has_solid_underline(in_hotter, out_underline)
+        assert has_solid_underline(in_hotter, in_underline)
+        assert has_solid_underline(equal, out_underline)
+        assert has_solid_underline(equal, in_underline)
