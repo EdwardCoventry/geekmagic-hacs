@@ -345,10 +345,12 @@ def generate(output: Path) -> dict[str, object]:
     sheet.save(output / "homeberry-dashboard-storyboard.png")
 
     thermal_images = []
+    thermal_spacing_reports = {}
     for name, guidance in THERMAL_STATES.items():
         rendered = _still("68", thermal_guidance=guidance)
         rendered.save(output / f"homeberry-dashboard-thermal-{name}.png")
         thermal_images.append(rendered)
+        thermal_spacing_reports[name] = analyze_visual_spacing(rendered)
     thermal_sheet = Image.new("RGB", (960, 480), "black")
     for index, rendered in enumerate(thermal_images):
         thermal_sheet.paste(rendered, ((index % 4) * 240, (index // 4) * 240))
@@ -361,12 +363,14 @@ def generate(output: Path) -> dict[str, object]:
     quota_sheet.save(output / "homeberry-dashboard-quota-alignment-storyboard.png")
 
     temperature_images = []
+    temperature_spacing_reports = {}
     for name, (outdoor, indoor) in TEMPERATURE_COMPARISON_STATES.items():
         rendered = _still(
             "68", outdoor_temperature=outdoor, indoor_temperature=indoor
         )
         rendered.save(output / f"homeberry-dashboard-temperature-{name}.png")
         temperature_images.append(rendered)
+        temperature_spacing_reports[name] = analyze_visual_spacing(rendered)
     temperature_sheet = Image.new("RGB", (720, 240), "black")
     for index, rendered in enumerate(temperature_images):
         temperature_sheet.paste(rendered, (index * 240, 0))
@@ -381,6 +385,8 @@ def generate(output: Path) -> dict[str, object]:
         "quota_alignment_storyboard_order": list(QUOTA_ALIGNMENT_STATES),
         "temperature_storyboard_order": list(TEMPERATURE_COMPARISON_STATES),
         "visual_spacing": spacing_report,
+        "thermal_visual_spacing": thermal_spacing_reports,
+        "temperature_visual_spacing": temperature_spacing_reports,
         "files": sorted(path.name for path in output.iterdir() if path.is_file()),
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

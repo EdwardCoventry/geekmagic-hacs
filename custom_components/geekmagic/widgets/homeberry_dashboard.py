@@ -457,9 +457,10 @@ letter-spacing:-5.5px;align-self:end;transform:translateY(-6px)}
 .hbd-climate-rows{grid-column:1/-1;grid-row:2;align-self:stretch;display:grid;
 grid-template-rows:22px 38px;row-gap:8px;min-width:0}
 .hbd-climate-row{display:flex;align-items:center;justify-content:space-between;min-width:0}
+.hbd-climate-row:nth-child(2){transform:translateY(-4px)}
 .hbd-date-block{height:22px;color:#C7CBD1;font-size:18px;line-height:1;
 letter-spacing:.8px;display:flex;align-items:center;white-space:nowrap}
-.hbd-guidance{height:38px;display:grid;grid-template-columns:20px max-content max-content;
+.hbd-guidance{height:41px;display:grid;grid-template-columns:20px max-content max-content;
 align-items:center;column-gap:4px;padding:0 5px 0 4px;
 border:1px solid;border-radius:14px;box-sizing:border-box;font-size:16px;line-height:1;
 white-space:nowrap;min-width:0;overflow:hidden}
@@ -481,9 +482,9 @@ color:#C7CBD1;background:rgba(199,203,209,.12)}
 .hbd-weather-art{grid-column:2;grid-row:1;width:62px;height:62px;display:block;
 align-self:end;justify-self:end;transform:translateY(-6px)}
 .hbd-temperature{height:22px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
-.hbd-temperature-label{width:38px;height:22px;box-sizing:border-box;display:flex;
+.hbd-temperature-label{width:38px;height:19px;box-sizing:border-box;display:flex;
 align-items:center;justify-content:center;font-size:16px;line-height:1;letter-spacing:.5px;
-border:1px solid transparent;border-radius:14px}
+border:1px solid transparent;border-radius:14px;transform:translateY(-5px)}
 .hbd-temperature-hottest{border-color:currentColor}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
 text-align:right}

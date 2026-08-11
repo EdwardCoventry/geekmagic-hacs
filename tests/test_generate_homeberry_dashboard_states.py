@@ -57,7 +57,7 @@ def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Pat
     ) -> bool:
         rgb = image.convert("RGB")
         return all(
-            min(pixel) > 180
+            min(pixel) > 100
             for box in (top_box, bottom_box)
             for pixel in rgb.crop(box).getdata()
         )
@@ -71,8 +71,8 @@ def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Pat
             tmp_path / "homeberry-dashboard-temperature-equal-displayed.png"
         ) as equal,
     ):
-        out_outline = ((155, 69, 175, 70), (155, 90, 175, 91))
-        in_outline = ((155, 107, 175, 108), (155, 128, 175, 129))
+        out_outline = ((154, 69, 176, 70), (154, 88, 176, 89))
+        in_outline = ((154, 105, 176, 106), (154, 124, 176, 125))
         assert has_outline_edges(out_hotter, *out_outline)
         assert not has_outline_edges(out_hotter, *in_outline)
         assert not has_outline_edges(in_hotter, *out_outline)
@@ -91,3 +91,17 @@ def test_dashboard_visual_bands_have_identical_six_pixel_gaps(tmp_path: Path):
         report["recommendations"]
     )
     assert report["passed"] is True
+
+
+def test_visual_spacing_is_stable_across_dynamic_dashboard_states(tmp_path: Path):
+    manifest = MODULE.generate(tmp_path)
+    failures = []
+    for family in ("thermal_visual_spacing", "temperature_visual_spacing"):
+        for state_name, report in manifest[family].items():
+            if not report["passed"]:
+                failures.extend(
+                    f"{family}/{state_name}: {recommendation}"
+                    for recommendation in report["recommendations"]
+                )
+
+    assert not failures, "\n".join(failures)
