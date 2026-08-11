@@ -47,6 +47,17 @@ class TemperatureSnapshot:
 
 
 @dataclass(frozen=True)
+class ThermalGuidanceSnapshot:
+    """Semantic thermal guidance published by Homeberry."""
+
+    kind: str
+    icon: str
+    until_at: datetime | None
+    all_day: bool
+    target_temperature_c: float | None
+
+
+@dataclass(frozen=True)
 class HomeberryDashboardSnapshot:
     """Resolved values used by the dashboard renderer."""
 
@@ -56,10 +67,11 @@ class HomeberryDashboardSnapshot:
     temperatures: tuple[TemperatureSnapshot, TemperatureSnapshot]
     weather_condition: str
     scene_chips: tuple[SceneChipSnapshot, ...]
+    thermal_guidance: ThermalGuidanceSnapshot
     quota_remaining: int | None
     quota_mode: QuotaMode
     quota_color: str
-    week_progress: int | None
+    week_remaining: int | None
     reset_text: str
 
 
@@ -122,8 +134,8 @@ class HomeberryDashboardWidget(Widget):
 
         temperatures: list[TemperatureSnapshot] = []
         for label, attribute in (
-            ("IN", "indoor_temperature_c"),
             ("OUT", "outdoor_temperature_c"),
+            ("IN", "indoor_temperature_c"),
         ):
             value_text = "--°"
             if scene is not None:
@@ -167,6 +179,9 @@ class HomeberryDashboardWidget(Widget):
                 )
             )
 
+        raw_guidance = scene.attributes.get("thermal_guidance") if scene is not None else None
+        guidance = self._thermal_guidance_snapshot(raw_guidance)
+
         remaining = parse_remaining_percent(state.entity)
         mode = quota_mode(remaining)
         reset_at = resolve_reset_at(
@@ -176,11 +191,11 @@ class HomeberryDashboardWidget(Widget):
             ),
         )
         reset_seconds = seconds_until(reset_at, now)
-        week_progress = None
+        week_remaining = None
         if reset_seconds is not None:
             week_seconds = 7 * 24 * 60 * 60
-            elapsed_seconds = max(0.0, min(float(week_seconds), week_seconds - reset_seconds))
-            week_progress = round(100 * elapsed_seconds / week_seconds)
+            remaining_seconds = max(0.0, min(float(week_seconds), reset_seconds))
+            week_remaining = round(100 * remaining_seconds / week_seconds)
         return HomeberryDashboardSnapshot(
             time_text=now.strftime("%H:%M"),
             weekday_text=now.strftime("%a").upper(),
@@ -188,10 +203,11 @@ class HomeberryDashboardWidget(Widget):
             temperatures=(temperatures[0], temperatures[1]),
             weather_condition=condition,
             scene_chips=tuple(scene_chips),
+            thermal_guidance=guidance,
             quota_remaining=remaining,
             quota_mode=mode,
             quota_color=color_for_mode(mode),
-            week_progress=week_progress,
+            week_remaining=week_remaining,
             reset_text=format_reset_countdown(reset_seconds),
         )
 
@@ -205,13 +221,98 @@ class HomeberryDashboardWidget(Widget):
             percent = snapshot.quota_remaining or 0
             percent_text = f"{percent}%"
             color = snapshot.quota_color
-        week_text = "--%" if snapshot.week_progress is None else f"{snapshot.week_progress}%"
+        week_text = "--%" if snapshot.week_remaining is None else f"{snapshot.week_remaining}%"
         week_icon = mdi_span("calendar-clock", "hbd-week-icon")
         return (
             f'<div class="hbd-percent" style="color:{color}">{percent_text}</div>',
             f'<div class="hbd-week-progress">{week_icon}<span>{week_text}</span></div>',
             '<div class="hbd-bar"><div class="hbd-bar-fill" '
             f'style="width:{percent}%;background:{color}"></div></div>',
+        )
+
+    @staticmethod
+    def _thermal_guidance_snapshot(raw: Any) -> ThermalGuidanceSnapshot:
+        if not isinstance(raw, dict):
+            return ThermalGuidanceSnapshot(
+                kind="unavailable",
+                icon="thermometer-alert",
+                until_at=None,
+                all_day=False,
+                target_temperature_c=None,
+            )
+        until_at = None
+        raw_until = raw.get("until_at")
+        if raw_until:
+            with suppress(TypeError, ValueError):
+                until_at = datetime.fromisoformat(str(raw_until))
+        target = None
+        with suppress(TypeError, ValueError):
+            raw_target = raw.get("target_temperature_c")
+            if raw_target is not None:
+                target = float(raw_target)
+        return ThermalGuidanceSnapshot(
+            kind=str(raw.get("kind") or "unavailable"),
+            icon=str(raw.get("icon") or "thermometer-alert"),
+            until_at=until_at,
+            all_day=bool(raw.get("all_day")),
+            target_temperature_c=target,
+        )
+
+    @staticmethod
+    def _guidance_time(value: datetime) -> str:
+        hour = value.strftime("%I").lstrip("0") or "0"
+        minute = value.strftime("%M")
+        suffix = value.strftime("%p")
+        return f"{hour}{suffix}" if minute == "00" else f"{hour}:{minute}{suffix}"
+
+    def _thermal_guidance_html(self, snapshot: HomeberryDashboardSnapshot) -> str:
+        guidance = snapshot.thermal_guidance
+        kind = guidance.kind
+        primary = ("STATUS", "UNKNOWN")
+        detail: tuple[str, str] | None = None
+        if kind in {"window_open", "window_keep_open"}:
+            primary = ("OPEN", "WINDOW")
+            if guidance.all_day:
+                detail = ("ALL", "DAY")
+            elif guidance.until_at is not None:
+                detail = ("UNTIL", self._guidance_time(guidance.until_at))
+        elif kind == "window_closed":
+            primary = ("CLOSED", "WINDOW")
+        elif kind == "heating":
+            target = (
+                "--°"
+                if guidance.target_temperature_c is None
+                else f"{round(guidance.target_temperature_c)}°"
+            )
+            primary = ("HEATING", f"TO {target}")
+        elif kind == "holding":
+            target = (
+                "--°"
+                if guidance.target_temperature_c is None
+                else f"{round(guidance.target_temperature_c)}°"
+            )
+            primary = ("HOLDING", f"AT {target}")
+        elif kind == "heating_off":
+            primary = ("HEATING", "OFF")
+            if guidance.until_at is not None:
+                detail = ("UNTIL", self._guidance_time(guidance.until_at))
+        else:
+            kind = "unavailable"
+        primary_html = (
+            '<span class="hbd-guidance-primary">'
+            f"<span>{escape(primary[0])}</span><span>{escape(primary[1])}</span></span>"
+        )
+        detail_html = ""
+        if detail is not None:
+            detail_html = (
+                '<span class="hbd-guidance-detail">'
+                f"<span>{escape(detail[0])}</span>"
+                f"<span>{escape(detail[1])}</span></span>"
+            )
+        return (
+            f'<div class="hbd-guidance hbd-guidance-{escape(kind)}">'
+            f'{mdi_span(guidance.icon, "hbd-guidance-icon")}'
+            f"{primary_html}{detail_html}</div>"
         )
 
     @staticmethod
@@ -300,12 +401,14 @@ class HomeberryDashboardWidget(Widget):
         snapshot = self.snapshot(state)
         weather_art = self._weather_art(snapshot.weather_condition)
         scene_chips = self._scene_chips_html(snapshot)
-        temperature_rows = "".join(
+        thermal_guidance = self._thermal_guidance_html(snapshot)
+        temperature_rows = [
             '<div class="hbd-temperature">'
             f'<span class="hbd-temperature-label">{item.label}</span>'
             f'<span class="hbd-temperature-value">{escape(item.value_text)}</span></div>'
             for item in snapshot.temperatures
-        )
+        ]
+        outdoor_temperature, indoor_temperature = temperature_rows
         reset_icon = (
             '<svg class="hbd-refresh" viewBox="0 0 20 20" aria-hidden="true">'
             '<path d="M16.5 6.5A7 7 0 1 0 17 14" fill="none" '
@@ -315,24 +418,41 @@ class HomeberryDashboardWidget(Widget):
             "</svg>"
         )
         reset_text = snapshot.reset_text
-        quota_percent, week_progress, quota_bar = self._quota_parts(snapshot)
+        quota_percent, week_remaining, quota_bar = self._quota_parts(snapshot)
         css = """
 <style>
 .hbd{position:absolute;inset:0;overflow:hidden;background:#000;color:#f5f7fa;
 font-family:'Nunito','DejaVu Sans',sans-serif;font-weight:900}
 .hbd-dashboard,.hbd-reset{position:absolute;inset:0}
-.hbd-dashboard{padding:8px;box-sizing:border-box;display:grid;grid-template-rows:153px 67px;
+.hbd-dashboard{padding:4px 8px 8px;box-sizing:border-box;display:grid;
+grid-template-rows:157px 67px;
 row-gap:4px}
 .hbd-hero{display:grid;grid-template-columns:minmax(0,1fr) 64px;
-grid-template-rows:70px 51px 32px;min-width:0}
+grid-template-rows:67px 54px 36px;min-width:0}
 .hbd-time{grid-column:1;grid-row:1;font-family:'Nunito','DejaVu Sans',sans-serif;
 font-size:74px;font-weight:700;font-variant-numeric:tabular-nums;line-height:.88;
 letter-spacing:-5.5px;align-self:end}
-.hbd-date-block{grid-column:1;grid-row:2;align-self:start;height:24px;color:#C7CBD1;
-font-size:18px;line-height:1;letter-spacing:.8px;display:flex;align-items:flex-end}
+.hbd-climate-rows{grid-column:1/-1;grid-row:2;align-self:stretch;display:grid;
+grid-template-rows:24px 30px;row-gap:0;min-width:0}
+.hbd-climate-row{display:flex;align-items:flex-end;justify-content:space-between;min-width:0}
+.hbd-date-block{height:24px;color:#C7CBD1;font-size:18px;line-height:1;
+letter-spacing:.8px;display:flex;align-items:flex-end;white-space:nowrap}
+.hbd-guidance{height:30px;display:flex;align-items:center;gap:3px;padding:0 5px 0 4px;
+border:1px solid;border-radius:14px;box-sizing:border-box;font-size:15px;line-height:1;
+white-space:nowrap;min-width:0;overflow:hidden}
+.hbd-guidance-icon{font-family:'Material Design Icons';font-size:18px;line-height:1;
+flex:0 0 auto;align-self:center}
+.hbd-guidance-primary,.hbd-guidance-detail{height:22px;display:flex;flex-direction:column;
+align-items:flex-start;justify-content:flex-end;gap:0;line-height:1;flex:0 0 auto}
+.hbd-guidance-primary{font-size:11px;font-weight:1000;letter-spacing:.15px}
+.hbd-guidance-detail{font-size:10px;font-weight:900;letter-spacing:.2px}
+.hbd-guidance-window_open,.hbd-guidance-window_keep_open{color:#F5F7FA;
+background:rgba(245,247,250,.12)}
+.hbd-guidance-window_closed,.hbd-guidance-heating_off,.hbd-guidance-unavailable{
+color:#C7CBD1;background:rgba(199,203,209,.12)}
+.hbd-guidance-heating{color:#FF9F0A;background:rgba(255,159,10,.18)}
+.hbd-guidance-holding{color:#39D353;background:rgba(57,211,83,.18)}
 .hbd-weather-art{grid-column:2;grid-row:1;width:64px;height:64px;display:block;align-self:end}
-.hbd-temperatures{grid-column:1/-1;grid-row:2;justify-self:end;align-self:center;
-display:flex;flex-direction:column;gap:1px;color:#F5F7FA}
 .hbd-temperature{height:24px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
 .hbd-temperature-label{font-size:16px;line-height:1;letter-spacing:.5px;padding-bottom:2px}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
@@ -349,16 +469,16 @@ color:#C7CBD1;display:flex;align-items:center;justify-content:center;font-size:1
 line-height:1;box-sizing:border-box;flex:0 0 auto}
 .hbd-codex{height:67px;display:grid;grid-template-rows:34px 23px;row-gap:6px;
 align-content:center}
-.hbd-codex-top{display:flex;align-items:center;justify-content:space-between}
+.hbd-codex-top{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:center}
 .hbd-bar{height:23px;width:100%;border-radius:12px;background:#2F3136;overflow:hidden}
 .hbd-bar-fill{height:100%;border-radius:12px}
-.hbd-percent{font-size:30px;line-height:1;text-align:left;letter-spacing:-1.5px}
-.hbd-codex-stats{display:flex;align-items:center;gap:9px}
-.hbd-week-progress{color:#C7CBD1;font-size:19px;line-height:1;display:flex;
-align-items:center;gap:3px;white-space:nowrap}
+.hbd-percent{grid-column:1;font-size:30px;line-height:1;text-align:left;
+letter-spacing:-1.5px;justify-self:start}
+.hbd-week-progress{grid-column:2;color:#C7CBD1;font-size:19px;line-height:1;display:flex;
+align-items:center;justify-self:center;gap:1px;white-space:nowrap}
 .hbd-week-icon{font-family:'Material Design Icons';font-size:20px;line-height:1}
-.hbd-reset-count{display:flex;align-items:center;gap:4px;color:#C7CBD1;font-size:19px;
-line-height:1;white-space:nowrap}
+.hbd-reset-count{grid-column:3;display:flex;align-items:center;gap:2px;color:#C7CBD1;
+font-size:19px;line-height:1;white-space:nowrap;justify-self:end}
 .hbd-refresh{width:20px;height:20px;display:block;flex:0 0 auto}
 .hbd-full-a,.hbd-full-b{position:absolute;inset:0}
 .hbd-full-a{animation:hbd-a 2s steps(1,end) infinite}
@@ -373,12 +493,14 @@ color:#39D353;font-size:58px;line-height:.92;letter-spacing:-3px;text-align:cent
             '<div class="hbd-dashboard">'
             '<div class="hbd-hero">'
             f'<div class="hbd-time">{snapshot.time_text}</div>'
-            f'<div class="hbd-date-block">{snapshot.weekday_text} {snapshot.date_text}</div>'
-            f'{weather_art}'
-            f'<div class="hbd-temperatures">{temperature_rows}</div>'
+            f'{weather_art}<div class="hbd-climate-rows">'
+            f'<div class="hbd-climate-row"><div class="hbd-date-block">'
+            f'{snapshot.weekday_text} {snapshot.date_text}</div>{outdoor_temperature}</div>'
+            f'<div class="hbd-climate-row">{thermal_guidance}{indoor_temperature}</div>'
+            '</div>'
             f'<div class="hbd-scene">{scene_chips}</div></div>'
             '<div class="hbd-codex"><div class="hbd-codex-top">'
-            f'<div class="hbd-codex-stats">{quota_percent}{week_progress}</div>'
+            f'{quota_percent}{week_remaining}'
             f'<div class="hbd-reset-count">{reset_icon}{escape(reset_text)}</div></div>'
             f'{quota_bar}</div></div>'
         )

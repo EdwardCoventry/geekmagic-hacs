@@ -10,10 +10,16 @@ from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     import asyncio
+    from collections.abc import Callable
 
 from homeassistant.const import __version__ as ha_version
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_state_change_event,
+    async_track_utc_time_change,
+)
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -95,6 +101,8 @@ from .widgets.state import WidgetState, build_entity_states
 from .widgets.text import TextWidget
 from .widgets.theme import get_theme
 from .widgets.weather import WeatherWidget
+
+EVENT_REFRESH_DEBOUNCE_SECONDS = 0.25
 
 if TYPE_CHECKING:
     from .layouts.base import Layout
@@ -352,6 +360,9 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         self._weather_forecasts: dict[str, list[dict[str, Any]]] = {}  # Pre-fetched forecasts
         self._update_preview: bool = True  # Update preview on next refresh
         self._preview_just_updated: bool = False  # True if preview was updated in last refresh
+        self._event_listener_cancels: list[Callable[[], None]] = []
+        self._event_refresh_cancel: Callable[[], None] | None = None
+        self._event_refresh_started = False
 
         # Device state (updated on refresh)
         self._device_state: DeviceState | None = None
@@ -405,6 +416,88 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
         # Create welcome layout for when no screens are configured
         self._welcome_layout: Layout | None = None
+
+    def start_event_refresh(self) -> None:
+        """Refresh on entity changes and minute boundaries.
+
+        The coordinator interval remains a recovery poll. Normal display updates
+        are driven immediately by Home Assistant state events, while the minute
+        boundary advances clocks and countdowns. Closely grouped changes are
+        coalesced into one render and upload.
+        """
+        self._event_refresh_started = True
+        self._subscribe_event_sources()
+
+    def stop_event_refresh(self) -> None:
+        """Remove all event listeners and pending refresh callbacks."""
+        self._event_refresh_started = False
+        self._clear_event_listeners()
+        if self._event_refresh_cancel is not None:
+            self._event_refresh_cancel()
+            self._event_refresh_cancel = None
+
+    def _tracked_entity_ids(self) -> set[str]:
+        """Return every entity dependency declared by configured widgets."""
+        return {
+            entity_id
+            for layout in self._layouts
+            for slot in layout.slots
+            if slot.widget is not None
+            for entity_id in slot.widget.get_entities()
+            if entity_id
+        }
+
+    def _clear_event_listeners(self) -> None:
+        for cancel in self._event_listener_cancels:
+            cancel()
+        self._event_listener_cancels.clear()
+
+    def _subscribe_event_sources(self) -> None:
+        self._clear_event_listeners()
+        entity_ids = sorted(self._tracked_entity_ids())
+        if entity_ids:
+            self._event_listener_cancels.append(
+                async_track_state_change_event(
+                    self.hass,
+                    entity_ids,
+                    self._handle_dependency_change,
+                )
+            )
+        self._event_listener_cancels.append(
+            async_track_utc_time_change(
+                self.hass,
+                self._handle_minute_boundary,
+                second=0,
+            )
+        )
+        _LOGGER.debug(
+            "Subscribed %s to %d entity dependencies and minute boundaries",
+            self.device.host,
+            len(entity_ids),
+        )
+
+    @callback
+    def _handle_dependency_change(self, _event: Any) -> None:
+        self._schedule_event_refresh()
+
+    @callback
+    def _handle_minute_boundary(self, _now: datetime) -> None:
+        self._schedule_event_refresh()
+
+    @callback
+    def _schedule_event_refresh(self) -> None:
+        if self._event_refresh_cancel is not None:
+            return
+        self._event_refresh_cancel = async_call_later(
+            self.hass,
+            EVENT_REFRESH_DEBOUNCE_SECONDS,
+            self._dispatch_event_refresh,
+        )
+
+    @callback
+    def _dispatch_event_refresh(self, _now: datetime) -> None:
+        self._event_refresh_cancel = None
+        self.hass.async_create_task(self.async_request_refresh())
 
     def _migrate_options(self, options: dict[str, Any]) -> dict[str, Any]:
         """Migrate old single-screen options to new multi-screen format.
@@ -708,6 +801,8 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
         # Rebuild all screens
         self._setup_screens()
+        if self._event_refresh_started:
+            self._subscribe_event_sources()
 
         # Update preview on next refresh (config changed)
         self._update_preview = True

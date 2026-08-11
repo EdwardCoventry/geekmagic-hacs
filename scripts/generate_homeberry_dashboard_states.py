@@ -34,6 +34,65 @@ SCENE_CHIPS = [
     {"id": "lunch", "label": "Lunch", "icon": "food", "color": "#F4A261"},
     {"id": "pause", "label": "Pause", "icon": "pause", "color": "#A9ADB5"},
 ]
+THERMAL_STATES = {
+    "window-open-until": {
+        "kind": "window_open",
+        "icon": "window-open-variant",
+        "until_at": "2026-08-11T14:00:00+00:00",
+        "all_day": False,
+        "target_temperature_c": 21,
+    },
+    "window-open-all-day": {
+        "kind": "window_open",
+        "icon": "window-open-variant",
+        "until_at": "2026-08-11T22:00:00+00:00",
+        "all_day": True,
+        "target_temperature_c": 21,
+    },
+    "window-keep-open": {
+        "kind": "window_keep_open",
+        "icon": "window-open-variant",
+        "until_at": "2026-08-11T14:00:00+00:00",
+        "all_day": False,
+        "target_temperature_c": 21,
+    },
+    "window-closed": {
+        "kind": "window_closed",
+        "icon": "window-closed-variant",
+        "until_at": None,
+        "all_day": False,
+        "target_temperature_c": 21,
+    },
+    "heating": {
+        "kind": "heating",
+        "icon": "radiator",
+        "until_at": None,
+        "all_day": False,
+        "target_temperature_c": 21,
+    },
+    "holding": {
+        "kind": "holding",
+        "icon": "thermostat",
+        "until_at": None,
+        "all_day": False,
+        "target_temperature_c": 21,
+    },
+    "heating-off": {
+        "kind": "heating_off",
+        "icon": "radiator-off",
+        "until_at": "2026-08-12T02:30:00+00:00",
+        "all_day": False,
+        "target_temperature_c": 21,
+    },
+    "unavailable": {
+        "kind": "unavailable",
+        "icon": "thermometer-alert",
+        "until_at": None,
+        "all_day": False,
+        "target_temperature_c": None,
+    },
+}
+QUOTA_ALIGNMENT_STATES = ("1", "9", "10", "68", "99", "100")
 
 
 def _layout() -> FullscreenLayout:
@@ -55,7 +114,12 @@ def _layout() -> FullscreenLayout:
     return layout
 
 
-def _state(quota: str, *, scene: str = "Movie") -> WidgetState:
+def _state(
+    quota: str,
+    *,
+    scene: str = "Movie",
+    thermal_guidance: dict[str, object] | None = None,
+) -> WidgetState:
     return WidgetState(
         entity=EntityState(
             CODEX,
@@ -72,6 +136,8 @@ def _state(quota: str, *, scene: str = "Movie") -> WidgetState:
                     "scene_chips": SCENE_CHIPS,
                     "indoor_temperature_c": 22.4,
                     "outdoor_temperature_c": 27.6,
+                    "thermal_guidance": thermal_guidance
+                    or THERMAL_STATES["window-open-until"],
                 },
             ),
         },
@@ -79,10 +145,18 @@ def _state(quota: str, *, scene: str = "Movie") -> WidgetState:
     )
 
 
-def _still(quota: str) -> Image.Image:
+def _still(
+    quota: str,
+    *,
+    thermal_guidance: dict[str, object] | None = None,
+) -> Image.Image:
     renderer = Renderer()
     canvas, draw = renderer.create_canvas()
-    _layout().render(renderer, draw, {0: _state(quota)})
+    _layout().render(
+        renderer,
+        draw,
+        {0: _state(quota, thermal_guidance=thermal_guidance)},
+    )
     return renderer.finalize(canvas)
 
 
@@ -110,10 +184,28 @@ def generate(output: Path) -> dict[str, object]:
     sheet.paste(frames[0], (240, 0))
     sheet.paste(frames[1], (480, 0))
     sheet.save(output / "homeberry-dashboard-storyboard.png")
+
+    thermal_images = []
+    for name, guidance in THERMAL_STATES.items():
+        rendered = _still("68", thermal_guidance=guidance)
+        rendered.save(output / f"homeberry-dashboard-thermal-{name}.png")
+        thermal_images.append(rendered)
+    thermal_sheet = Image.new("RGB", (960, 480), "black")
+    for index, rendered in enumerate(thermal_images):
+        thermal_sheet.paste(rendered, ((index % 4) * 240, (index // 4) * 240))
+    thermal_sheet.save(output / "homeberry-dashboard-thermal-storyboard.png")
+
+    quota_images = [_still(quota) for quota in QUOTA_ALIGNMENT_STATES]
+    quota_sheet = Image.new("RGB", (720, 480), "black")
+    for index, rendered in enumerate(quota_images):
+        quota_sheet.paste(rendered, ((index % 3) * 240, (index // 3) * 240))
+    quota_sheet.save(output / "homeberry-dashboard-quota-alignment-storyboard.png")
     manifest = {
         "display_size": [240, 240],
         "normal_quota": 68,
         "full_animation_frame_times": [0.0, 1.0],
+        "thermal_storyboard_order": list(THERMAL_STATES),
+        "quota_alignment_storyboard_order": list(QUOTA_ALIGNMENT_STATES),
         "files": sorted(path.name for path in output.iterdir() if path.is_file()),
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

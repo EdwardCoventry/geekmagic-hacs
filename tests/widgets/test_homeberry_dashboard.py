@@ -56,6 +56,13 @@ def state(quota: str = "68") -> WidgetState:
                     "scene_chips": SCENE_CHIPS,
                     "indoor_temperature_c": 22.4,
                     "outdoor_temperature_c": 27.6,
+                    "thermal_guidance": {
+                        "kind": "window_open",
+                        "icon": "window-open-variant",
+                        "until_at": (NOW + timedelta(hours=4, minutes=18)).isoformat(),
+                        "all_day": False,
+                        "target_temperature_c": 21,
+                    },
                 },
             ),
         },
@@ -70,8 +77,8 @@ def test_dashboard_resolves_all_homeberry_glance_values():
     assert snapshot.weekday_text == "TUE"
     assert snapshot.date_text == "11 AUG"
     assert [(item.label, item.value_text) for item in snapshot.temperatures] == [
-        ("IN", "22°"),
         ("OUT", "28°"),
+        ("IN", "22°"),
     ]
     assert snapshot.weather_condition == "partlycloudy"
     assert [chip.scene_id for chip in snapshot.scene_chips] == [
@@ -81,7 +88,7 @@ def test_dashboard_resolves_all_homeberry_glance_values():
         "pause",
     ]
     assert snapshot.quota_remaining == 68
-    assert snapshot.week_progress == 54
+    assert snapshot.week_remaining == 46
     assert snapshot.reset_text == "3d 5h"
 
 
@@ -94,8 +101,9 @@ def test_dashboard_renders_scene_weather_and_quota():
 
     assert "09:42" in html
     assert "TUE 11 AUG" in html
-    assert "IN" in html and "22°" in html
     assert "OUT" in html and "28°" in html
+    assert "IN" in html and "22°" in html
+    assert html.index("OUT") < html.index("IN")
     assert "PARTLY CLOUDY" not in html
     assert "hbd-weather-art" in html
     assert "Pause" in html and "Lunch" in html and "Close" in html
@@ -103,19 +111,38 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert "+1" in html
     assert html.index("Pause") < html.index("Lunch") < html.index("Close")
     assert "68%" in html
-    assert "54%" in html
+    assert "46%" in html
+    assert '<span class="hbd-guidance-primary"><span>OPEN</span><span>WINDOW</span>' in html
+    assert '<span class="hbd-guidance-detail"><span>UNTIL</span><span>2PM</span>' in html
+    assert mdi_span("window-open-variant", "hbd-guidance-icon") in html
     assert mdi_span("calendar-clock", "hbd-week-icon") in html
     assert 'class="hbd-refresh"' in html
     assert "3d 5h" in html
-    assert html.index("68%") < html.index("54%") < html.index("3d 5h")
+    assert html.index("68%") < html.index("46%") < html.index("3d 5h")
     assert html.index("3d 5h") < html.index('class="hbd-bar"')
     assert 'class="hbd-codex-top"' in html
     assert mdi_span("movie-open", "hbd-chip-icon") not in html
     assert mdi_span("pause", "hbd-chip-icon") in html
     assert mdi_span("food", "hbd-chip-icon") in html
     assert mdi_span("curtains-closed", "hbd-chip-icon") in html
-    assert ".hbd-dashboard{padding:8px" in html
-    assert "grid-template-rows:153px 67px" in html
+    assert ".hbd-dashboard{padding:4px 8px 8px" in html
+    assert "grid-template-rows:157px 67px" in html
+    assert "grid-template-columns:repeat(3,minmax(0,1fr))" in html
+    assert "grid-column:2;color:#C7CBD1" in html
+    assert "grid-column:3;display:flex" in html
+    assert "gap:1px;white-space:nowrap" in html
+    assert "gap:2px;color:#C7CBD1" in html
+    assert ".hbd-guidance-window_open,.hbd-guidance-window_keep_open{color:#F5F7FA;" in html
+    assert "background:rgba(245,247,250,.12)" in html
+    assert "height:30px;display:flex;align-items:center;gap:3px" in html
+    assert "border:1px solid;border-radius:14px" in html
+    assert "flex:0 0 auto;align-self:center" in html
+    assert ".hbd-guidance-primary,.hbd-guidance-detail{height:22px;display:flex" in html
+    assert ".hbd-guidance-primary{font-size:11px;font-weight:1000" in html
+    assert '<div class="hbd-climate-row"><div class="hbd-date-block">' in html
+    assert '<div class="hbd-climate-row"><div class="hbd-guidance' in html
+    assert "hbd-temperatures" not in html
+    assert "hbd-codex-stats" not in html
     assert ".hbd-bar{height:23px" in html
     assert "border-bottom" not in html and "border-left" not in html
     assert "hbd-full-b" not in html.split("</style>", 1)[1]
@@ -156,21 +183,66 @@ def test_missing_homeberry_temperatures_are_explicitly_unavailable():
     assert html.count("--°") == 2
 
 
-def test_week_progress_tracks_elapsed_fraction_of_week():
+def test_week_remaining_tracks_remaining_fraction_of_week():
     just_reset = state()
     just_reset.entity.attributes["secondary_reset_at"] = (NOW + timedelta(days=7)).timestamp()
     reset_due = state()
     reset_due.entity.attributes["secondary_reset_at"] = NOW.timestamp()
 
-    assert widget().snapshot(just_reset).week_progress == 0
-    assert widget().snapshot(reset_due).week_progress == 100
+    assert widget().snapshot(just_reset).week_remaining == 100
+    assert widget().snapshot(reset_due).week_remaining == 0
 
 
-def test_week_progress_is_unavailable_without_reset_timestamp():
+def test_week_remaining_is_unavailable_without_reset_timestamp():
     current = state()
     current.entity.attributes.clear()
 
     snapshot = widget().snapshot(current)
 
-    assert snapshot.week_progress is None
+    assert snapshot.week_remaining is None
     assert "--%" in widget().render_html(CTX, current)
+
+
+def test_compact_thermal_guidance_variants_render_semantic_icons_and_text():
+    cases = [
+        (
+            "window_open",
+            "window-open-variant",
+            ("OPEN", "WINDOW", "UNTIL", "2PM"),
+            NOW.replace(hour=14, minute=0),
+        ),
+        ("window_closed", "window-closed-variant", ("CLOSED", "WINDOW"), None),
+        ("heating", "radiator", ("HEATING", "TO 21°"), None),
+        ("holding", "thermostat", ("HOLDING", "AT 21°"), None),
+        (
+            "heating_off",
+            "radiator-off",
+            ("HEATING", "OFF", "UNTIL", "2:30AM"),
+            NOW.replace(hour=2, minute=30),
+        ),
+    ]
+    for kind, icon, expected_parts, until_at in cases:
+        current = state()
+        current.entities[SCENE].attributes["thermal_guidance"] = {
+            "kind": kind,
+            "icon": icon,
+            "until_at": None if until_at is None else until_at.isoformat(),
+            "all_day": False,
+            "target_temperature_c": 21,
+        }
+
+        html = widget().render_html(CTX, current)
+
+        for expected in expected_parts:
+            assert f"<span>{expected}</span>" in html
+        assert mdi_span(icon, "hbd-guidance-icon") in html
+
+
+def test_all_day_window_guidance_uses_compact_copy():
+    current = state()
+    current.entities[SCENE].attributes["thermal_guidance"]["all_day"] = True
+
+    html = widget().render_html(CTX, current)
+
+    assert '<span class="hbd-guidance-primary"><span>OPEN</span><span>WINDOW</span>' in html
+    assert '<span class="hbd-guidance-detail"><span>ALL</span><span>DAY</span>' in html

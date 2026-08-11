@@ -87,6 +87,78 @@ class TestCoordinatorMigration:
         assert len(coordinator.options[CONF_SCREENS]) == 2
 
 
+class TestCoordinatorEventRefresh:
+    """Test entity-driven and minute-boundary display refreshes."""
+
+    def test_tracks_widget_entity_dependencies(self, hass, coordinator_device):
+        coordinator = GeekMagicCoordinator(
+            hass,
+            coordinator_device,
+            {
+                CONF_WIDGETS: [
+                    {"type": "entity", "slot": 0, "entity_id": "sensor.room"},
+                    {"type": "clock", "slot": 1},
+                ]
+            },
+        )
+
+        assert coordinator._tracked_entity_ids() == {"sensor.room"}
+
+    def test_start_and_stop_manage_state_and_minute_listeners(
+        self, hass, coordinator_device
+    ):
+        coordinator = GeekMagicCoordinator(
+            hass,
+            coordinator_device,
+            {
+                CONF_WIDGETS: [
+                    {"type": "entity", "slot": 0, "entity_id": "sensor.room"}
+                ]
+            },
+        )
+        cancel_state = MagicMock()
+        cancel_minute = MagicMock()
+
+        with (
+            patch(
+                "custom_components.geekmagic.coordinator.async_track_state_change_event",
+                return_value=cancel_state,
+            ) as track_state,
+            patch(
+                "custom_components.geekmagic.coordinator.async_track_utc_time_change",
+                return_value=cancel_minute,
+            ) as track_minute,
+        ):
+            coordinator.start_event_refresh()
+            coordinator.stop_event_refresh()
+
+        track_state.assert_called_once()
+        track_minute.assert_called_once()
+        cancel_state.assert_called_once_with()
+        cancel_minute.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_event_bursts_are_coalesced_into_one_refresh(
+        self, hass, coordinator_device, old_format_options
+    ):
+        coordinator = GeekMagicCoordinator(hass, coordinator_device, old_format_options)
+        coordinator.async_request_refresh = AsyncMock()  # type: ignore[method-assign]
+        cancel = MagicMock()
+
+        with patch(
+            "custom_components.geekmagic.coordinator.async_call_later",
+            return_value=cancel,
+        ) as call_later:
+            coordinator._schedule_event_refresh()
+            coordinator._schedule_event_refresh()
+            dispatch = call_later.call_args.args[2]
+            dispatch(datetime.now(tz=UTC))
+            await hass.async_block_till_done()
+
+        call_later.assert_called_once()
+        coordinator.async_request_refresh.assert_awaited_once_with()
+
+
 class TestCoordinatorMultiScreen:
     """Test multi-screen functionality."""
 

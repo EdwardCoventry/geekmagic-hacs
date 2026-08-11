@@ -152,6 +152,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store coordinator
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    coordinator.start_event_refresh()
 
     # Set up options update listener
     entry.async_on_unload(entry.add_update_listener(async_options_update_listener))
@@ -225,6 +226,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Remove coordinator
     if unload_ok and entry.entry_id in hass.data.get(DOMAIN, {}):
+        coordinator: GeekMagicCoordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator.stop_event_refresh()
         del hass.data[DOMAIN][entry.entry_id]
         _LOGGER.debug("GeekMagic integration unloaded for %s", host)
 
