@@ -71,8 +71,8 @@ def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Pat
             tmp_path / "homeberry-dashboard-temperature-equal-displayed.png"
         ) as equal,
     ):
-        out_outline = ((151, 67, 171, 68), (151, 88, 171, 89))
-        in_outline = ((151, 100, 171, 101), (151, 121, 171, 122))
+        out_outline = ((155, 66, 175, 67), (155, 87, 175, 88))
+        in_outline = ((155, 97, 175, 98), (155, 118, 175, 119))
         assert has_outline_edges(out_hotter, *out_outline)
         assert not has_outline_edges(out_hotter, *in_outline)
         assert not has_outline_edges(in_hotter, *out_outline)
