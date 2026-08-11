@@ -7,9 +7,10 @@ import argparse
 import json
 import sys
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -98,6 +99,141 @@ TEMPERATURE_COMPARISON_STATES = {
     "in-hotter": (18.2, 23.1),
     "equal-displayed": (22.4, 22.3),
 }
+SPACING_BAND_NAMES = (
+    "time_weather",
+    "date_outdoor",
+    "guidance_indoor",
+    "scenes",
+    "codex_stats",
+    "codex_bar",
+)
+SPACING_COLORS = (
+    "#FF4D6D",
+    "#00D4FF",
+    "#FFD166",
+    "#B86BFF",
+    "#39D353",
+    "#FF8C42",
+)
+SPACING_TARGET_PX = 6
+
+
+def analyze_visual_spacing(image: Image.Image) -> dict[str, object]:
+    """Measure actual visible pixel bands rather than CSS line boxes."""
+    rgb = image.convert("RGB")
+    occupied_rows = [
+        any(max(rgb.getpixel((x, y))) > 12 for x in range(rgb.width))
+        for y in range(rgb.height)
+    ]
+    ranges: list[tuple[int, int]] = []
+    start = None
+    for y, occupied in enumerate([*occupied_rows, False]):
+        if occupied and start is None:
+            start = y
+        elif not occupied and start is not None:
+            ranges.append((start, y - 1))
+            start = None
+    if len(ranges) != len(SPACING_BAND_NAMES):
+        raise RuntimeError(
+            f"Expected {len(SPACING_BAND_NAMES)} visual bands, found {len(ranges)}: "
+            f"{ranges}"
+        )
+
+    bands = []
+    for name, color, (top, bottom) in zip(
+        SPACING_BAND_NAMES, SPACING_COLORS, ranges, strict=True
+    ):
+        occupied_pixels = [
+            (x, y)
+            for y in range(top, bottom + 1)
+            for x in range(rgb.width)
+            if max(rgb.getpixel((x, y))) > 12
+        ]
+        bands.append(
+            {
+                "name": name,
+                "color": color,
+                "left": min(x for x, _ in occupied_pixels),
+                "top": top,
+                "right": max(x for x, _ in occupied_pixels),
+                "bottom": bottom,
+                "height": bottom - top + 1,
+            }
+        )
+
+    gaps = []
+    recommendations = []
+    for first, second in pairwise(bands):
+        pixels = int(second["top"]) - int(first["bottom"]) - 1
+        delta = SPACING_TARGET_PX - pixels
+        gap = {
+            "after": first["name"],
+            "before": second["name"],
+            "pixels": pixels,
+            "target": SPACING_TARGET_PX,
+            "delta": delta,
+        }
+        gaps.append(gap)
+        if delta:
+            direction = "increase" if delta > 0 else "decrease"
+            recommendations.append(
+                f"{first['name']} -> {second['name']}: {pixels}px; "
+                f"{direction} by {abs(delta)}px"
+            )
+    return {
+        "target_gap_px": SPACING_TARGET_PX,
+        "passed": not recommendations,
+        "bands": bands,
+        "gaps": gaps,
+        "recommendations": recommendations,
+    }
+
+
+def spacing_diagnostic_image(
+    image: Image.Image, report: dict[str, object]
+) -> Image.Image:
+    """Draw measured visual bounds and a compact gap report."""
+    source = image.convert("RGB")
+    diagnostic = Image.new("RGB", (480, 240), "black")
+    diagnostic.paste(source, (0, 0))
+    draw = ImageDraw.Draw(diagnostic)
+    for band in report["bands"]:
+        draw.rectangle(
+            (
+                int(band["left"]),
+                int(band["top"]),
+                int(band["right"]),
+                int(band["bottom"]),
+            ),
+            outline=str(band["color"]),
+            width=1,
+        )
+    draw.text((250, 8), "VISUAL SPACING", fill="white")
+    y = 25
+    for band in report["bands"]:
+        draw.rectangle((250, y + 2, 257, y + 9), fill=str(band["color"]))
+        draw.text(
+            (262, y),
+            f"{band['name']} {band['top']}..{band['bottom']}",
+            fill="white",
+        )
+        y += 16
+    y += 3
+    for gap in report["gaps"]:
+        color = "#39D353" if gap["pixels"] == gap["target"] else "#FF6B6B"
+        draw.text(
+            (250, y),
+            f"gap {gap['after']} -> {gap['before']}: {gap['pixels']}px",
+            fill=color,
+        )
+        y += 14
+    draw.text(
+        (250, 225),
+        f"TARGET {report['target_gap_px']}px  "
+        f"{'PASS' if report['passed'] else 'FAIL'}",
+        fill="#39D353" if report["passed"] else "#FF6B6B",
+    )
+    return diagnostic
 
 
 def _layout() -> FullscreenLayout:
@@ -190,6 +326,13 @@ def generate(output: Path) -> dict[str, object]:
     output.mkdir(parents=True, exist_ok=True)
     normal = _still("68")
     normal.save(output / "homeberry-dashboard-normal.png")
+    spacing_report = analyze_visual_spacing(normal)
+    spacing_diagnostic_image(normal, spacing_report).save(
+        output / "homeberry-dashboard-spacing-diagnostic.png"
+    )
+    (output / "homeberry-dashboard-spacing-report.json").write_text(
+        json.dumps(spacing_report, indent=2), encoding="utf-8"
+    )
     frames, gif = _full_frames()
     frames[0].save(output / "homeberry-dashboard-full-frame-1.png")
     frames[1].save(output / "homeberry-dashboard-full-frame-2.png")
@@ -237,6 +380,7 @@ def generate(output: Path) -> dict[str, object]:
         "thermal_storyboard_order": list(THERMAL_STATES),
         "quota_alignment_storyboard_order": list(QUOTA_ALIGNMENT_STATES),
         "temperature_storyboard_order": list(TEMPERATURE_COMPARISON_STATES),
+        "visual_spacing": spacing_report,
         "files": sorted(path.name for path in output.iterdir() if path.is_file()),
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

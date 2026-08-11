@@ -128,14 +128,14 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert mdi_span("food", "hbd-chip-icon") in html
     assert mdi_span("curtains-closed", "hbd-chip-icon") in html
     assert ".hbd-dashboard{padding:4px" in html
-    assert "grid-template-rows:164px 64px" in html
+    assert "grid-template-rows:172px 56px" in html
     assert "width:100%;display:flex;align-items:center;justify-content:space-between" in html
     assert "gap:1px;white-space:nowrap" in html
     assert "gap:2px;color:#C7CBD1" in html
     assert ".hbd-guidance-window_open,.hbd-guidance-window_keep_open{color:#F5F7FA;" in html
     assert "background:rgba(245,247,250,.12)" in html
     assert "height:38px;display:grid;grid-template-columns:20px max-content max-content" in html
-    assert "grid-template-rows:22px 38px;row-gap:4px" in html
+    assert "grid-template-rows:22px 38px;row-gap:8px" in html
     assert "border:1px solid;border-radius:14px" in html
     assert "justify-self:center;align-self:center" in html
     assert ".hbd-guidance-primary,.hbd-guidance-detail{height:26px;display:grid" in html
@@ -148,8 +148,10 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert "hbd-codex-stats" not in html
     assert ".hbd-bar{height:23px" in html
     assert ".hbd-codex-top{width:100%;display:flex" in html
-    assert "transform:translateY(-5px)" in html
-    assert "grid-template-rows:62px 64px 38px" in html
+    assert "transform:translateY(-6px)" in html
+    assert "transform:translateY(-7px)" in html
+    assert "transform:translateY(-13px)" in html
+    assert "grid-template-rows:65px 68px 39px" in html
     assert "grid-row:3;display:flex;align-items:center" in html
     assert "border-bottom" not in html and "border-left" not in html
     assert "hbd-full-b" not in html.split("</style>", 1)[1]

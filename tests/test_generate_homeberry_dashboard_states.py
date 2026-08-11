@@ -71,11 +71,23 @@ def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Pat
             tmp_path / "homeberry-dashboard-temperature-equal-displayed.png"
         ) as equal,
     ):
-        out_outline = ((155, 66, 175, 67), (155, 87, 175, 88))
-        in_outline = ((155, 100, 175, 101), (155, 121, 175, 122))
+        out_outline = ((155, 69, 175, 70), (155, 90, 175, 91))
+        in_outline = ((155, 107, 175, 108), (155, 128, 175, 129))
         assert has_outline_edges(out_hotter, *out_outline)
         assert not has_outline_edges(out_hotter, *in_outline)
         assert not has_outline_edges(in_hotter, *out_outline)
         assert has_outline_edges(in_hotter, *in_outline)
         assert has_outline_edges(equal, *out_outline)
         assert has_outline_edges(equal, *in_outline)
+
+
+def test_dashboard_visual_bands_have_identical_six_pixel_gaps(tmp_path: Path):
+    manifest = MODULE.generate(tmp_path)
+    report = manifest["visual_spacing"]
+
+    assert (tmp_path / "homeberry-dashboard-spacing-diagnostic.png").is_file()
+    assert (tmp_path / "homeberry-dashboard-spacing-report.json").is_file()
+    assert [gap["pixels"] for gap in report["gaps"]] == [6, 6, 6, 6, 6], "\n".join(
+        report["recommendations"]
+    )
+    assert report["passed"] is True

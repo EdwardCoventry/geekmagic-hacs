@@ -447,15 +447,15 @@ class HomeberryDashboardWidget(Widget):
 font-family:'Nunito','DejaVu Sans',sans-serif;font-weight:900}
 .hbd-dashboard,.hbd-reset{position:absolute;inset:0}
 .hbd-dashboard{padding:4px;box-sizing:border-box;display:grid;
-grid-template-rows:164px 64px;
+grid-template-rows:172px 56px;
 row-gap:4px}
 .hbd-hero{display:grid;grid-template-columns:minmax(0,1fr) 64px;
-grid-template-rows:62px 64px 38px;min-width:0}
+grid-template-rows:65px 68px 39px;min-width:0}
 .hbd-time{grid-column:1;grid-row:1;font-family:'Nunito','DejaVu Sans',sans-serif;
 font-size:74px;font-weight:700;font-variant-numeric:tabular-nums;line-height:.88;
-letter-spacing:-5.5px;align-self:end}
+letter-spacing:-5.5px;align-self:end;transform:translateY(-6px)}
 .hbd-climate-rows{grid-column:1/-1;grid-row:2;align-self:stretch;display:grid;
-grid-template-rows:22px 38px;row-gap:4px;min-width:0}
+grid-template-rows:22px 38px;row-gap:8px;min-width:0}
 .hbd-climate-row{display:flex;align-items:center;justify-content:space-between;min-width:0}
 .hbd-date-block{height:22px;color:#C7CBD1;font-size:18px;line-height:1;
 letter-spacing:.8px;display:flex;align-items:center;white-space:nowrap}
@@ -479,7 +479,7 @@ color:#C7CBD1;background:rgba(199,203,209,.12)}
 .hbd-guidance-heating{color:#FF9F0A;background:rgba(255,159,10,.18)}
 .hbd-guidance-holding{color:#39D353;background:rgba(57,211,83,.18)}
 .hbd-weather-art{grid-column:2;grid-row:1;width:62px;height:62px;display:block;
-align-self:end;justify-self:end}
+align-self:end;justify-self:end;transform:translateY(-6px)}
 .hbd-temperature{height:22px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
 .hbd-temperature-label{width:38px;height:22px;box-sizing:border-box;display:flex;
 align-items:center;justify-content:center;font-size:16px;line-height:1;letter-spacing:.5px;
@@ -488,21 +488,21 @@ border:1px solid transparent;border-radius:14px}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
 text-align:right}
 .hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:center;gap:4px;
-min-width:0;overflow:hidden}
-.hbd-chip{height:27px;display:flex;align-items:center;gap:2px;padding:0 6px 0 4px;
+min-width:0;overflow:hidden;transform:translateY(3px)}
+.hbd-chip{height:28px;display:flex;align-items:center;gap:2px;padding:0 6px 0 4px;
 border:1px solid;border-radius:14px;box-sizing:border-box;min-width:0;flex:0 1 auto}
 .hbd-chip-icon{font-family:'Material Design Icons';font-size:15px;line-height:1;flex:0 0 auto}
 .hbd-chip-label{font-size:13px;line-height:1;letter-spacing:.1px;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
-.hbd-chip-more{height:27px;min-width:27px;padding:0 5px;border-radius:14px;
+.hbd-chip-more{height:28px;min-width:28px;padding:0 5px;border-radius:14px;
 color:#C7CBD1;display:flex;align-items:center;justify-content:center;font-size:13px;
 line-height:1;box-sizing:border-box;flex:0 0 auto}
-.hbd-codex{height:64px;display:grid;grid-template-rows:34px 23px;row-gap:3px;
+.hbd-codex{height:56px;display:grid;grid-template-rows:34px 23px;row-gap:3px;
 align-content:center}
 .hbd-codex-top{width:100%;display:flex;align-items:center;justify-content:space-between;
-transform:translateY(-5px)}
+transform:translateY(-7px)}
 .hbd-bar{height:23px;width:100%;border-radius:12px;background:#2F3136;overflow:hidden;
-transform:translateY(-5px)}
+transform:translateY(-13px)}
 .hbd-bar-fill{height:100%;border-radius:12px}
 .hbd-percent{font-size:30px;line-height:1;text-align:left;letter-spacing:-1.5px;
 flex:0 0 auto}
