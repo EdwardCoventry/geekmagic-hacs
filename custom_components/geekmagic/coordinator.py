@@ -335,6 +335,7 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         self.device = device
         self.options = self._migrate_options(options)
         self.renderer = Renderer()
+        self._animation_renderer_warmed = False
         self._layouts: list = []  # List of layouts for each screen
         self._current_screen: int = 0
         self._last_screen_change: float = time.time()
@@ -832,6 +833,9 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
             fps = ANIMATION_FPS if loop <= 2.0 else 7
             frame_count = min(32, round(loop * fps))
             times = [i / fps for i in range(frame_count)]
+            if not self._animation_renderer_warmed:
+                warmup = layout.render_animation(self.renderer, widget_states, [0.0])
+                self._animation_renderer_warmed = bool(warmup)
             frames = layout.render_animation(self.renderer, widget_states, times)
             if frames:
                 gif_data = self.renderer.to_gif(frames, fps=fps, rotation=rotation)

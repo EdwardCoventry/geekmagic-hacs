@@ -1286,6 +1286,24 @@ class TestAnimationUploadBudget:
         assert payload == small_gif
         assert png_data[:8] == b"\x89PNG\r\n\x1a\n"
 
+    def test_first_animated_render_discards_one_warmup_pass(
+        self, hass, coordinator_device, animated_options, fake_frames
+    ):
+        """The first engine pass is discarded; later refreshes render once."""
+        coordinator = GeekMagicCoordinator(hass, coordinator_device, animated_options)
+        with (
+            patch.object(
+                coordinator._layouts[0], "render_animation", return_value=fake_frames
+            ) as render_animation,
+            patch.object(coordinator.renderer, "to_gif", return_value=b"GIF89a-small"),
+        ):
+            coordinator._render_display()
+            assert render_animation.call_count == 2
+            assert render_animation.call_args_list[0].args[2] == [0.0]
+
+            coordinator._render_display()
+            assert render_animation.call_count == 3
+
     def test_oversized_gif_falls_back_to_still_jpeg(
         self, hass, coordinator_device, animated_options, fake_frames
     ):
