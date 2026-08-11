@@ -833,10 +833,11 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
             fps = ANIMATION_FPS if loop <= 2.0 else 7
             frame_count = min(32, round(loop * fps))
             times = [i / fps for i in range(frame_count)]
-            if not self._animation_renderer_warmed:
-                warmup = layout.render_animation(self.renderer, widget_states, [0.0])
-                self._animation_renderer_warmed = bool(warmup)
-            frames = layout.render_animation(self.renderer, widget_states, times)
+            render_times = [0.0, *times] if not self._animation_renderer_warmed else times
+            frames = layout.render_animation(self.renderer, widget_states, render_times)
+            if frames and not self._animation_renderer_warmed:
+                frames = frames[1:]
+                self._animation_renderer_warmed = True
             if frames:
                 gif_data = self.renderer.to_gif(frames, fps=fps, rotation=rotation)
                 png_data = self.renderer.to_png(frames[0], rotation=rotation)
