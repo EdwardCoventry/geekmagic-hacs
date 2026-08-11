@@ -446,8 +446,10 @@ justify-self:center;align-self:center}
 .hbd-guidance-primary,.hbd-guidance-detail{height:22px;display:grid;
 grid-template-rows:repeat(2,1fr);align-items:center;row-gap:0;line-height:1}
 .hbd-guidance-primary>span,.hbd-guidance-detail>span{display:flex;align-items:center;height:11px}
-.hbd-guidance-primary{font-size:11px;font-weight:1000;letter-spacing:.15px}
-.hbd-guidance-detail{font-size:10px;font-weight:900;letter-spacing:.2px}
+.hbd-guidance-primary{font-size:11px;font-weight:1000;letter-spacing:.15px;
+justify-items:start;text-align:left}
+.hbd-guidance-detail{font-size:10px;font-weight:900;letter-spacing:.2px;
+justify-items:end;text-align:right}
 .hbd-guidance-window_open,.hbd-guidance-window_keep_open{color:#F5F7FA;
 background:rgba(245,247,250,.12)}
 .hbd-guidance-window_closed,.hbd-guidance-heating_off,.hbd-guidance-unavailable{
@@ -472,18 +474,18 @@ color:#C7CBD1;display:flex;align-items:center;justify-content:center;font-size:1
 line-height:1;box-sizing:border-box;flex:0 0 auto}
 .hbd-codex{height:67px;display:grid;grid-template-rows:34px 23px;row-gap:3px;
 align-content:center}
-.hbd-codex-top{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:center;
+.hbd-codex-top{width:100%;display:flex;align-items:center;justify-content:space-between;
 transform:translateY(-7px)}
 .hbd-bar{height:30px;width:100%;border-radius:15px;background:#2F3136;overflow:hidden;
 transform:translateY(-7px)}
 .hbd-bar-fill{height:100%;border-radius:15px}
-.hbd-percent{grid-column:1;font-size:30px;line-height:1;text-align:left;
-letter-spacing:-1.5px;justify-self:start}
-.hbd-week-progress{grid-column:2;color:#C7CBD1;font-size:19px;line-height:1;display:flex;
-align-items:center;justify-self:center;gap:1px;white-space:nowrap}
+.hbd-percent{font-size:30px;line-height:1;text-align:left;letter-spacing:-1.5px;
+flex:0 0 auto}
+.hbd-week-progress{color:#C7CBD1;font-size:19px;line-height:1;display:flex;
+align-items:center;gap:1px;white-space:nowrap;flex:0 0 auto}
 .hbd-week-icon{font-family:'Material Design Icons';font-size:20px;line-height:1}
-.hbd-reset-count{grid-column:3;display:flex;align-items:center;gap:2px;color:#C7CBD1;
-font-size:19px;line-height:1;white-space:nowrap;justify-self:end}
+.hbd-reset-count{display:flex;align-items:center;gap:2px;color:#C7CBD1;font-size:19px;
+line-height:1;white-space:nowrap;flex:0 0 auto}
 .hbd-refresh{width:20px;height:20px;display:block;flex:0 0 auto}
 .hbd-full-a,.hbd-full-b{position:absolute;inset:0}
 .hbd-full-a{animation:hbd-a 2s steps(1,end) infinite}

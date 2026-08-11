@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from custom_components.geekmagic.htmldoc import CellContext, mdi_span
 from custom_components.geekmagic.widgets import WIDGET_CLASSES, WidgetConfig
 from custom_components.geekmagic.widgets.homeberry_dashboard import HomeberryDashboardWidget
@@ -127,9 +129,7 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert mdi_span("curtains-closed", "hbd-chip-icon") in html
     assert ".hbd-dashboard{padding:4px 8px 8px" in html
     assert "grid-template-rows:157px 67px" in html
-    assert "grid-template-columns:repeat(3,minmax(0,1fr))" in html
-    assert "grid-column:2;color:#C7CBD1" in html
-    assert "grid-column:3;display:flex" in html
+    assert "width:100%;display:flex;align-items:center;justify-content:space-between" in html
     assert "gap:1px;white-space:nowrap" in html
     assert "gap:2px;color:#C7CBD1" in html
     assert ".hbd-guidance-window_open,.hbd-guidance-window_keep_open{color:#F5F7FA;" in html
@@ -140,12 +140,14 @@ def test_dashboard_renders_scene_weather_and_quota():
     assert "justify-self:center;align-self:center" in html
     assert ".hbd-guidance-primary,.hbd-guidance-detail{height:22px;display:grid" in html
     assert ".hbd-guidance-primary{font-size:11px;font-weight:1000" in html
+    assert "justify-items:start;text-align:left" in html
+    assert "justify-items:end;text-align:right" in html
     assert '<div class="hbd-climate-row"><div class="hbd-date-block">' in html
     assert '<div class="hbd-climate-row"><div class="hbd-guidance' in html
     assert "hbd-temperatures" not in html
     assert "hbd-codex-stats" not in html
     assert ".hbd-bar{height:30px" in html
-    assert ".hbd-codex-top{display:grid" in html
+    assert ".hbd-codex-top{width:100%;display:flex" in html
     assert "transform:translateY(-7px)" in html
     assert "border-bottom" not in html and "border-left" not in html
     assert "hbd-full-b" not in html.split("</style>", 1)[1]
@@ -160,6 +162,15 @@ def test_full_quota_alternates_dashboard_and_reset_faces():
     assert "2s steps(1,end)" in html
     assert dashboard.is_animated() is True
     assert dashboard.animation_seconds() == 2.0
+
+
+@pytest.mark.parametrize("quota", ["1", "9", "10", "68", "99", "100"])
+def test_codex_statistics_space_between_variable_width_values(quota):
+    html = widget().render_html(CTX, state(quota))
+
+    assert "justify-content:space-between" in html
+    assert "grid-template-columns:repeat(3,minmax(0,1fr))" not in html
+    assert f">{quota}%</div>" in html
 
 
 def test_widget_is_registered():
