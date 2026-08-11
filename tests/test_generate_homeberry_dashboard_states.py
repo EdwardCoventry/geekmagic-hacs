@@ -41,7 +41,7 @@ def test_generator_writes_dashboard_and_both_reset_frames(tmp_path: Path):
         assert animation.info["duration"] == 1000
 
 
-def test_temperature_comparison_underlines_render_into_output_pixels(tmp_path: Path):
+def test_temperature_comparison_outlines_render_into_output_pixels(tmp_path: Path):
     manifest = MODULE.generate(tmp_path)
 
     assert manifest["temperature_storyboard_order"] == [
@@ -50,8 +50,17 @@ def test_temperature_comparison_underlines_render_into_output_pixels(tmp_path: P
         "equal-displayed",
     ]
 
-    def has_solid_underline(image: Image.Image, box: tuple[int, int, int, int]) -> bool:
-        return all(min(pixel) > 180 for pixel in image.convert("RGB").crop(box).getdata())
+    def has_outline_edges(
+        image: Image.Image,
+        top_box: tuple[int, int, int, int],
+        bottom_box: tuple[int, int, int, int],
+    ) -> bool:
+        rgb = image.convert("RGB")
+        return all(
+            min(pixel) > 180
+            for box in (top_box, bottom_box)
+            for pixel in rgb.crop(box).getdata()
+        )
 
     with (
         Image.open(
@@ -62,11 +71,11 @@ def test_temperature_comparison_underlines_render_into_output_pixels(tmp_path: P
             tmp_path / "homeberry-dashboard-temperature-equal-displayed.png"
         ) as equal,
     ):
-        out_underline = (145, 88, 179, 90)
-        in_underline = (164, 121, 179, 123)
-        assert has_solid_underline(out_hotter, out_underline)
-        assert not has_solid_underline(out_hotter, in_underline)
-        assert not has_solid_underline(in_hotter, out_underline)
-        assert has_solid_underline(in_hotter, in_underline)
-        assert has_solid_underline(equal, out_underline)
-        assert has_solid_underline(equal, in_underline)
+        out_outline = ((151, 67, 171, 68), (151, 88, 171, 89))
+        in_outline = ((151, 100, 171, 101), (151, 121, 171, 122))
+        assert has_outline_edges(out_hotter, *out_outline)
+        assert not has_outline_edges(out_hotter, *in_outline)
+        assert not has_outline_edges(in_hotter, *out_outline)
+        assert has_outline_edges(in_hotter, *in_outline)
+        assert has_outline_edges(equal, *out_outline)
+        assert has_outline_edges(equal, *in_outline)

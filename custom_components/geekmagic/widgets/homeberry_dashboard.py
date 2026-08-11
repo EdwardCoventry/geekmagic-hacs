@@ -423,15 +423,10 @@ class HomeberryDashboardWidget(Widget):
         temperature_rows = []
         for item in snapshot.temperatures:
             hottest_class = " hbd-temperature-hottest" if item.is_hottest else ""
-            underline = (
-                '<span class="hbd-temperature-underline"></span>'
-                if item.is_hottest
-                else ""
-            )
             temperature_rows.append(
                 '<div class="hbd-temperature">'
                 f'<span class="hbd-temperature-label{hottest_class}">'
-                f'<span>{item.label}</span>{underline}</span>'
+                f'{item.label}</span>'
                 f'<span class="hbd-temperature-value">{escape(item.value_text)}</span>'
                 '</div>'
             )
@@ -486,10 +481,10 @@ color:#C7CBD1;background:rgba(199,203,209,.12)}
 .hbd-weather-art{grid-column:2;grid-row:1;width:62px;height:62px;display:block;
 align-self:end;justify-self:end}
 .hbd-temperature{height:24px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
-.hbd-temperature-label{position:relative;font-size:16px;line-height:1;letter-spacing:.5px;
-padding-bottom:2px}
-.hbd-temperature-underline{position:absolute;left:0;right:.5px;bottom:-1px;height:2px;
-background:currentColor;border-radius:1px}
+.hbd-temperature-label{width:38px;height:22px;box-sizing:border-box;display:flex;
+align-items:center;justify-content:center;font-size:16px;line-height:1;letter-spacing:.5px;
+border:1px solid transparent;border-radius:14px}
+.hbd-temperature-hottest{border-color:currentColor}
 .hbd-temperature-value{font-size:32px;line-height:.8;letter-spacing:-1.5px;min-width:48px;
 text-align:right}
 .hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:end;gap:4px;

@@ -154,15 +154,15 @@ def test_dashboard_renders_scene_weather_and_quota():
 
 
 @pytest.mark.parametrize(
-    ("outdoor", "indoor", "underlined_labels"),
+    ("outdoor", "indoor", "outlined_labels"),
     [
         (27.6, 22.4, {"OUT"}),
         (18.2, 23.1, {"IN"}),
         (22.4, 22.3, {"OUT", "IN"}),
     ],
 )
-def test_hottest_displayed_temperature_labels_are_underlined(
-    outdoor, indoor, underlined_labels
+def test_hottest_displayed_temperature_labels_are_outlined(
+    outdoor, indoor, outlined_labels
 ):
     current = state()
     attributes = current.entities[SCENE].attributes
@@ -171,24 +171,17 @@ def test_hottest_displayed_temperature_labels_are_underlined(
 
     snapshot = widget().snapshot(current)
     assert {item.label for item in snapshot.temperatures if item.is_hottest} == (
-        underlined_labels
+        outlined_labels
     )
 
     html = widget().render_html(CTX, current)
     for label in ("OUT", "IN"):
         class_name = (
             "hbd-temperature-label hbd-temperature-hottest"
-            if label in underlined_labels
+            if label in outlined_labels
             else "hbd-temperature-label"
         )
-        label_html = f'<span class="{class_name}"><span>{label}</span>'
-        assert label_html in html
-        label_tail = html.split(label_html, 1)[1].split(
-            '<span class="hbd-temperature-value"', 1
-        )[0]
-        assert ("hbd-temperature-underline" in label_tail) is (
-            label in underlined_labels
-        )
+        assert f'<span class="{class_name}">{label}</span>' in html
     assert "hbd-temperature-value hbd-temperature-hottest" not in html
 
 
