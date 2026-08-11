@@ -107,6 +107,8 @@ def test_full_has_two_one_second_faces() -> None:
     assert ">100%<" in html
     assert "CODEX" in html and "RESET!!" in html
     assert "2s steps(1,end)" in html
+    assert ".cq-full-a,.cq-full-b{position:absolute;inset:0}" in html
+    assert ".cq-full-a .cq-main{font-size:52px;letter-spacing:-5px}" in html
     assert quota.is_animated() is True
     assert quota.animation_seconds() == 2.0
 

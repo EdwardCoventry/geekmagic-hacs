@@ -189,6 +189,7 @@ class TestCoordinatorWidgetRegistration:
             "chart",
             "text",
             "gauge",
+            "homeberry_dashboard",
             "html",
             "progress",
             "multi_progress",
@@ -200,7 +201,7 @@ class TestCoordinatorWidgetRegistration:
         for widget_type in expected_widgets:
             assert widget_type in WIDGET_CLASSES, f"Widget {widget_type} not registered"
 
-        assert len(WIDGET_CLASSES) == 18
+        assert len(WIDGET_CLASSES) == 19
 
 
 class MockState:

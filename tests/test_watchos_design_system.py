@@ -380,6 +380,24 @@ _HEX_ALLOWED: dict[str, set[str]] = {
         "#c7cbd1",
         "#ebedf0",
     },
+    # Purpose-built Homeberry glance face extends the quota product palette
+    # with fixed weather-illustration colors independent of dashboard theme.
+    "homeberry_dashboard.py": {
+        "#000",
+        "#fff",
+        "#2f3136",
+        "#39d353",
+        "#5ac8fa",
+        "#91a0b4",
+        "#a9c7ff",
+        "#c7cbd1",
+        "#d8f3ff",
+        "#f4f7fb",
+        "#f5f7fa",
+        "#ff9f0a",
+        "#ffd60a",
+        "#ffd76a",
+    },
     "media.py": _NEUTRAL_HEX,
 }
 

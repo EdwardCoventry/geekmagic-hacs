@@ -14,6 +14,7 @@ from .clock import ClockWidget
 from .codex_quota import CodexQuotaWidget
 from .entity import EntityWidget
 from .gauge import GaugeWidget
+from .homeberry_dashboard import HomeberryDashboardWidget
 from .html import HtmlWidget
 from .icon import IconWidget
 from .media import MediaWidget
@@ -34,6 +35,7 @@ __all__ = [
     "CodexQuotaWidget",
     "EntityWidget",
     "GaugeWidget",
+    "HomeberryDashboardWidget",
     "HtmlWidget",
     "IconWidget",
     "MediaWidget",
@@ -59,6 +61,7 @@ _ALL_WIDGETS: list[type[Widget]] = [
     EntityWidget,
     GaugeWidget,
     HtmlWidget,
+    HomeberryDashboardWidget,
     IconWidget,
     MediaWidget,
     MultiProgressWidget,

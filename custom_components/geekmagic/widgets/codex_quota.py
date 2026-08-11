@@ -244,6 +244,8 @@ class CodexQuotaWidget(Widget):
                 ".cq-reset{position:absolute;inset:0;display:flex;flex-direction:column;"
                 "align-items:center;justify-content:center;color:#39D353;font-size:58px;"
                 "line-height:.92;letter-spacing:-3px;text-align:center;z-index:2}",
+                ".cq-full-a,.cq-full-b{position:absolute;inset:0}",
+                ".cq-full-a .cq-main{font-size:52px;letter-spacing:-5px}",
                 ".cq-full-a{animation:cq-a 2s steps(1,end) infinite}",
                 ".cq-full-b{animation:cq-b 2s steps(1,end) infinite}",
                 "@keyframes cq-a{0%,49.99%{opacity:1}50%,100%{opacity:0}}",
