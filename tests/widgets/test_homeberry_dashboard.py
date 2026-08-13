@@ -41,7 +41,7 @@ def widget() -> HomeberryDashboardWidget:
     )
 
 
-def state(quota: str = "68") -> WidgetState:
+def state(quota: str = "68", *, activity_state: str = "used", celebration=False) -> WidgetState:
     return WidgetState(
         entity=EntityState(
             CODEX,
@@ -64,6 +64,10 @@ def state(quota: str = "68") -> WidgetState:
                         "until_at": (NOW + timedelta(hours=4, minutes=18)).isoformat(),
                         "all_day": False,
                         "target_temperature_c": 21,
+                    },
+                    "codex_weekly_activity": {
+                        "state": activity_state,
+                        "celebration_active": celebration,
                     },
                 },
             ),
@@ -213,13 +217,33 @@ def test_unavailable_temperatures_do_not_receive_hotter_underlines(
 
 def test_full_quota_alternates_dashboard_and_reset_faces():
     dashboard = widget()
-    html = dashboard.render_html(CTX, state("100"))
+    html = dashboard.render_html(
+        CTX,
+        state("100", activity_state="fresh", celebration=True),
+    )
 
     assert "hbd-dashboard" in html
     assert "CODEX" in html and "RESET!!" in html
     assert "2s steps(1,end)" in html
     assert dashboard.is_animated() is True
     assert dashboard.animation_seconds() == 2.0
+
+
+@pytest.mark.parametrize(
+    ("activity_state", "celebration"),
+    [("used", False), ("unknown", False), ("fresh", False), ("unknown", True)],
+)
+def test_full_quota_does_not_flash_without_explicit_active_fresh_window(
+    activity_state, celebration
+):
+    html = widget().render_html(
+        CTX,
+        state("100", activity_state=activity_state, celebration=celebration),
+    )
+
+    body = html.split("</style>", 1)[1]
+    assert "hbd-dashboard" in body
+    assert "RESET!!" not in body
 
 
 @pytest.mark.parametrize("quota", ["1", "9", "10", "68", "99", "100"])
