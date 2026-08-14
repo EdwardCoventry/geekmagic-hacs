@@ -415,6 +415,8 @@ class HomeberryDashboardWidget(Widget):
                 detail = ("UNTIL", self._guidance_time(guidance.until_at))
         elif kind == "window_closed":
             primary = ("WINDOW", "CLOSED")
+            if guidance.until_at is not None:
+                detail = ("UNTIL", self._guidance_time(guidance.until_at))
         elif kind == "heating":
             target = (
                 "--°"

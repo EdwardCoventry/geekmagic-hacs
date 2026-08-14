@@ -64,7 +64,7 @@ THERMAL_STATES = {
     "window-closed": {
         "kind": "window_closed",
         "icon": "window-closed-variant",
-        "until_at": None,
+        "until_at": "2026-08-11T20:00:00+00:00",
         "all_day": False,
         "target_temperature_c": 21,
     },
