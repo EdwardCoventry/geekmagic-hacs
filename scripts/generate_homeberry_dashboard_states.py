@@ -109,6 +109,11 @@ HEALTH_STATES = {
     "other": ({"battery": 0, "connectivity": 0, "other": 1}, "warning"),
     "mixed-critical": ({"battery": 1, "connectivity": 2, "other": 1}, "critical"),
 }
+HEALTH_ISSUES = {
+    "battery": ("Motion", "Motion BATTERY", "Battery low"),
+    "connectivity": ("Heater", "Heater OFFLINE", "Offline"),
+    "other": ("Temp", "Temp STALE", "Data age is unknown"),
+}
 SPACING_BAND_NAMES = (
     "time_weather",
     "date_outdoor",
@@ -272,6 +277,24 @@ def _state(
     health_counts: dict[str, int] | None = None,
     health_severity: str = "healthy",
 ) -> WidgetState:
+    resolved_health_counts = health_counts or {
+        "battery": 0,
+        "connectivity": 0,
+        "other": 0,
+    }
+    top_issues = [
+        {
+            "asset_id": f"device.{display_name.lower()}",
+            "display_name": display_name,
+            "category": category,
+            "severity": health_severity if health_severity == "critical" else "warning",
+            "summary": f"{display_name}: {summary}",
+            "short_label": short_label,
+        }
+        for category, count in resolved_health_counts.items()
+        if count > 0
+        for display_name, short_label, summary in (HEALTH_ISSUES[category],)
+    ]
     return WidgetState(
         entity=EntityState(
             CODEX,
@@ -310,9 +333,9 @@ def _state(
                 HEALTH,
                 str(sum((health_counts or {}).values())),
                 {
-                    "category_counts": health_counts
-                    or {"battery": 0, "connectivity": 0, "other": 0},
+                    "category_counts": resolved_health_counts,
                     "overall_severity": health_severity,
+                    "top_issues": top_issues,
                     "category_severity": {
                         category: (
                             "critical"
@@ -321,9 +344,7 @@ def _state(
                             if count
                             else "healthy"
                         )
-                        for category, count in (
-                            health_counts or {"battery": 0, "connectivity": 0, "other": 0}
-                        ).items()
+                        for category, count in (resolved_health_counts).items()
                     },
                 },
             ),

@@ -351,6 +351,40 @@ def test_health_chip_expands_into_available_right_side_space():
     assert html.index("Pause") < html.index("BATTERY")
 
 
+def test_health_chip_names_the_device_and_problem_when_published():
+    current = state()
+    current.entities[SCENE].attributes["scene_chips"] = [SCENE_CHIPS[-1]]
+    current.entities[HEALTH] = EntityState(
+        HEALTH,
+        "1",
+        {
+            "category_counts": {"battery": 0, "connectivity": 0, "other": 1},
+            "category_severity": {
+                "battery": "healthy",
+                "connectivity": "healthy",
+                "other": "warning",
+            },
+            "top_issues": [
+                {
+                    "asset_id": "device.temp",
+                    "display_name": "Temp",
+                    "category": "other",
+                    "short_label": "Temp STALE",
+                    "summary": "Temp: Data age is unknown",
+                }
+            ],
+        },
+    )
+
+    html = widget().render_html(CTX, current)
+    body = html.split("</style>", 1)[1]
+
+    assert '<span class="hbd-health-label">TEMP STALE</span>' in body
+    assert "OTHER" not in body
+    assert '<span class="hbd-health-count">1</span>' not in body
+    assert html.index("Pause") < html.index("TEMP STALE")
+
+
 def test_health_chips_collapse_to_icon_and_count_when_row_is_full():
     current = state()
     current.entities[HEALTH] = EntityState(

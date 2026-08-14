@@ -53,6 +53,7 @@ class HealthChipSnapshot:
     category: str
     count: int
     critical: bool
+    detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -257,6 +258,21 @@ class HomeberryDashboardWidget(Widget):
         category_severity = (
             health.attributes.get("category_severity") if health is not None else None
         )
+        issue_details: dict[str, str] = {}
+        top_issues = health.attributes.get("top_issues") if health is not None else None
+        if isinstance(top_issues, list):
+            for issue in top_issues:
+                if not isinstance(issue, dict):
+                    continue
+                category = issue.get("category")
+                detail = issue.get("short_label") or issue.get("summary")
+                if (
+                    category in self._HEALTH_LABELS
+                    and isinstance(detail, str)
+                    and detail.strip()
+                    and category not in issue_details
+                ):
+                    issue_details[category] = detail.strip()
         if isinstance(counts, dict):
             for category in ("battery", "connectivity", "other"):
                 with suppress(TypeError, ValueError):
@@ -266,7 +282,10 @@ class HomeberryDashboardWidget(Widget):
                             isinstance(category_severity, dict)
                             and category_severity.get(category) == "critical"
                         )
-                        health_chips.append(HealthChipSnapshot(category, count, critical))
+                        detail = issue_details.get(category)
+                        if detail is not None and count > 1:
+                            detail = f"{detail} +{count - 1}"
+                        health_chips.append(HealthChipSnapshot(category, count, critical, detail))
 
         raw_guidance = scene.attributes.get("thermal_guidance") if scene is not None else None
         guidance = self._thermal_guidance_snapshot(raw_guidance)
@@ -531,17 +550,18 @@ class HomeberryDashboardWidget(Widget):
         for alert in snapshot.health_chips:
             color = CRITICAL_RED if alert.critical else "#FF9F0A"
             expanded = alert.category in expanded_categories
+            label = alert.detail or self._HEALTH_LABELS[alert.category]
             detail = (
-                f'<span class="hbd-health-label">{self._HEALTH_LABELS[alert.category]}</span>'
-                if expanded
-                else ""
+                f'<span class="hbd-health-label">{escape(label.upper())}</span>' if expanded else ""
             )
             expanded_class = " hbd-health-chip-expanded" if expanded else ""
             health_parts.append(
                 f'<div class="hbd-health-chip{expanded_class}" '
                 f'style="color:{color};border-color:{color};background:{self._chip_background(color)}">'
                 f"{mdi_span(alert_icons[alert.category], 'hbd-chip-icon')}"
-                f'{detail}<span class="hbd-health-count">{alert.count}</span></div>'
+                f"{detail}"
+                + ("" if expanded else f'<span class="hbd-health-count">{alert.count}</span>')
+                + "</div>"
             )
         return (
             f'<div class="hbd-scene-lane">{"".join(scene_parts)}</div>'
@@ -561,8 +581,8 @@ class HomeberryDashboardWidget(Widget):
 
     @classmethod
     def _health_chip_width(cls, alert: HealthChipSnapshot) -> int:
-        label = cls._HEALTH_LABELS[alert.category]
-        return 31 + round(len(label) * 6.5) + max(7, len(str(alert.count)) * 7)
+        label = alert.detail or cls._HEALTH_LABELS[alert.category]
+        return 31 + round(len(label) * 6.5)
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         del ctx
