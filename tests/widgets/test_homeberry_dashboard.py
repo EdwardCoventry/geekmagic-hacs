@@ -553,5 +553,6 @@ def test_closed_window_guidance_shows_forecast_reopening_time():
 
     html = widget().render_html(CTX, current)
 
-    assert '<span class="hbd-guidance-primary"><span>WINDOW</span><span>CLOSED</span>' in html
-    assert '<span class="hbd-guidance-detail"><span>UNTIL</span><span>11PM</span>' in html
+    assert '<span class="hbd-guidance-stacked-copy"><span>WINDOW CLOSED</span>' in html
+    assert "<span>UNTIL 11PM</span>" in html
+    assert "hbd-guidance-stacked" in html

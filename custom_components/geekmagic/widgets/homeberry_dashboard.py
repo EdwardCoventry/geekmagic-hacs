@@ -405,6 +405,16 @@ class HomeberryDashboardWidget(Widget):
             )
         guidance = snapshot.thermal_guidance
         kind = guidance.kind
+        if kind == "window_closed" and guidance.until_at is not None:
+            until_text = self._guidance_time(guidance.until_at)
+            return (
+                '<div class="hbd-guidance hbd-guidance-window_closed '
+                'hbd-guidance-stacked">'
+                f"{mdi_span(guidance.icon, 'hbd-guidance-icon')}"
+                '<span class="hbd-guidance-stacked-copy">'
+                "<span>WINDOW CLOSED</span>"
+                f"<span>UNTIL {escape(until_text)}</span></span></div>"
+            )
         primary = ("STATUS", "UNKNOWN")
         detail: tuple[str, str] | None = None
         if kind in {"window_open", "window_keep_open"}:
@@ -415,8 +425,6 @@ class HomeberryDashboardWidget(Widget):
                 detail = ("UNTIL", self._guidance_time(guidance.until_at))
         elif kind == "window_closed":
             primary = ("WINDOW", "CLOSED")
-            if guidance.until_at is not None:
-                detail = ("UNTIL", self._guidance_time(guidance.until_at))
         elif kind == "heating":
             target = (
                 "--°"
@@ -701,6 +709,10 @@ background:rgba(245,247,250,.12)}
 .hbd-guidance-window_closed,.hbd-guidance-heating_off,.hbd-guidance-unavailable{
 color:#C7CBD1;background:rgba(199,203,209,.12)}
 .hbd-guidance-connectivity{color:#FF9F0A;background:rgba(255,159,10,.18)}
+.hbd-guidance-stacked{grid-template-columns:20px minmax(0,1fr);padding-right:7px}
+.hbd-guidance-stacked-copy{height:28px;min-width:0;display:grid;grid-template-rows:1fr 1fr;
+align-items:center;font-size:11px;line-height:1;letter-spacing:.1px;white-space:nowrap}
+.hbd-guidance-stacked-copy>span{display:flex;align-items:center;height:14px}
 .hbd-guidance-heating{color:#FF9F0A;background:rgba(255,159,10,.18)}
 .hbd-guidance-holding{color:#39D353;background:rgba(57,211,83,.18)}
 .hbd-weather-art{grid-column:2;grid-row:1;width:62px;height:62px;display:block;
