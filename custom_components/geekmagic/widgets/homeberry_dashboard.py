@@ -90,6 +90,14 @@ class HomeberryDashboardWidget(Widget):
     """Render time, indoor climate, scene, and weekly Codex quota."""
 
     WIDGET_TYPE: ClassVar[str] = "homeberry_dashboard"
+    _CHIP_ROW_WIDTH: ClassVar[int] = 232
+    _CHIP_GAP: ClassVar[int] = 4
+    _HEALTH_COMPACT_WIDTH: ClassVar[int] = 34
+    _HEALTH_LABELS: ClassVar[dict[str, str]] = {
+        "battery": "BATTERY",
+        "connectivity": "NETWORK",
+        "other": "OTHER",
+    }
     _HEX_COLOR: ClassVar[re.Pattern[str]] = re.compile(r"^#[0-9a-fA-F]{6}$")
     SCHEMA: ClassVar[dict[str, Any]] = {
         "name": "Homeberry Dashboard",
@@ -262,9 +270,7 @@ class HomeberryDashboardWidget(Widget):
 
         raw_guidance = scene.attributes.get("thermal_guidance") if scene is not None else None
         guidance = self._thermal_guidance_snapshot(raw_guidance)
-        raw_activity = (
-            scene.attributes.get("codex_weekly_activity") if scene is not None else None
-        )
+        raw_activity = scene.attributes.get("codex_weekly_activity") if scene is not None else None
         reset_celebration_active = bool(
             isinstance(raw_activity, dict)
             and raw_activity.get("state") == "fresh"
@@ -466,36 +472,97 @@ class HomeberryDashboardWidget(Widget):
         return f"rgba({red},{green},{blue},.18)"
 
     def _scene_chips_html(self, snapshot: HomeberryDashboardSnapshot) -> str:
-        """Render health attention first, then fit newest queued scenes."""
+        """Keep scenes left and use spare right-side space for health detail."""
         alert_icons = {
             "battery": "battery-alert",
             "connectivity": "wifi-alert",
             "other": "alert-circle",
         }
-        parts: list[str] = []
-        for alert in snapshot.health_chips:
-            color = CRITICAL_RED if alert.critical else "#FF9F0A"
-            parts.append(
-                '<div class="hbd-health-chip" '
-                f'style="color:{color};border-color:{color};background:{self._chip_background(color)}">'
-                f"{mdi_span(alert_icons[alert.category], 'hbd-chip-icon')}"
-                f"<span>{alert.count}</span></div>"
-            )
-        visible_count = max(0, 3 - len(snapshot.health_chips))
-        visible = tuple(reversed(snapshot.scene_chips[-visible_count:])) if visible_count else ()
+        compact_health_width = sum(
+            self._HEALTH_COMPACT_WIDTH for _ in snapshot.health_chips
+        ) + self._CHIP_GAP * max(0, len(snapshot.health_chips) - 1)
+        newest = tuple(reversed(snapshot.scene_chips))
+        visible = newest[:1]
+        overflow = len(snapshot.scene_chips) - len(visible)
+        compact_total = self._scene_lane_width(visible, overflow) + compact_health_width
+        if (visible or overflow) and snapshot.health_chips:
+            compact_total += self._CHIP_GAP
+        spare_width = max(0, self._CHIP_ROW_WIDTH - compact_total)
+        expanded_categories: set[str] = set()
+        for alert in sorted(snapshot.health_chips, key=lambda item: not item.critical):
+            extra_width = self._health_chip_width(alert) - self._HEALTH_COMPACT_WIDTH
+            if extra_width <= spare_width:
+                expanded_categories.add(alert.category)
+                spare_width -= extra_width
+
+        expanded_health_width = compact_health_width + sum(
+            self._health_chip_width(alert) - self._HEALTH_COMPACT_WIDTH
+            for alert in snapshot.health_chips
+            if alert.category in expanded_categories
+        )
+        for visible_count in range(2, min(3, len(newest)) + 1):
+            candidate = newest[:visible_count]
+            candidate_overflow = len(snapshot.scene_chips) - visible_count
+            candidate_width = self._scene_lane_width(candidate, candidate_overflow)
+            if candidate and snapshot.health_chips:
+                candidate_width += self._CHIP_GAP
+            candidate_width += expanded_health_width
+            if candidate_width > self._CHIP_ROW_WIDTH:
+                break
+            visible = candidate
+            overflow = candidate_overflow
+
+        scene_parts: list[str] = []
         for chip in visible:
             color = chip.color
-            parts.append(
+            scene_parts.append(
                 '<div class="hbd-chip" '
                 f'style="color:{color};border-color:{color};'
                 f'background:{self._chip_background(color)}">'
                 f"{mdi_span(chip.icon, 'hbd-chip-icon')}"
                 f'<span class="hbd-chip-label">{escape(chip.label)}</span></div>'
             )
-        overflow = len(snapshot.scene_chips) - len(visible)
         if overflow:
-            parts.append(f'<div class="hbd-chip-more" style="background:{TRACK}">+{overflow}</div>')
-        return "".join(parts)
+            scene_parts.append(
+                f'<div class="hbd-chip-more" style="background:{TRACK}">+{overflow}</div>'
+            )
+
+        health_parts: list[str] = []
+        for alert in snapshot.health_chips:
+            color = CRITICAL_RED if alert.critical else "#FF9F0A"
+            expanded = alert.category in expanded_categories
+            detail = (
+                f'<span class="hbd-health-label">{self._HEALTH_LABELS[alert.category]}</span>'
+                if expanded
+                else ""
+            )
+            expanded_class = " hbd-health-chip-expanded" if expanded else ""
+            health_parts.append(
+                f'<div class="hbd-health-chip{expanded_class}" '
+                f'style="color:{color};border-color:{color};background:{self._chip_background(color)}">'
+                f"{mdi_span(alert_icons[alert.category], 'hbd-chip-icon')}"
+                f'{detail}<span class="hbd-health-count">{alert.count}</span></div>'
+            )
+        return (
+            f'<div class="hbd-scene-lane">{"".join(scene_parts)}</div>'
+            f'<div class="hbd-health-lane">{"".join(health_parts)}</div>'
+        )
+
+    @classmethod
+    def _scene_chip_width(cls, chip: SceneChipSnapshot) -> int:
+        return min(82, 29 + round(len(chip.label) * 6.5))
+
+    @classmethod
+    def _scene_lane_width(cls, visible: tuple[SceneChipSnapshot, ...], overflow: int) -> int:
+        item_widths = [cls._scene_chip_width(chip) for chip in visible]
+        if overflow:
+            item_widths.append(28)
+        return sum(item_widths) + cls._CHIP_GAP * max(0, len(item_widths) - 1)
+
+    @classmethod
+    def _health_chip_width(cls, alert: HealthChipSnapshot) -> int:
+        label = cls._HEALTH_LABELS[alert.category]
+        return 31 + round(len(label) * 6.5) + max(7, len(str(alert.count)) * 7)
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         del ctx
@@ -565,7 +632,8 @@ color:#C7CBD1;background:rgba(199,203,209,.12)}
 .hbd-weather-art{grid-column:2;grid-row:1;width:62px;height:62px;display:block;
 align-self:end;justify-self:end;transform:translateY(-6px)}
 .hbd-temperature{height:22px;display:flex;align-items:flex-end;justify-content:flex-end;gap:4px}
-.hbd-temperature-label{width:38px;height:19px;box-sizing:border-box;display:flex;
+.hbd-temperature-label{width:max-content;min-width:30px;height:19px;padding:0 7px;
+box-sizing:border-box;display:flex;
 align-items:center;justify-content:center;font-size:16px;line-height:1;letter-spacing:.5px;
 border:1px solid transparent;border-radius:14px;transform:translateY(-5px)}
 .hbd-temperature-hottest{color:#F5F7FA;background:__HOT_RED__;border-color:__HOT_RED__}
@@ -573,11 +641,17 @@ border:1px solid transparent;border-radius:14px;transform:translateY(-5px)}
 text-align:right}
 .hbd-scene{grid-column:1/-1;grid-row:3;display:flex;align-items:center;gap:4px;
 min-width:0;overflow:hidden;transform:translateY(3px)}
+.hbd-scene-lane,.hbd-health-lane{display:flex;align-items:center;gap:4px;min-width:0}
+.hbd-scene-lane{justify-content:flex-start;overflow:hidden;flex:0 1 auto}
+.hbd-health-lane{justify-content:flex-end;margin-left:auto;flex:0 0 auto}
 .hbd-chip{height:28px;display:flex;align-items:center;gap:2px;padding:0 6px 0 4px;
 border:1px solid;border-radius:14px;box-sizing:border-box;min-width:0;flex:0 1 auto}
 .hbd-health-chip{height:28px;min-width:34px;display:flex;align-items:center;justify-content:center;
 gap:1px;padding:0 4px;border:1px solid;border-radius:14px;box-sizing:border-box;
 font-size:12px;line-height:1;flex:0 0 auto}
+.hbd-health-chip-expanded{padding:0 6px;gap:3px}
+.hbd-health-label{font-size:11px;line-height:1;letter-spacing:.2px;white-space:nowrap}
+.hbd-health-count{font-variant-numeric:tabular-nums}
 .hbd-chip-icon{font-family:'Material Design Icons';font-size:15px;line-height:1;flex:0 0 auto}
 .hbd-chip-label{font-size:13px;line-height:1;letter-spacing:.1px;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
@@ -623,10 +697,7 @@ color:#39D353;font-size:58px;line-height:.92;letter-spacing:-3px;text-align:cent
             f'<div class="hbd-reset-count">{reset_icon}{escape(reset_text)}</div></div>'
             f"{quota_bar}</div></div>"
         )
-        if (
-            snapshot.quota_mode is not QuotaMode.FULL
-            or not snapshot.reset_celebration_active
-        ):
+        if snapshot.quota_mode is not QuotaMode.FULL or not snapshot.reset_celebration_active:
             return css + f'<div class="hbd">{dashboard}</div>'
         reset = '<div class="hbd-reset"><div>CODEX</div><div>RESET!!</div></div>'
         return (

@@ -297,7 +297,10 @@ def test_fallback_temperature_has_question_mark_provenance():
     snapshot = widget().snapshot(current)
 
     assert snapshot.temperatures[0].label == "OUT?"
-    assert "OUT?" in widget().render_html(CTX, current)
+    html = widget().render_html(CTX, current)
+    assert "OUT?" in html
+    assert "width:max-content;min-width:30px" in html
+    assert "padding:0 7px" in html
 
 
 def test_health_chips_reserve_scene_width_and_show_category_counts():
@@ -321,6 +324,54 @@ def test_health_chips_reserve_scene_width_and_show_category_counts():
     assert mdi_span("battery-alert", "hbd-chip-icon") in html
     assert mdi_span("wifi-alert", "hbd-chip-icon") in html
     assert "#E5484D" in html
+    assert html.index('class="hbd-scene-lane"') < html.index('class="hbd-health-lane"')
+    assert ".hbd-health-lane{justify-content:flex-end;margin-left:auto" in html
+
+
+def test_health_chip_expands_into_available_right_side_space():
+    current = state()
+    current.entities[SCENE].attributes["scene_chips"] = [SCENE_CHIPS[-1]]
+    current.entities[HEALTH] = EntityState(
+        HEALTH,
+        "1",
+        {
+            "category_counts": {"battery": 1, "connectivity": 0, "other": 0},
+            "category_severity": {
+                "battery": "warning",
+                "connectivity": "healthy",
+                "other": "healthy",
+            },
+        },
+    )
+
+    html = widget().render_html(CTX, current)
+
+    assert "hbd-health-chip hbd-health-chip-expanded" in html
+    assert '<span class="hbd-health-label">BATTERY</span>' in html
+    assert html.index("Pause") < html.index("BATTERY")
+
+
+def test_health_chips_collapse_to_icon_and_count_when_row_is_full():
+    current = state()
+    current.entities[HEALTH] = EntityState(
+        HEALTH,
+        "6",
+        {
+            "category_counts": {"battery": 1, "connectivity": 2, "other": 3},
+            "category_severity": {
+                "battery": "critical",
+                "connectivity": "warning",
+                "other": "warning",
+            },
+        },
+    )
+
+    html = widget().render_html(CTX, current)
+
+    body = html.split("</style>", 1)[1]
+    assert "hbd-health-chip-expanded" not in body
+    assert '<span class="hbd-health-label">' not in body
+    assert "+3" in body
 
 
 def test_week_remaining_tracks_remaining_fraction_of_week():
