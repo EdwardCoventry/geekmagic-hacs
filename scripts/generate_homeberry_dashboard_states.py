@@ -24,6 +24,9 @@ NOW = datetime(2026, 8, 11, 9, 42, tzinfo=UTC)
 CODEX = "sensor.codex_usage_codex_weekly_remaining"
 WEATHER = "weather.forecast_home"
 SCENE = "sensor.homeberry_runtime_active_scene"
+INDOOR = "sensor.homeberry_runtime_indoor_temperature"
+OUTDOOR = "sensor.homeberry_runtime_outdoor_temperature"
+HEALTH = "sensor.homeberry_runtime_device_health"
 SCENE_CHIPS = [
     {"id": "movie", "label": "Movie", "icon": "movie-open", "color": "#D477FF"},
     {
@@ -99,6 +102,13 @@ TEMPERATURE_COMPARISON_STATES = {
     "in-hotter": (18.2, 23.1),
     "equal-displayed": (22.4, 22.3),
 }
+HEALTH_STATES = {
+    "none": ({"battery": 0, "connectivity": 0, "other": 0}, "healthy"),
+    "battery": ({"battery": 1, "connectivity": 0, "other": 0}, "warning"),
+    "connectivity": ({"battery": 0, "connectivity": 2, "other": 0}, "warning"),
+    "other": ({"battery": 0, "connectivity": 0, "other": 1}, "warning"),
+    "mixed-critical": ({"battery": 1, "connectivity": 2, "other": 1}, "critical"),
+}
 SPACING_BAND_NAMES = (
     "time_weather",
     "date_outdoor",
@@ -122,8 +132,7 @@ def analyze_visual_spacing(image: Image.Image) -> dict[str, object]:
     """Measure actual visible pixel bands rather than CSS line boxes."""
     rgb = image.convert("RGB")
     occupied_rows = [
-        any(max(rgb.getpixel((x, y))) > 12 for x in range(rgb.width))
-        for y in range(rgb.height)
+        any(max(rgb.getpixel((x, y))) > 12 for x in range(rgb.width)) for y in range(rgb.height)
     ]
     ranges: list[tuple[int, int]] = []
     start = None
@@ -135,14 +144,11 @@ def analyze_visual_spacing(image: Image.Image) -> dict[str, object]:
             start = None
     if len(ranges) != len(SPACING_BAND_NAMES):
         raise RuntimeError(
-            f"Expected {len(SPACING_BAND_NAMES)} visual bands, found {len(ranges)}: "
-            f"{ranges}"
+            f"Expected {len(SPACING_BAND_NAMES)} visual bands, found {len(ranges)}: {ranges}"
         )
 
     bands = []
-    for name, color, (top, bottom) in zip(
-        SPACING_BAND_NAMES, SPACING_COLORS, ranges, strict=True
-    ):
+    for name, color, (top, bottom) in zip(SPACING_BAND_NAMES, SPACING_COLORS, ranges, strict=True):
         occupied_pixels = [
             (x, y)
             for y in range(top, bottom + 1)
@@ -177,8 +183,7 @@ def analyze_visual_spacing(image: Image.Image) -> dict[str, object]:
         if delta:
             direction = "increase" if delta > 0 else "decrease"
             recommendations.append(
-                f"{first['name']} -> {second['name']}: {pixels}px; "
-                f"{direction} by {abs(delta)}px"
+                f"{first['name']} -> {second['name']}: {pixels}px; {direction} by {abs(delta)}px"
             )
     return {
         "target_gap_px": SPACING_TARGET_PX,
@@ -189,9 +194,7 @@ def analyze_visual_spacing(image: Image.Image) -> dict[str, object]:
     }
 
 
-def spacing_diagnostic_image(
-    image: Image.Image, report: dict[str, object]
-) -> Image.Image:
+def spacing_diagnostic_image(image: Image.Image, report: dict[str, object]) -> Image.Image:
     """Draw measured visual bounds and a compact gap report."""
     source = image.convert("RGB")
     diagnostic = Image.new("RGB", (480, 240), "black")
@@ -229,8 +232,7 @@ def spacing_diagnostic_image(
         y += 14
     draw.text(
         (250, 225),
-        f"TARGET {report['target_gap_px']}px  "
-        f"{'PASS' if report['passed'] else 'FAIL'}",
+        f"TARGET {report['target_gap_px']}px  {'PASS' if report['passed'] else 'FAIL'}",
         fill="#39D353" if report["passed"] else "#FF6B6B",
     )
     return diagnostic
@@ -248,6 +250,9 @@ def _layout() -> FullscreenLayout:
                 options={
                     "weather_entity_id": WEATHER,
                     "scene_entity_id": SCENE,
+                    "indoor_temperature_entity_id": INDOOR,
+                    "outdoor_temperature_entity_id": OUTDOOR,
+                    "health_entity_id": HEALTH,
                 },
             )
         ),
@@ -262,6 +267,10 @@ def _state(
     thermal_guidance: dict[str, object] | None = None,
     outdoor_temperature: float = 27.6,
     indoor_temperature: float = 22.4,
+    outdoor_fallback: bool = False,
+    unavailable_temperatures: bool = False,
+    health_counts: dict[str, int] | None = None,
+    health_severity: str = "healthy",
 ) -> WidgetState:
     return WidgetState(
         entity=EntityState(
@@ -277,10 +286,45 @@ def _state(
                 {
                     "active_scene_id": scene.lower(),
                     "scene_chips": SCENE_CHIPS,
-                    "indoor_temperature_c": indoor_temperature,
-                    "outdoor_temperature_c": outdoor_temperature,
-                    "thermal_guidance": thermal_guidance
-                    or THERMAL_STATES["window-open-until"],
+                    "thermal_guidance": thermal_guidance or THERMAL_STATES["window-open-until"],
+                },
+            ),
+            **(
+                {}
+                if unavailable_temperatures
+                else {
+                    INDOOR: EntityState(
+                        INDOOR, str(indoor_temperature), {"quality": "measured", "fallback": False}
+                    ),
+                    OUTDOOR: EntityState(
+                        OUTDOOR,
+                        str(outdoor_temperature),
+                        {
+                            "quality": "estimated" if outdoor_fallback else "measured",
+                            "fallback": outdoor_fallback,
+                        },
+                    ),
+                }
+            ),
+            HEALTH: EntityState(
+                HEALTH,
+                str(sum((health_counts or {}).values())),
+                {
+                    "category_counts": health_counts
+                    or {"battery": 0, "connectivity": 0, "other": 0},
+                    "overall_severity": health_severity,
+                    "category_severity": {
+                        category: (
+                            "critical"
+                            if health_severity == "critical" and category == "battery" and count
+                            else "warning"
+                            if count
+                            else "healthy"
+                        )
+                        for category, count in (
+                            health_counts or {"battery": 0, "connectivity": 0, "other": 0}
+                        ).items()
+                    },
                 },
             ),
         },
@@ -294,6 +338,10 @@ def _still(
     thermal_guidance: dict[str, object] | None = None,
     outdoor_temperature: float = 27.6,
     indoor_temperature: float = 22.4,
+    outdoor_fallback: bool = False,
+    unavailable_temperatures: bool = False,
+    health_counts: dict[str, int] | None = None,
+    health_severity: str = "healthy",
 ) -> Image.Image:
     renderer = Renderer()
     canvas, draw = renderer.create_canvas()
@@ -306,6 +354,10 @@ def _still(
                 thermal_guidance=thermal_guidance,
                 outdoor_temperature=outdoor_temperature,
                 indoor_temperature=indoor_temperature,
+                outdoor_fallback=outdoor_fallback,
+                unavailable_temperatures=unavailable_temperatures,
+                health_counts=health_counts,
+                health_severity=health_severity,
             )
         },
     )
@@ -365,18 +417,34 @@ def generate(output: Path) -> dict[str, object]:
     temperature_images = []
     temperature_spacing_reports = {}
     for name, (outdoor, indoor) in TEMPERATURE_COMPARISON_STATES.items():
-        rendered = _still(
-            "68", outdoor_temperature=outdoor, indoor_temperature=indoor
-        )
+        rendered = _still("68", outdoor_temperature=outdoor, indoor_temperature=indoor)
         rendered.save(output / f"homeberry-dashboard-temperature-{name}.png")
         temperature_images.append(rendered)
         temperature_spacing_reports[name] = analyze_visual_spacing(rendered)
     temperature_sheet = Image.new("RGB", (720, 240), "black")
     for index, rendered in enumerate(temperature_images):
         temperature_sheet.paste(rendered, (index * 240, 0))
-    temperature_sheet.save(
-        output / "homeberry-dashboard-temperature-storyboard.png"
-    )
+    temperature_sheet.save(output / "homeberry-dashboard-temperature-storyboard.png")
+
+    provenance_images = [
+        _still("68", outdoor_fallback=True),
+        _still("68", unavailable_temperatures=True),
+    ]
+    provenance_sheet = Image.new("RGB", (480, 240), "black")
+    for index, rendered in enumerate(provenance_images):
+        rendered.save(output / f"homeberry-dashboard-provenance-{index + 1}.png")
+        provenance_sheet.paste(rendered, (index * 240, 0))
+    provenance_sheet.save(output / "homeberry-dashboard-provenance-storyboard.png")
+
+    health_images = []
+    for name, (counts, severity) in HEALTH_STATES.items():
+        rendered = _still("68", health_counts=counts, health_severity=severity)
+        rendered.save(output / f"homeberry-dashboard-health-{name}.png")
+        health_images.append(rendered)
+    health_sheet = Image.new("RGB", (1200, 240), "black")
+    for index, rendered in enumerate(health_images):
+        health_sheet.paste(rendered, (index * 240, 0))
+    health_sheet.save(output / "homeberry-dashboard-health-storyboard.png")
     manifest = {
         "display_size": [240, 240],
         "normal_quota": 68,
@@ -384,6 +452,7 @@ def generate(output: Path) -> dict[str, object]:
         "thermal_storyboard_order": list(THERMAL_STATES),
         "quota_alignment_storyboard_order": list(QUOTA_ALIGNMENT_STATES),
         "temperature_storyboard_order": list(TEMPERATURE_COMPARISON_STATES),
+        "health_storyboard_order": list(HEALTH_STATES),
         "visual_spacing": spacing_report,
         "thermal_visual_spacing": thermal_spacing_reports,
         "temperature_visual_spacing": temperature_spacing_reports,

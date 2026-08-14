@@ -49,6 +49,13 @@ class TemperatureSnapshot:
 
 
 @dataclass(frozen=True)
+class HealthChipSnapshot:
+    category: str
+    count: int
+    critical: bool
+
+
+@dataclass(frozen=True)
 class ThermalGuidanceSnapshot:
     """Semantic thermal guidance published by Homeberry."""
 
@@ -69,6 +76,7 @@ class HomeberryDashboardSnapshot:
     temperatures: tuple[TemperatureSnapshot, TemperatureSnapshot]
     weather_condition: str
     scene_chips: tuple[SceneChipSnapshot, ...]
+    health_chips: tuple[HealthChipSnapshot, ...]
     thermal_guidance: ThermalGuidanceSnapshot
     quota_remaining: int | None
     quota_mode: QuotaMode
@@ -102,6 +110,27 @@ class HomeberryDashboardWidget(Widget):
                 "required": True,
             },
             {
+                "key": "indoor_temperature_entity_id",
+                "type": "entity",
+                "label": "Homeberry indoor temperature entity",
+                "domains": ["sensor"],
+                "required": True,
+            },
+            {
+                "key": "outdoor_temperature_entity_id",
+                "type": "entity",
+                "label": "Homeberry outdoor temperature entity",
+                "domains": ["sensor"],
+                "required": True,
+            },
+            {
+                "key": "health_entity_id",
+                "type": "entity",
+                "label": "Homeberry device health entity",
+                "domains": ["sensor"],
+                "required": True,
+            },
+            {
                 "key": "reset_at_attribute",
                 "type": "text",
                 "label": "Codex reset timestamp attribute",
@@ -112,7 +141,13 @@ class HomeberryDashboardWidget(Widget):
 
     def get_entities(self) -> list[str]:
         entities = super().get_entities()
-        for key in ("weather_entity_id", "scene_entity_id"):
+        for key in (
+            "weather_entity_id",
+            "scene_entity_id",
+            "indoor_temperature_entity_id",
+            "outdoor_temperature_entity_id",
+            "health_entity_id",
+        ):
             entity_id = str(self.config.options.get(key) or "").strip()
             if entity_id:
                 entities.append(entity_id)
@@ -133,23 +168,32 @@ class HomeberryDashboardWidget(Widget):
         now = state.now or datetime.now(tz=UTC)
         weather = self._additional(state, "weather_entity_id")
         scene = self._additional(state, "scene_entity_id")
+        health = self._additional(state, "health_entity_id")
 
         resolved_temperatures: list[tuple[str, int | None]] = []
-        for label, attribute in (
-            ("OUT", "outdoor_temperature_c"),
-            ("IN", "indoor_temperature_c"),
+        for label, option in (
+            ("OUT", "outdoor_temperature_entity_id"),
+            ("IN", "indoor_temperature_entity_id"),
         ):
             display_temperature = None
-            if scene is not None:
+            temperature_entity = self._additional(state, option)
+            fallback = False
+            if temperature_entity is not None:
                 with suppress(TypeError, ValueError):
-                    raw_temperature = scene.attributes.get(attribute)
+                    raw_temperature = temperature_entity.state
                     if raw_temperature is not None:
                         display_temperature = round(float(raw_temperature))
-            resolved_temperatures.append((label, display_temperature))
+                fallback = bool(temperature_entity.attributes.get("fallback")) or str(
+                    temperature_entity.attributes.get("quality") or ""
+                ) in {"estimated", "biased"}
+            resolved_temperatures.append(
+                (
+                    f"{label}?" if fallback and display_temperature is not None else label,
+                    display_temperature,
+                )
+            )
 
-        available_temperatures = [
-            value for _, value in resolved_temperatures if value is not None
-        ]
+        available_temperatures = [value for _, value in resolved_temperatures if value is not None]
         hottest_temperature = None
         if (
             len(available_temperatures) == len(resolved_temperatures)
@@ -199,6 +243,22 @@ class HomeberryDashboardWidget(Widget):
                 )
             )
 
+        health_chips: list[HealthChipSnapshot] = []
+        counts = health.attributes.get("category_counts") if health is not None else None
+        category_severity = (
+            health.attributes.get("category_severity") if health is not None else None
+        )
+        if isinstance(counts, dict):
+            for category in ("battery", "connectivity", "other"):
+                with suppress(TypeError, ValueError):
+                    count = int(counts.get(category) or 0)
+                    if count > 0:
+                        critical = (
+                            isinstance(category_severity, dict)
+                            and category_severity.get(category) == "critical"
+                        )
+                        health_chips.append(HealthChipSnapshot(category, count, critical))
+
         raw_guidance = scene.attributes.get("thermal_guidance") if scene is not None else None
         guidance = self._thermal_guidance_snapshot(raw_guidance)
 
@@ -206,9 +266,7 @@ class HomeberryDashboardWidget(Widget):
         mode = quota_mode(remaining)
         reset_at = resolve_reset_at(
             state.entity,
-            reset_at_attribute=self.config.options.get(
-                "reset_at_attribute", "secondary_reset_at"
-            ),
+            reset_at_attribute=self.config.options.get("reset_at_attribute", "secondary_reset_at"),
         )
         reset_seconds = seconds_until(reset_at, now)
         week_remaining = None
@@ -223,6 +281,7 @@ class HomeberryDashboardWidget(Widget):
             temperatures=(temperatures[0], temperatures[1]),
             weather_condition=condition,
             scene_chips=tuple(scene_chips),
+            health_chips=tuple(health_chips),
             thermal_guidance=guidance,
             quota_remaining=remaining,
             quota_mode=mode,
@@ -331,7 +390,7 @@ class HomeberryDashboardWidget(Widget):
             )
         return (
             f'<div class="hbd-guidance hbd-guidance-{escape(kind)}">'
-            f'{mdi_span(guidance.icon, "hbd-guidance-icon")}'
+            f"{mdi_span(guidance.icon, 'hbd-guidance-icon')}"
             f"{primary_html}{detail_html}</div>"
         )
 
@@ -344,7 +403,7 @@ class HomeberryDashboardWidget(Widget):
             '<stop stop-color="#FFD76A"/><stop offset="1" stop-color="#FF9F0A"/>'
             '</linearGradient><linearGradient id="hbd-cloud" x1="0" y1="0" x2="0" y2="1">'
             '<stop stop-color="#F4F7FB"/><stop offset="1" stop-color="#91A0B4"/>'
-            '</linearGradient></defs>'
+            "</linearGradient></defs>"
         )
         sun = (
             '<g stroke="#FFD76A" stroke-width="3" stroke-linecap="round">'
@@ -397,23 +456,35 @@ class HomeberryDashboardWidget(Widget):
         return f"rgba({red},{green},{blue},.18)"
 
     def _scene_chips_html(self, snapshot: HomeberryDashboardSnapshot) -> str:
-        """Render newest three queued scenes and summarize older entries."""
-        visible = tuple(reversed(snapshot.scene_chips[-3:]))
+        """Render health attention first, then fit newest queued scenes."""
+        alert_icons = {
+            "battery": "battery-alert",
+            "connectivity": "wifi-alert",
+            "other": "alert-circle",
+        }
         parts: list[str] = []
+        for alert in snapshot.health_chips:
+            color = CRITICAL_RED if alert.critical else "#FF9F0A"
+            parts.append(
+                '<div class="hbd-health-chip" '
+                f'style="color:{color};border-color:{color};background:{self._chip_background(color)}">'
+                f"{mdi_span(alert_icons[alert.category], 'hbd-chip-icon')}"
+                f"<span>{alert.count}</span></div>"
+            )
+        visible_count = max(0, 3 - len(snapshot.health_chips))
+        visible = tuple(reversed(snapshot.scene_chips[-visible_count:])) if visible_count else ()
         for chip in visible:
             color = chip.color
             parts.append(
                 '<div class="hbd-chip" '
                 f'style="color:{color};border-color:{color};'
                 f'background:{self._chip_background(color)}">'
-                f'{mdi_span(chip.icon, "hbd-chip-icon")}'
+                f"{mdi_span(chip.icon, 'hbd-chip-icon')}"
                 f'<span class="hbd-chip-label">{escape(chip.label)}</span></div>'
             )
         overflow = len(snapshot.scene_chips) - len(visible)
         if overflow:
-            parts.append(
-                f'<div class="hbd-chip-more" style="background:{TRACK}">+{overflow}</div>'
-            )
+            parts.append(f'<div class="hbd-chip-more" style="background:{TRACK}">+{overflow}</div>')
         return "".join(parts)
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
@@ -428,9 +499,9 @@ class HomeberryDashboardWidget(Widget):
             temperature_rows.append(
                 '<div class="hbd-temperature">'
                 f'<span class="hbd-temperature-label{hottest_class}">'
-                f'{item.label}</span>'
+                f"{item.label}</span>"
                 f'<span class="hbd-temperature-value">{escape(item.value_text)}</span>'
-                '</div>'
+                "</div>"
             )
         outdoor_temperature, indoor_temperature = temperature_rows
         reset_icon = (
@@ -494,6 +565,9 @@ text-align:right}
 min-width:0;overflow:hidden;transform:translateY(3px)}
 .hbd-chip{height:28px;display:flex;align-items:center;gap:2px;padding:0 6px 0 4px;
 border:1px solid;border-radius:14px;box-sizing:border-box;min-width:0;flex:0 1 auto}
+.hbd-health-chip{height:28px;min-width:34px;display:flex;align-items:center;justify-content:center;
+gap:1px;padding:0 4px;border:1px solid;border-radius:14px;box-sizing:border-box;
+font-size:12px;line-height:1;flex:0 0 auto}
 .hbd-chip-icon{font-family:'Material Design Icons';font-size:15px;line-height:1;flex:0 0 auto}
 .hbd-chip-label{font-size:13px;line-height:1;letter-spacing:.1px;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
@@ -530,14 +604,14 @@ color:#39D353;font-size:58px;line-height:.92;letter-spacing:-3px;text-align:cent
             f'<div class="hbd-time">{snapshot.time_text}</div>'
             f'{weather_art}<div class="hbd-climate-rows">'
             f'<div class="hbd-climate-row"><div class="hbd-date-block">'
-            f'{snapshot.weekday_text} {snapshot.date_text}</div>{outdoor_temperature}</div>'
+            f"{snapshot.weekday_text} {snapshot.date_text}</div>{outdoor_temperature}</div>"
             f'<div class="hbd-climate-row">{thermal_guidance}{indoor_temperature}</div>'
-            '</div>'
+            "</div>"
             f'<div class="hbd-scene">{scene_chips}</div></div>'
             '<div class="hbd-codex"><div class="hbd-codex-top">'
-            f'{quota_percent}{week_remaining}'
+            f"{quota_percent}{week_remaining}"
             f'<div class="hbd-reset-count">{reset_icon}{escape(reset_text)}</div></div>'
-            f'{quota_bar}</div></div>'
+            f"{quota_bar}</div></div>"
         )
         if snapshot.quota_mode is not QuotaMode.FULL:
             return css + f'<div class="hbd">{dashboard}</div>'

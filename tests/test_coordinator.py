@@ -185,6 +185,55 @@ class TestCoordinatorEventRefresh:
 
         coordinator.async_request_refresh.assert_awaited_once_with()
 
+    @pytest.mark.asyncio
+    async def test_homeberry_critical_and_recovery_each_trigger_one_overlay(
+        self, hass, coordinator_device
+    ):
+        health_entity = "sensor.homeberry_runtime_device_health"
+        coordinator = GeekMagicCoordinator(
+            hass,
+            coordinator_device,
+            {
+                CONF_LAYOUT: "fullscreen",
+                CONF_WIDGETS: [
+                    {
+                        "type": "homeberry_dashboard",
+                        "slot": 0,
+                        "entity_id": "sensor.codex",
+                        "options": {
+                            "weather_entity_id": "weather.home",
+                            "scene_entity_id": "sensor.homeberry_scene",
+                            "indoor_temperature_entity_id": "sensor.homeberry_indoor",
+                            "outdoor_temperature_entity_id": "sensor.homeberry_outdoor",
+                            "health_entity_id": health_entity,
+                        },
+                    }
+                ],
+            },
+        )
+        coordinator.trigger_notification = AsyncMock()  # type: ignore[method-assign]
+
+        def event(severity: str, revision: int):
+            state = MagicMock()
+            state.attributes = {
+                "overall_severity": severity,
+                "revision": revision,
+                "top_issues": [{"asset_id": "device.out-temp"}],
+            }
+            return MagicMock(data={"entity_id": health_entity, "new_state": state})
+
+        coordinator._handle_homeberry_health_alert(event("warning", 1))
+        coordinator._handle_homeberry_health_alert(event("critical", 2))
+        coordinator._handle_homeberry_health_alert(event("critical", 2))
+        await hass.async_block_till_done()
+        coordinator.trigger_notification.assert_awaited_once()
+        assert "device.out-temp" in coordinator.trigger_notification.await_args.args[0]["message"]
+
+        coordinator._handle_homeberry_health_alert(event("healthy", 3))
+        await hass.async_block_till_done()
+        assert coordinator.trigger_notification.await_count == 2
+        assert "recovered" in coordinator.trigger_notification.await_args.args[0]["message"]
+
 
 class TestCoordinatorMultiScreen:
     """Test multi-screen functionality."""

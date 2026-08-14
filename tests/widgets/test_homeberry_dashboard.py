@@ -15,6 +15,9 @@ CTX = CellContext(width=240, height=240, slot_index=0, theme=DEFAULT_THEME)
 WEATHER = "weather.forecast_home"
 SCENE = "sensor.homeberry_runtime_active_scene"
 CODEX = "sensor.codex_usage_codex_weekly_remaining"
+INDOOR = "sensor.homeberry_runtime_indoor_temperature"
+OUTDOOR = "sensor.homeberry_runtime_outdoor_temperature"
+HEALTH = "sensor.homeberry_runtime_device_health"
 SCENE_CHIPS = [
     {"id": "movie", "label": "Movie", "icon": "movie-open", "color": "#D477FF"},
     {
@@ -36,6 +39,9 @@ def widget() -> HomeberryDashboardWidget:
             options={
                 "weather_entity_id": WEATHER,
                 "scene_entity_id": SCENE,
+                "indoor_temperature_entity_id": INDOOR,
+                "outdoor_temperature_entity_id": OUTDOOR,
+                "health_entity_id": HEALTH,
             },
         )
     )
@@ -56,8 +62,6 @@ def state(quota: str = "68") -> WidgetState:
                 {
                     "active_scene_id": "pause",
                     "scene_chips": SCENE_CHIPS,
-                    "indoor_temperature_c": 22.4,
-                    "outdoor_temperature_c": 27.6,
                     "thermal_guidance": {
                         "kind": "window_open",
                         "icon": "window-open-variant",
@@ -65,6 +69,16 @@ def state(quota: str = "68") -> WidgetState:
                         "all_day": False,
                         "target_temperature_c": 21,
                     },
+                },
+            ),
+            INDOOR: EntityState(INDOOR, "22.4", {"quality": "measured", "fallback": False}),
+            OUTDOOR: EntityState(OUTDOOR, "27.6", {"quality": "measured", "fallback": False}),
+            HEALTH: EntityState(
+                HEALTH,
+                "0",
+                {
+                    "category_counts": {"battery": 0, "connectivity": 0, "other": 0},
+                    "overall_severity": "healthy",
                 },
             ),
         },
@@ -95,7 +109,7 @@ def test_dashboard_resolves_all_homeberry_glance_values():
 
 
 def test_dashboard_declares_all_entity_dependencies():
-    assert widget().get_entities() == [CODEX, WEATHER, SCENE]
+    assert widget().get_entities() == [CODEX, WEATHER, SCENE, INDOOR, OUTDOOR, HEALTH]
 
 
 def test_dashboard_renders_scene_weather_and_quota():
@@ -166,18 +180,13 @@ def test_dashboard_renders_scene_weather_and_quota():
         (22.4, 22.3, set()),
     ],
 )
-def test_hottest_displayed_temperature_labels_are_outlined(
-    outdoor, indoor, outlined_labels
-):
+def test_hottest_displayed_temperature_labels_are_outlined(outdoor, indoor, outlined_labels):
     current = state()
-    attributes = current.entities[SCENE].attributes
-    attributes["outdoor_temperature_c"] = outdoor
-    attributes["indoor_temperature_c"] = indoor
+    current.entities[OUTDOOR] = EntityState(OUTDOOR, str(outdoor), {})
+    current.entities[INDOOR] = EntityState(INDOOR, str(indoor), {})
 
     snapshot = widget().snapshot(current)
-    assert {item.label for item in snapshot.temperatures if item.is_hottest} == (
-        outlined_labels
-    )
+    assert {item.label for item in snapshot.temperatures if item.is_hottest} == (outlined_labels)
 
     html = widget().render_html(CTX, current)
     for label in ("OUT", "IN"):
@@ -192,19 +201,19 @@ def test_hottest_displayed_temperature_labels_are_outlined(
 
 
 @pytest.mark.parametrize(
-    "missing_attributes",
+    "missing_entities",
     [
-        ("indoor_temperature_c",),
-        ("outdoor_temperature_c",),
-        ("indoor_temperature_c", "outdoor_temperature_c"),
+        (INDOOR,),
+        (OUTDOOR,),
+        (INDOOR, OUTDOOR),
     ],
 )
 def test_unavailable_temperatures_do_not_receive_hotter_underlines(
-    missing_attributes,
+    missing_entities,
 ):
     current = state()
-    for attribute in missing_attributes:
-        current.entities[SCENE].attributes.pop(attribute)
+    for entity_id in missing_entities:
+        current.entities.pop(entity_id)
 
     snapshot = widget().snapshot(current)
 
@@ -247,12 +256,47 @@ def test_missing_scene_metadata_is_explicitly_unavailable():
 
 def test_missing_homeberry_temperatures_are_explicitly_unavailable():
     current = state()
-    current.entities[SCENE].attributes.pop("indoor_temperature_c")
-    current.entities[SCENE].attributes.pop("outdoor_temperature_c")
+    current.entities.pop(INDOOR)
+    current.entities.pop(OUTDOOR)
 
     html = widget().render_html(CTX, current)
 
     assert html.count("--°") == 2
+
+
+def test_fallback_temperature_has_question_mark_provenance():
+    current = state()
+    current.entities[OUTDOOR] = EntityState(
+        OUTDOOR, "28.8", {"quality": "estimated", "fallback": True}
+    )
+
+    snapshot = widget().snapshot(current)
+
+    assert snapshot.temperatures[0].label == "OUT?"
+    assert "OUT?" in widget().render_html(CTX, current)
+
+
+def test_health_chips_reserve_scene_width_and_show_category_counts():
+    current = state()
+    current.entities[HEALTH] = EntityState(
+        HEALTH,
+        "3",
+        {
+            "category_counts": {"battery": 1, "connectivity": 2, "other": 0},
+            "overall_severity": "critical",
+            "category_severity": {
+                "battery": "critical",
+                "connectivity": "warning",
+                "other": "healthy",
+            },
+        },
+    )
+
+    html = widget().render_html(CTX, current)
+
+    assert mdi_span("battery-alert", "hbd-chip-icon") in html
+    assert mdi_span("wifi-alert", "hbd-chip-icon") in html
+    assert "#E5484D" in html
 
 
 def test_week_remaining_tracks_remaining_fraction_of_week():

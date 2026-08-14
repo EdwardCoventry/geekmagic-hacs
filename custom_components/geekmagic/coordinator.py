@@ -367,6 +367,8 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         self._last_event_refresh_reasons: tuple[str, ...] = ()
         self._last_event_refresh_at: str | None = None
         self._event_refresh_count = 0
+        self._homeberry_health_severity: dict[str, str] = {}
+        self._homeberry_health_revision: dict[str, int] = {}
 
         # Device state (updated on refresh)
         self._device_state: DeviceState | None = None
@@ -494,8 +496,61 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         )
 
     @callback
-    def _handle_dependency_change(self, _event: Any) -> None:
+    def _handle_dependency_change(self, event: Any) -> None:
+        self._handle_homeberry_health_alert(event)
         self._schedule_event_refresh("entity")
+
+    @callback
+    def _handle_homeberry_health_alert(self, event: Any) -> None:
+        """Show one overlay for each new critical/recovery health revision."""
+        data = getattr(event, "data", {}) or {}
+        entity_id = str(data.get("entity_id") or "")
+        if not entity_id or not self._is_homeberry_health_entity(entity_id):
+            return
+        state = data.get("new_state")
+        attributes = getattr(state, "attributes", {}) or {}
+        severity = str(attributes.get("overall_severity") or "").casefold()
+        try:
+            revision = int(attributes.get("revision"))
+        except (TypeError, ValueError):
+            return
+        if self._homeberry_health_revision.get(entity_id) == revision:
+            return
+        previous = self._homeberry_health_severity.get(entity_id)
+        self._homeberry_health_revision[entity_id] = revision
+        self._homeberry_health_severity[entity_id] = severity
+        if previous is None:
+            return
+        if severity == "critical" and previous != "critical":
+            top_issues = attributes.get("top_issues") or ()
+            first = top_issues[0] if isinstance(top_issues, list) and top_issues else {}
+            subject = (
+                str(first.get("asset_id") or "Homeberry")
+                if isinstance(first, dict)
+                else "Homeberry"
+            )
+            message = f"Critical device issue: {subject}"
+            color = "#EF5350"
+            icon = "alert-circle"
+        elif previous == "critical" and severity != "critical":
+            message = "Critical device issue recovered"
+            color = "#65C18C"
+            icon = "check-circle"
+        else:
+            return
+        self.hass.async_create_task(
+            self.trigger_notification(
+                {"message": message, "icon": icon, "color": color, "duration": 10}
+            )
+        )
+
+    def _is_homeberry_health_entity(self, entity_id: str) -> bool:
+        return any(
+            str(slot.widget.config.options.get("health_entity_id") or "") == entity_id
+            for layout in self._layouts
+            for slot in layout.slots
+            if slot.widget is not None and slot.widget.config.widget_type == "homeberry_dashboard"
+        )
 
     @callback
     def _handle_minute_boundary(self, _now: datetime) -> None:
