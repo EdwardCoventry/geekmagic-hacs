@@ -539,3 +539,19 @@ def test_all_day_window_guidance_uses_compact_copy():
 
     assert '<span class="hbd-guidance-primary"><span>WINDOW</span><span>OPEN</span>' in html
     assert '<span class="hbd-guidance-detail"><span>ALL</span><span>DAY</span>' in html
+
+
+def test_closed_window_guidance_shows_forecast_reopening_time():
+    current = state()
+    current.entities[SCENE].attributes["thermal_guidance"] = {
+        "kind": "window_closed",
+        "icon": "window-closed-variant",
+        "until_at": NOW.replace(hour=23, minute=0).isoformat(),
+        "all_day": False,
+        "target_temperature_c": 21,
+    }
+
+    html = widget().render_html(CTX, current)
+
+    assert '<span class="hbd-guidance-primary"><span>WINDOW</span><span>CLOSED</span>' in html
+    assert '<span class="hbd-guidance-detail"><span>UNTIL</span><span>11PM</span>' in html
