@@ -83,6 +83,7 @@ class HomeberryDashboardSnapshot:
     quota_color: str
     week_remaining: int | None
     reset_text: str
+    reset_celebration_active: bool
 
 
 class HomeberryDashboardWidget(Widget):
@@ -261,6 +262,14 @@ class HomeberryDashboardWidget(Widget):
 
         raw_guidance = scene.attributes.get("thermal_guidance") if scene is not None else None
         guidance = self._thermal_guidance_snapshot(raw_guidance)
+        raw_activity = (
+            scene.attributes.get("codex_weekly_activity") if scene is not None else None
+        )
+        reset_celebration_active = bool(
+            isinstance(raw_activity, dict)
+            and raw_activity.get("state") == "fresh"
+            and raw_activity.get("celebration_active") is True
+        )
 
         remaining = parse_remaining_percent(state.entity)
         mode = quota_mode(remaining)
@@ -288,6 +297,7 @@ class HomeberryDashboardWidget(Widget):
             quota_color=color_for_mode(mode),
             week_remaining=week_remaining,
             reset_text=format_reset_countdown(reset_seconds),
+            reset_celebration_active=reset_celebration_active,
         )
 
     @staticmethod
@@ -613,7 +623,10 @@ color:#39D353;font-size:58px;line-height:.92;letter-spacing:-3px;text-align:cent
             f'<div class="hbd-reset-count">{reset_icon}{escape(reset_text)}</div></div>'
             f"{quota_bar}</div></div>"
         )
-        if snapshot.quota_mode is not QuotaMode.FULL:
+        if (
+            snapshot.quota_mode is not QuotaMode.FULL
+            or not snapshot.reset_celebration_active
+        ):
             return css + f'<div class="hbd">{dashboard}</div>'
         reset = '<div class="hbd-reset"><div>CODEX</div><div>RESET!!</div></div>'
         return (
