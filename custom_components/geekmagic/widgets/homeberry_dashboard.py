@@ -85,6 +85,7 @@ class HomeberryDashboardSnapshot:
     week_remaining: int | None
     reset_text: str
     reset_celebration_active: bool
+    runtime_connection: str
 
 
 class HomeberryDashboardWidget(Widget):
@@ -141,6 +142,13 @@ class HomeberryDashboardWidget(Widget):
                 "required": True,
             },
             {
+                "key": "connection_entity_id",
+                "type": "entity",
+                "label": "Homeberry connection entity",
+                "domains": ["sensor"],
+                "required": True,
+            },
+            {
                 "key": "reset_at_attribute",
                 "type": "text",
                 "label": "Codex reset timestamp attribute",
@@ -157,6 +165,7 @@ class HomeberryDashboardWidget(Widget):
             "indoor_temperature_entity_id",
             "outdoor_temperature_entity_id",
             "health_entity_id",
+            "connection_entity_id",
         ):
             entity_id = str(self.config.options.get(key) or "").strip()
             if entity_id:
@@ -179,6 +188,12 @@ class HomeberryDashboardWidget(Widget):
         weather = self._additional(state, "weather_entity_id")
         scene = self._additional(state, "scene_entity_id")
         health = self._additional(state, "health_entity_id")
+        connection = self._additional(state, "connection_entity_id")
+        runtime_connection = (
+            str(connection.state if connection is not None else "unknown").strip().lower()
+        )
+        if runtime_connection not in {"online", "offline"}:
+            runtime_connection = "unknown"
 
         resolved_temperatures: list[tuple[str, int | None]] = []
         for label, option in (
@@ -188,7 +203,7 @@ class HomeberryDashboardWidget(Widget):
             display_temperature = None
             temperature_entity = self._additional(state, option)
             fallback = False
-            if temperature_entity is not None:
+            if temperature_entity is not None and runtime_connection != "offline":
                 with suppress(TypeError, ValueError):
                     raw_temperature = temperature_entity.state
                     if raw_temperature is not None:
@@ -243,7 +258,7 @@ class HomeberryDashboardWidget(Widget):
                         color=color if self._HEX_COLOR.fullmatch(color) else EMPTY_RING,
                     )
                 )
-        if not scene_chips:
+        if not scene_chips and runtime_connection != "offline":
             scene_chips.append(
                 SceneChipSnapshot(
                     scene_id="unavailable",
@@ -316,6 +331,7 @@ class HomeberryDashboardWidget(Widget):
             week_remaining=week_remaining,
             reset_text=format_reset_countdown(reset_seconds),
             reset_celebration_active=reset_celebration_active,
+            runtime_connection=runtime_connection,
         )
 
     @staticmethod
@@ -373,6 +389,20 @@ class HomeberryDashboardWidget(Widget):
         return f"{hour}{suffix}" if minute == "00" else f"{hour}:{minute}{suffix}"
 
     def _thermal_guidance_html(self, snapshot: HomeberryDashboardSnapshot) -> str:
+        if snapshot.runtime_connection == "offline":
+            return (
+                '<div class="hbd-guidance hbd-guidance-connectivity">'
+                f"{mdi_span('wifi-alert', 'hbd-guidance-icon')}"
+                '<span class="hbd-guidance-primary">'
+                "<span>NETWORK</span><span>OFFLINE</span></span></div>"
+            )
+        if snapshot.runtime_connection == "unknown":
+            return (
+                '<div class="hbd-guidance hbd-guidance-unavailable">'
+                f"{mdi_span('wifi-question', 'hbd-guidance-icon')}"
+                '<span class="hbd-guidance-primary">'
+                "<span>CONNECTION</span><span>UNKNOWN</span></span></div>"
+            )
         guidance = snapshot.thermal_guidance
         kind = guidance.kind
         primary = ("STATUS", "UNKNOWN")
@@ -485,6 +515,20 @@ class HomeberryDashboardWidget(Widget):
 
     def _scene_chips_html(self, snapshot: HomeberryDashboardSnapshot) -> str:
         """Keep scenes left and use spare right-side space for health detail."""
+        if snapshot.runtime_connection == "offline":
+            return (
+                '<div class="hbd-connection-banner hbd-connection-offline">'
+                f"{mdi_span('wifi-alert', 'hbd-connection-icon')}"
+                '<span class="hbd-connection-copy"><strong>HOMEBERRY OFFLINE</strong>'
+                "<small>WI-FI / MQTT · RECONNECTING</small></span></div>"
+            )
+        if snapshot.runtime_connection == "unknown":
+            return (
+                '<div class="hbd-connection-banner hbd-connection-unknown">'
+                f"{mdi_span('wifi-question', 'hbd-connection-icon')}"
+                '<span class="hbd-connection-copy"><strong>CONNECTION UNKNOWN</strong>'
+                "<small>WAITING FOR HOMEBERRY</small></span></div>"
+            )
         alert_icons = {
             "battery": "battery-alert",
             "connectivity": "wifi-alert",
@@ -654,6 +698,7 @@ justify-items:end;text-align:right}
 background:rgba(245,247,250,.12)}
 .hbd-guidance-window_closed,.hbd-guidance-heating_off,.hbd-guidance-unavailable{
 color:#C7CBD1;background:rgba(199,203,209,.12)}
+.hbd-guidance-connectivity{color:#FF9F0A;background:rgba(255,159,10,.18)}
 .hbd-guidance-heating{color:#FF9F0A;background:rgba(255,159,10,.18)}
 .hbd-guidance-holding{color:#39D353;background:rgba(57,211,83,.18)}
 .hbd-weather-art{grid-column:2;grid-row:1;width:62px;height:62px;display:block;
@@ -679,6 +724,14 @@ font-size:12px;line-height:1;flex:0 0 auto}
 .hbd-health-chip-expanded{padding:0 6px;gap:3px}
 .hbd-health-label{font-size:11px;line-height:1;letter-spacing:.2px;white-space:nowrap}
 .hbd-health-count{font-variant-numeric:tabular-nums}
+.hbd-connection-banner{width:100%;height:32px;box-sizing:border-box;border:1px solid;
+border-radius:12px;display:flex;align-items:center;gap:7px;padding:2px 9px;overflow:hidden}
+.hbd-connection-offline{color:#FF9F0A;border-color:#FF9F0A;background:rgba(255,159,10,.15)}
+.hbd-connection-unknown{color:#C7CBD1;border-color:#3A3D43;background:rgba(199,203,209,.08)}
+.hbd-connection-icon{font-family:'Material Design Icons';font-size:21px;line-height:1;flex:0 0 auto}
+.hbd-connection-copy{min-width:0;display:flex;flex-direction:column;line-height:1}
+.hbd-connection-copy strong{font-size:12px;letter-spacing:.35px;white-space:nowrap}
+.hbd-connection-copy small{font-size:9px;letter-spacing:.2px;margin-top:2px;white-space:nowrap}
 .hbd-chip-icon{font-family:'Material Design Icons';font-size:15px;line-height:1;flex:0 0 auto}
 .hbd-chip-label{font-size:13px;line-height:1;letter-spacing:.1px;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}

@@ -27,6 +27,7 @@ SCENE = "sensor.homeberry_runtime_active_scene"
 INDOOR = "sensor.homeberry_runtime_indoor_temperature"
 OUTDOOR = "sensor.homeberry_runtime_outdoor_temperature"
 HEALTH = "sensor.homeberry_runtime_device_health"
+CONNECTION = "sensor.homeberry_runtime_connection"
 SCENE_CHIPS = [
     {"id": "movie", "label": "Movie", "icon": "movie-open", "color": "#D477FF"},
     {
@@ -258,6 +259,7 @@ def _layout() -> FullscreenLayout:
                     "indoor_temperature_entity_id": INDOOR,
                     "outdoor_temperature_entity_id": OUTDOOR,
                     "health_entity_id": HEALTH,
+                    "connection_entity_id": CONNECTION,
                 },
             )
         ),
@@ -276,6 +278,7 @@ def _state(
     unavailable_temperatures: bool = False,
     health_counts: dict[str, int] | None = None,
     health_severity: str = "healthy",
+    runtime_connection: str = "online",
 ) -> WidgetState:
     resolved_health_counts = health_counts or {
         "battery": 0,
@@ -348,6 +351,7 @@ def _state(
                     },
                 },
             ),
+            CONNECTION: EntityState(CONNECTION, runtime_connection, {}),
         },
         now=NOW,
     )
@@ -363,6 +367,7 @@ def _still(
     unavailable_temperatures: bool = False,
     health_counts: dict[str, int] | None = None,
     health_severity: str = "healthy",
+    runtime_connection: str = "online",
 ) -> Image.Image:
     renderer = Renderer()
     canvas, draw = renderer.create_canvas()
@@ -379,6 +384,7 @@ def _still(
                 unavailable_temperatures=unavailable_temperatures,
                 health_counts=health_counts,
                 health_severity=health_severity,
+                runtime_connection=runtime_connection,
             )
         },
     )
@@ -466,6 +472,8 @@ def generate(output: Path) -> dict[str, object]:
     for index, rendered in enumerate(health_images):
         health_sheet.paste(rendered, (index * 240, 0))
     health_sheet.save(output / "homeberry-dashboard-health-storyboard.png")
+    offline = _still("68", unavailable_temperatures=True, runtime_connection="offline")
+    offline.save(output / "homeberry-dashboard-connection-offline.png")
     manifest = {
         "display_size": [240, 240],
         "normal_quota": 68,
