@@ -18,6 +18,7 @@ CODEX = "sensor.codex_usage_codex_weekly_remaining"
 INDOOR = "sensor.homeberry_runtime_indoor_temperature"
 OUTDOOR = "sensor.homeberry_runtime_outdoor_temperature"
 HEALTH = "sensor.homeberry_runtime_device_health"
+CONNECTION = "sensor.homeberry_runtime_connection"
 SCENE_CHIPS = [
     {"id": "movie", "label": "Movie", "icon": "movie-open", "color": "#D477FF"},
     {
@@ -42,6 +43,7 @@ def widget() -> HomeberryDashboardWidget:
                 "indoor_temperature_entity_id": INDOOR,
                 "outdoor_temperature_entity_id": OUTDOOR,
                 "health_entity_id": HEALTH,
+                "connection_entity_id": CONNECTION,
             },
         )
     )
@@ -85,6 +87,7 @@ def state(quota: str = "68", *, activity_state: str = "used", celebration=False)
                     "overall_severity": "healthy",
                 },
             ),
+            CONNECTION: EntityState(CONNECTION, "online", {}),
         },
         now=NOW,
     )
@@ -113,7 +116,46 @@ def test_dashboard_resolves_all_homeberry_glance_values():
 
 
 def test_dashboard_declares_all_entity_dependencies():
-    assert widget().get_entities() == [CODEX, WEATHER, SCENE, INDOOR, OUTDOOR, HEALTH]
+    assert widget().get_entities() == [
+        CODEX,
+        WEATHER,
+        SCENE,
+        INDOOR,
+        OUTDOOR,
+        HEALTH,
+        CONNECTION,
+    ]
+
+
+def test_offline_runtime_replaces_generic_unknowns_with_recovery_diagnosis():
+    current = state()
+    current.entities[CONNECTION] = EntityState(CONNECTION, "offline", {})
+    for entity_id in (SCENE, INDOOR, OUTDOOR, HEALTH):
+        current.entities[entity_id] = EntityState(entity_id, "unavailable", {})
+
+    snapshot = widget().snapshot(current)
+    html = widget().render_html(CTX, current)
+
+    assert snapshot.runtime_connection == "offline"
+    assert [item.value_text for item in snapshot.temperatures] == ["--°", "--°"]
+    assert snapshot.scene_chips == ()
+    assert "HOMEBERRY OFFLINE" in html
+    assert "WI-FI / MQTT · RECONNECTING" in html
+    assert "NETWORK" in html and "OFFLINE" in html
+    assert "NO SCENE DATA" not in html
+    assert "STATUS" not in html and "UNKNOWN" not in html
+
+
+def test_unknown_runtime_connection_explains_that_homeberry_is_pending():
+    current = state()
+    current.entities.pop(CONNECTION)
+
+    snapshot = widget().snapshot(current)
+    html = widget().render_html(CTX, current)
+
+    assert snapshot.runtime_connection == "unknown"
+    assert "CONNECTION UNKNOWN" in html
+    assert "WAITING FOR HOMEBERRY" in html
 
 
 def test_dashboard_renders_scene_weather_and_quota():

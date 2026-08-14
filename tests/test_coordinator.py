@@ -206,6 +206,7 @@ class TestCoordinatorEventRefresh:
                             "indoor_temperature_entity_id": "sensor.homeberry_indoor",
                             "outdoor_temperature_entity_id": "sensor.homeberry_outdoor",
                             "health_entity_id": health_entity,
+                            "connection_entity_id": "sensor.homeberry_connection",
                         },
                     }
                 ],
