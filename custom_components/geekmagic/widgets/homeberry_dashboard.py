@@ -258,7 +258,7 @@ class HomeberryDashboardWidget(Widget):
         category_severity = (
             health.attributes.get("category_severity") if health is not None else None
         )
-        issue_details: dict[str, str] = {}
+        issue_details: dict[str, list[str]] = {}
         top_issues = health.attributes.get("top_issues") if health is not None else None
         if isinstance(top_issues, list):
             for issue in top_issues:
@@ -266,13 +266,8 @@ class HomeberryDashboardWidget(Widget):
                     continue
                 category = issue.get("category")
                 detail = issue.get("short_label") or issue.get("summary")
-                if (
-                    category in self._HEALTH_LABELS
-                    and isinstance(detail, str)
-                    and detail.strip()
-                    and category not in issue_details
-                ):
-                    issue_details[category] = detail.strip()
+                if category in self._HEALTH_LABELS and isinstance(detail, str) and detail.strip():
+                    issue_details.setdefault(category, []).append(detail.strip())
         if isinstance(counts, dict):
             for category in ("battery", "connectivity", "other"):
                 with suppress(TypeError, ValueError):
@@ -282,9 +277,7 @@ class HomeberryDashboardWidget(Widget):
                             isinstance(category_severity, dict)
                             and category_severity.get(category) == "critical"
                         )
-                        detail = issue_details.get(category)
-                        if detail is not None and count > 1:
-                            detail = f"{detail} +{count - 1}"
+                        detail = self._health_issue_detail(issue_details.get(category, []), count)
                         health_chips.append(HealthChipSnapshot(category, count, critical, detail))
 
         raw_guidance = scene.attributes.get("thermal_guidance") if scene is not None else None
@@ -583,6 +576,20 @@ class HomeberryDashboardWidget(Widget):
     def _health_chip_width(cls, alert: HealthChipSnapshot) -> int:
         label = alert.detail or cls._HEALTH_LABELS[alert.category]
         return 31 + round(len(label) * 6.5)
+
+    @staticmethod
+    def _health_issue_detail(details: list[str], count: int) -> str | None:
+        if not details:
+            return None
+        if count == 1:
+            return details[0]
+        split_details = [detail.rsplit(" ", 1) for detail in details[:count]]
+        if len(split_details) == count and all(
+            len(parts) == 2 and parts[1] == split_details[0][1] for parts in split_details
+        ):
+            names = " + ".join(parts[0] for parts in split_details)
+            return f"{names} {split_details[0][1]}"
+        return f"{details[0]} +{count - 1}"
 
     def render_html(self, ctx: CellContext, state: WidgetState) -> str:
         del ctx

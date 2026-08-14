@@ -385,6 +385,32 @@ def test_health_chip_names_the_device_and_problem_when_published():
     assert html.index("Pause") < html.index("TEMP STALE")
 
 
+def test_health_chip_names_all_devices_when_they_share_a_warning():
+    current = state()
+    current.entities[SCENE].attributes["scene_chips"] = [SCENE_CHIPS[-1]]
+    current.entities[HEALTH] = EntityState(
+        HEALTH,
+        "2",
+        {
+            "category_counts": {"battery": 0, "connectivity": 0, "other": 2},
+            "category_severity": {
+                "battery": "healthy",
+                "connectivity": "healthy",
+                "other": "warning",
+            },
+            "top_issues": [
+                {"category": "other", "short_label": "Rad STALE"},
+                {"category": "other", "short_label": "Temp STALE"},
+            ],
+        },
+    )
+
+    body = widget().render_html(CTX, current).split("</style>", 1)[1]
+
+    assert '<span class="hbd-health-label">RAD + TEMP STALE</span>' in body
+    assert '<span class="hbd-health-count">2</span>' not in body
+
+
 def test_health_chips_collapse_to_icon_and_count_when_row_is_full():
     current = state()
     current.entities[HEALTH] = EntityState(
