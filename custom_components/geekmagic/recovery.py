@@ -18,13 +18,15 @@ RECOVERY_REBOOT_TIMEOUT_SECONDS = 8
 RECOVERY_SETTLE_SECONDS = 3
 RECOVERY_PROBE_ATTEMPTS = 6
 RECOVERY_PROBE_INTERVAL_SECONDS = 5
+RECOVERY_PROBE_TIMEOUT_SECONDS = 8
+RECOVERY_TRIGGER_ERRORS = frozenset({"timeout", "connection_refused", "http_error", "unknown"})
 
 
 @dataclass
 class DeviceRecoveryState:
     """Mutable recovery state shared by config-entry retries and coordinators."""
 
-    consecutive_timeouts: int = 0
+    consecutive_service_failures: int = 0
     last_recovery_attempt: float | None = None
     recovery_in_progress: bool = False
     last_recovery_result: str = "never_attempted"
@@ -50,29 +52,30 @@ class DeviceRecovery:
 
     def record_success(self) -> None:
         """Clear the failure streak after a successful connection probe."""
-        self.state.consecutive_timeouts = 0
+        self.state.consecutive_service_failures = 0
 
     async def handle_failure(
         self,
         device: RecoverableDevice,
         result: ConnectionResult,
     ) -> ConnectionResult:
-        """Maybe reboot after repeated timeouts and return a verified result."""
-        if result.error != "timeout":
-            self.state.consecutive_timeouts = 0
+        """Maybe reboot after repeated service failures and return a verified result."""
+        if result.error not in RECOVERY_TRIGGER_ERRORS:
+            self.state.consecutive_service_failures = 0
             return result
 
-        self.state.consecutive_timeouts += 1
+        self.state.consecutive_service_failures += 1
         if not self._should_recover():
             return result
 
         self.state.last_recovery_attempt = time.monotonic()
         self.state.recovery_in_progress = True
         _LOGGER.warning(
-            "GeekMagic device %s HTTP service timed out %d times; "
+            "GeekMagic device %s HTTP service failed %d consecutive times (%s); "
             "issuing one bounded firmware reboot",
             device.host,
-            self.state.consecutive_timeouts,
+            self.state.consecutive_service_failures,
+            result.error,
         )
         try:
             try:
@@ -91,7 +94,10 @@ class DeviceRecovery:
             await asyncio.sleep(RECOVERY_SETTLE_SECONDS)
             for attempt in range(1, RECOVERY_PROBE_ATTEMPTS + 1):
                 try:
-                    await device.get_space()
+                    await asyncio.wait_for(
+                        device.get_space(),
+                        timeout=RECOVERY_PROBE_TIMEOUT_SECONDS,
+                    )
                 except Exception as err:
                     _LOGGER.debug(
                         "GeekMagic device %s recovery probe %d/%d failed: %s",
@@ -101,7 +107,7 @@ class DeviceRecovery:
                         err,
                     )
                 else:
-                    self.state.consecutive_timeouts = 0
+                    self.state.consecutive_service_failures = 0
                     self.state.last_recovery_result = "recovered"
                     _LOGGER.warning(
                         "GeekMagic device %s recovered after firmware reboot; "
@@ -128,7 +134,7 @@ class DeviceRecovery:
     def diagnostics(self) -> dict[str, object]:
         """Return safe recovery state for the status entity."""
         return {
-            "consecutive_timeouts": self.state.consecutive_timeouts,
+            "consecutive_service_failures": self.state.consecutive_service_failures,
             "last_recovery_attempt": self.state.last_recovery_attempt,
             "recovery_in_progress": self.state.recovery_in_progress,
             "last_recovery_result": self.state.last_recovery_result,
@@ -137,7 +143,7 @@ class DeviceRecovery:
     def _should_recover(self) -> bool:
         if self.state.recovery_in_progress:
             return False
-        if self.state.consecutive_timeouts < RECOVERY_FAILURE_THRESHOLD:
+        if self.state.consecutive_service_failures < RECOVERY_FAILURE_THRESHOLD:
             return False
         if self.state.last_recovery_attempt is None:
             return True
@@ -147,6 +153,8 @@ class DeviceRecovery:
 __all__ = [
     "RECOVERY_COOLDOWN_SECONDS",
     "RECOVERY_FAILURE_THRESHOLD",
+    "RECOVERY_PROBE_TIMEOUT_SECONDS",
+    "RECOVERY_TRIGGER_ERRORS",
     "DeviceRecovery",
     "DeviceRecoveryState",
 ]
