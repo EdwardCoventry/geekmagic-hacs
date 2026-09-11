@@ -32,6 +32,7 @@ from .profiles import (
     profile_for_model,
     state_from_stock_data,
 )
+from .recovery import DeviceRecovery, DeviceRecoveryState
 from .transport import TIMEOUT, DeviceTransport
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,10 +56,12 @@ class GeekMagicDevice:
         model: str = MODEL_UNKNOWN,
         *,
         source_address: str | None = None,
+        recovery_state: DeviceRecoveryState | None = None,
     ) -> None:
         """Initialize the device facade."""
         self.transport = DeviceTransport(host, session=session, source_address=source_address)
         self.profile: FirmwareProfile = profile_for_model(model, self.transport)
+        self.recovery = DeviceRecovery(recovery_state) if recovery_state is not None else None
 
     @property
     def host(self) -> str:
@@ -361,28 +364,28 @@ class GeekMagicDevice:
         """Clear all images from the device."""
         await self.profile.clear_images()
 
-    async def test_connection(self) -> ConnectionResult:  # noqa: PLR0911
+    async def test_connection(self) -> ConnectionResult:
         """Test if the device is reachable."""
         _LOGGER.debug("Testing connection to %s", self.host)
         try:
             await self.get_space()
         except TimeoutError:
             _LOGGER.warning("Connection test timed out for %s", self.host)
-            return ConnectionResult(
+            result = ConnectionResult(
                 success=False,
                 error="timeout",
                 message="Connection timed out after 30 seconds",
             )
         except aiohttp.ClientConnectorDNSError as err:
             _LOGGER.warning("DNS resolution failed for %s: %s", self.host, err)
-            return ConnectionResult(
+            result = ConnectionResult(
                 success=False,
                 error="dns_error",
                 message=f"Could not resolve hostname: {self.host}",
             )
         except aiohttp.ClientConnectorError as err:
             _LOGGER.warning("Connection failed for %s: %s", self.host, err)
-            return ConnectionResult(
+            result = ConnectionResult(
                 success=False,
                 error="connection_refused",
                 message=str(err),
@@ -401,21 +404,35 @@ class GeekMagicDevice:
                 else:
                     return ConnectionResult(success=True)
             _LOGGER.warning("HTTP error for %s: %s", self.host, err)
-            return ConnectionResult(
+            result = ConnectionResult(
                 success=False,
                 error="http_error",
                 message=f"HTTP error {err.status}: {err.message}",
             )
         except Exception as err:
             _LOGGER.warning("Connection test failed for %s: %s", self.host, err)
-            return ConnectionResult(
+            result = ConnectionResult(
                 success=False,
                 error="unknown",
                 message=str(err),
             )
         else:
             _LOGGER.debug("Connection test successful for %s", self.host)
-            return ConnectionResult(success=True)
+            result = ConnectionResult(success=True)
+
+        if self.recovery is None:
+            return result
+        if result.success:
+            self.recovery.record_success()
+            return result
+        return await self.recovery.handle_failure(self, result)
+
+    @property
+    def recovery_diagnostics(self) -> dict[str, object]:
+        """Return safe automatic-recovery diagnostics."""
+        if self.recovery is None:
+            return {}
+        return self.recovery.diagnostics()
 
     async def navigate_next(self) -> None:
         """Navigate to next page."""

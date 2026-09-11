@@ -65,6 +65,7 @@ class GeekMagicStatusSensor(GeekMagicEntity, SensorEntity):
             "host": self.coordinator.device.host,
             "refresh_interval": self.coordinator.options.get("refresh_interval", 30),
         }
+        attrs.update(self.coordinator.device.recovery_diagnostics)
 
         if self.coordinator.device_state:
             attrs["theme"] = self.coordinator.device_state.theme

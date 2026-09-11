@@ -16,6 +16,7 @@ from .const import CONF_FIRMWARE_VERSION, CONF_MODEL_NAME, CONF_PROFILE_ID, DOMA
 from .coordinator import GeekMagicCoordinator
 from .device import GeekMagicDevice
 from .panel import async_register_panel
+from .recovery import DeviceRecoveryState
 from .store import GeekMagicStore
 from .websocket import async_register_websocket_commands
 
@@ -112,7 +113,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Setting up GeekMagic integration for %s", host)
 
     session = async_get_clientsession(hass)
-    device = GeekMagicDevice(host, session=session)
+    recovery_states = hass.data[DOMAIN].setdefault("_recovery_states", {})
+    recovery_state = recovery_states.setdefault(host, DeviceRecoveryState())
+    device = GeekMagicDevice(host, session=session, recovery_state=recovery_state)
 
     # Test connection - raise ConfigEntryNotReady if device is offline
     # This allows HA to automatically retry instead of showing a "Setup Error"
