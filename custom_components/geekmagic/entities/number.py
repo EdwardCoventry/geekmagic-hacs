@@ -30,6 +30,7 @@ async def async_setup_entry(
 
     entities = [
         GeekMagicBrightnessNumber(coordinator),
+        GeekMagicPixelBrightnessNumber(coordinator),
         GeekMagicRefreshIntervalNumber(coordinator),
         GeekMagicJpegQualityNumber(coordinator),
         GeekMagicCycleIntervalNumber(coordinator),
@@ -65,6 +66,36 @@ class GeekMagicBrightnessNumber(GeekMagicEntity, NumberEntity):
         # Update local cache immediately so UI reflects change
         self.coordinator.device_brightness = brightness
         self.async_write_ha_state()
+
+
+class GeekMagicPixelBrightnessNumber(GeekMagicEntity, NumberEntity):
+    """Scale every rendered pixel before encoding, below the backlight minimum."""
+
+    _attr_name = "Pixel Brightness"
+    _attr_icon = "mdi:brightness-4"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_mode = NumberMode.SLIDER
+
+    def __init__(self, coordinator: GeekMagicCoordinator) -> None:
+        super().__init__(coordinator, "pixel_brightness")
+
+    @property
+    def native_value(self) -> float | None:
+        """Report the factor last successfully uploaded, not merely requested."""
+        return self.coordinator.applied_pixel_brightness
+
+    async def async_set_native_value(self, value: float) -> None:
+        if not 0 <= value <= 100:
+            raise ValueError("Pixel brightness must be between 0 and 100")
+        new_options = {**self.coordinator.entry.options, "pixel_brightness": int(value)}
+        self.hass.config_entries.async_update_entry(self.coordinator.entry, options=new_options)
+        # The existing options listener persists the setting and refreshes the display.
+        # Retry an unchanged target as well after a failed upload.
+        self.coordinator.update_options(new_options)
+        await self.coordinator.async_request_refresh()
 
 
 class GeekMagicRefreshIntervalNumber(GeekMagicEntity, NumberEntity):

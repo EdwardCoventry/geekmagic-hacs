@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
+from PIL import ImageEnhance
+
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import Callable
 
 from homeassistant.const import __version__ as ha_version
@@ -344,6 +346,7 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         self.options = self._migrate_options(options)
         self.renderer = Renderer()
         self._animation_renderer_warmed = False
+        self.applied_pixel_brightness: int | None = None
         self._layouts: list = []  # List of layouts for each screen
         self._current_screen: int = 0
         self._last_screen_change: float = time.time()
@@ -367,6 +370,9 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         self._last_event_refresh_reasons: tuple[str, ...] = ()
         self._last_event_refresh_at: str | None = None
         self._event_refresh_count = 0
+        self._scene_refresh_task: asyncio.Task | None = None
+        self._scene_refresh_pending = False
+        self._display_update_lock = asyncio.Lock()
         self._homeberry_health_severity: dict[str, str] = {}
         self._homeberry_health_revision: dict[str, int] = {}
 
@@ -442,6 +448,10 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
             self._event_refresh_cancel()
             self._event_refresh_cancel = None
         self._pending_event_refresh_reasons.clear()
+        self._scene_refresh_pending = False
+        if self._scene_refresh_task is not None:
+            self._scene_refresh_task.cancel()
+            self._scene_refresh_task = None
 
     @property
     def event_refresh_diagnostics(self) -> dict[str, Any]:
@@ -498,7 +508,26 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
     @callback
     def _handle_dependency_change(self, event: Any) -> None:
         self._handle_homeberry_health_alert(event)
-        self._schedule_event_refresh("entity")
+        data = getattr(event, "data", {}) or {}
+        entity_id = data.get("entity_id")
+        is_scene = any(
+            slot.widget is not None
+            and slot.widget.config.widget_type == "homeberry_dashboard"
+            and slot.widget.config.options.get("scene_entity_id") == entity_id
+            for layout in self._layouts
+            for slot in layout.slots
+        )
+        old = data.get("old_state")
+        new = data.get("new_state")
+        scene_changed = is_scene and (
+            getattr(old, "state", None) != getattr(new, "state", None)
+            or any(
+                (getattr(old, "attributes", {}) or {}).get(key)
+                != (getattr(new, "attributes", {}) or {}).get(key)
+                for key in ("scene_chips", "active_scene_modes", "resolved_scene")
+            )
+        )
+        self._schedule_event_refresh("scene" if scene_changed else "entity")
 
     @callback
     def _handle_homeberry_health_alert(self, event: Any) -> None:
@@ -574,7 +603,18 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         self._pending_event_refresh_reasons.clear()
         self._last_event_refresh_at = dt_util.utcnow().isoformat()
         self._event_refresh_count += 1
-        self.hass.async_create_task(self.async_request_refresh())
+        if "scene" in self._last_event_refresh_reasons:
+            self._scene_refresh_pending = True
+            if self._scene_refresh_task is None or self._scene_refresh_task.done():
+                self._scene_refresh_task = self.hass.async_create_task(self._async_refresh_scenes())
+        else:
+            self.hass.async_create_task(self.async_request_refresh())
+
+    async def _async_refresh_scenes(self) -> None:
+        """Bypass the polling cooldown and retain changes arriving during upload."""
+        while self._scene_refresh_pending:
+            self._scene_refresh_pending = False
+            await self.async_refresh()
 
     def _migrate_options(self, options: dict[str, Any]) -> dict[str, Any]:
         """Migrate old single-screen options to new multi-screen format.
@@ -590,6 +630,7 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
         # Convert old format to new format
         return {
+            **options,
             CONF_REFRESH_INTERVAL: options.get(CONF_REFRESH_INTERVAL, DEFAULT_REFRESH_INTERVAL),
             CONF_SCREEN_CYCLE_INTERVAL: DEFAULT_SCREEN_CYCLE_INTERVAL,
             CONF_SCREENS: [
@@ -956,7 +997,7 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
         return states
 
-    def _render_display(self) -> tuple[bytes, bytes, str]:
+    def _render_display(self, pixel_brightness: int | None = None) -> tuple[bytes, bytes, str]:
         """Render the display image (runs in executor thread).
 
         Returns:
@@ -983,6 +1024,13 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         )
         widget_states = self._build_widget_states(layout)
         rotation = self.options.get(CONF_DISPLAY_ROTATION, DEFAULT_DISPLAY_ROTATION)
+        pixel_factor = (
+            self.options.get("pixel_brightness", 100)
+            if pixel_brightness is None
+            else pixel_brightness
+        ) / 100.0
+        if not 0 <= pixel_factor <= 1:
+            raise ValueError("Pixel brightness must be between 0 and 100")
 
         # Animated path (opt-in): render CSS animations to a looping GIF.
         if (
@@ -1011,6 +1059,7 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
                 frames = frames[1:]
                 self._animation_renderer_warmed = True
             if frames:
+                frames = [ImageEnhance.Brightness(frame).enhance(pixel_factor) for frame in frames]
                 gif_data = self.renderer.to_gif(frames, fps=fps, rotation=rotation)
                 png_data = self.renderer.to_png(frames[0], rotation=rotation)
                 if len(gif_data) <= MAX_IMAGE_SIZE:
@@ -1033,6 +1082,7 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
         img, draw = self.renderer.create_canvas(background=layout.theme.background)
         layout.render(self.renderer, draw, widget_states)
+        img = ImageEnhance.Brightness(img).enhance(pixel_factor)
 
         jpeg_quality = self.options.get(CONF_JPEG_QUALITY, DEFAULT_JPEG_QUALITY)
         jpeg_data = self.renderer.to_jpeg(img, quality=jpeg_quality, rotation=rotation)
@@ -1172,6 +1222,11 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
         return layout
 
     async def _async_update_data(self) -> dict[str, Any]:
+        """Serialize event, manual, and polling uploads to the same display."""
+        async with self._display_update_lock:
+            return await self._async_update_display()
+
+    async def _async_update_display(self) -> dict[str, Any]:
         """Fetch data and update display.
 
         Implements exponential backoff when device is offline to reduce
@@ -1297,8 +1352,9 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
 
             # Render image in executor to avoid blocking the event loop
             # (Pillow image operations are CPU-intensive)
+            rendered_pixel_brightness = self.options.get("pixel_brightness", 100)
             payload, png_data, filename = await self.hass.async_add_executor_job(
-                self._render_display
+                self._render_display, rendered_pixel_brightness
             )
 
             # Only update preview image on config changes or manual refresh
@@ -1326,6 +1382,7 @@ class GeekMagicCoordinator(DataUpdateCoordinator):
             )
 
             # Track success status
+            self.applied_pixel_brightness = rendered_pixel_brightness
             self._last_update_success = True
             self._last_update_time = time.time()
 

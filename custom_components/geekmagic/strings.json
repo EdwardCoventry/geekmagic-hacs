@@ -18,6 +18,9 @@
       },
       "cycle_interval": {
         "name": "View Cycle Interval"
+      },
+      "pixel_brightness": {
+        "name": "Pixel Brightness"
       }
     },
     "button": {
