@@ -21,6 +21,7 @@ uv run pre-commit run --all   # Run all pre-commit hooks
 Follow **Conventional Commits** and create **atomic commits** as you work:
 
 ### Commit Types
+
 - `feat:` New feature
 - `fix:` Bug fix
 - `refactor:` Code refactoring (no functional change)
@@ -30,6 +31,7 @@ Follow **Conventional Commits** and create **atomic commits** as you work:
 - `style:` Formatting, whitespace (no code change)
 
 ### Atomic Commits
+
 Create small, focused commits that each represent a single logical change:
 
 1. **After implementing a feature** → commit the feature
@@ -42,6 +44,7 @@ Create small, focused commits that each represent a single logical change:
 This validates tests, linting, formatting, and type checking in one command.
 
 ### Examples
+
 ```bash
 git commit -m "feat: add clock widget with timezone support"
 git commit -m "fix: handle missing entity gracefully in EntityWidget"
@@ -72,6 +75,7 @@ HACS detects new versions via GitHub releases. The user creates releases in the 
    - Click "Generate release notes" → Publish
 
 ### Critical rules
+
 - **Tag must match `manifest.json` version exactly** (HA core reads `manifest.json` and a mismatch breaks update detection)
 - **Tag the bump commit, not an earlier one** — otherwise the tagged tree still has the old version
 - Tag format: `vX.Y.Z` (with leading `v`)
@@ -121,12 +125,14 @@ custom_components/geekmagic/
 ## Key Concepts
 
 ### Rendering Pipeline
+
 1. Coordinator triggers update on interval
 2. Layout calculates widget rectangles (slots)
 3. Each widget renders into its slot using Pillow
 4. Image converted to JPEG and uploaded to device
 
 ### Widget Interface
+
 ```python
 class Widget(ABC):
     def render(self, ctx: RenderContext, hass) -> None:
@@ -137,6 +143,7 @@ class Widget(ABC):
 ```
 
 ### Layout Interface
+
 ```python
 class Layout(ABC):
     def _calculate_slots(self) -> None:
@@ -202,18 +209,18 @@ to the active theme's palette at render time.
 
 Available sentinels (resolve to `theme.<role>`):
 
-| Sentinel              | Use for                                              |
-|-----------------------|------------------------------------------------------|
-| `THEME_TEXT_PRIMARY`  | Default for hero values (white-ish on dark themes)   |
-| `THEME_TEXT_SECONDARY`| Supporting info (dates, units, "Sunny" condition)    |
-| `THEME_TEXT_TERTIARY` | Caps captions, very-low-priority text                |
-| `THEME_PRIMARY`       | Brand accent — fallback for chart / progress         |
-| `THEME_SECONDARY`     | Night, lightning, less-prominent accents             |
-| `THEME_SUCCESS`       | ON / connected / wind                                |
-| `THEME_WARNING`       | Sunny / hot temp / heating / caution                 |
-| `THEME_ERROR`         | Off / disconnected / extreme / preheating            |
-| `THEME_INFO`          | Cool / cold / water / rain / cooling / humidity      |
-| `THEME_MUTED`         | Idle / off / fog / disabled                          |
+| Sentinel               | Use for                                            |
+| ---------------------- | -------------------------------------------------- |
+| `THEME_TEXT_PRIMARY`   | Default for hero values (white-ish on dark themes) |
+| `THEME_TEXT_SECONDARY` | Supporting info (dates, units, "Sunny" condition)  |
+| `THEME_TEXT_TERTIARY`  | Caps captions, very-low-priority text              |
+| `THEME_PRIMARY`        | Brand accent — fallback for chart / progress       |
+| `THEME_SECONDARY`      | Night, lightning, less-prominent accents           |
+| `THEME_SUCCESS`        | ON / connected / wind                              |
+| `THEME_WARNING`        | Sunny / hot temp / heating / caution               |
+| `THEME_ERROR`          | Off / disconnected / extreme / preheating          |
+| `THEME_INFO`           | Cool / cold / water / rain / cooling / humidity    |
+| `THEME_MUTED`          | Idle / off / fog / disabled                        |
 
 **Rule of thumb for hero value colour:**
 
@@ -274,11 +281,11 @@ Fonts are automatically scaled based on container height. Two naming systems are
 
 Use these for new widgets - they scale proportionally to container height:
 
-| Size | Ratio | Use Case |
-|------|-------|----------|
-| `primary` | 35% | Main value (clock time, large number) |
-| `secondary` | 20% | Supporting info (date, unit) |
-| `tertiary` | 12% | Labels, captions |
+| Size        | Ratio | Use Case                              |
+| ----------- | ----- | ------------------------------------- |
+| `primary`   | 35%   | Main value (clock time, large number) |
+| `secondary` | 20%   | Supporting info (date, unit)          |
+| `tertiary`  | 12%   | Labels, captions                      |
 
 ```python
 # Get font with semantic size
@@ -310,17 +317,18 @@ font = ctx.get_font("primary", adjust=-1)  # 15% smaller
 
 Still supported for backward compatibility:
 
-| Size Name | Use Case |
-|-----------|----------|
-| `tiny` | Small labels |
-| `small` | Labels, status |
-| `regular` | Standard text |
-| `medium` | Emphasized values |
-| `large` | Primary values |
-| `xlarge` | Hero values |
-| `huge` | Maximum emphasis |
+| Size Name | Use Case          |
+| --------- | ----------------- |
+| `tiny`    | Small labels      |
+| `small`   | Labels, status    |
+| `regular` | Standard text     |
+| `medium`  | Emphasized values |
+| `large`   | Primary values    |
+| `xlarge`  | Hero values       |
+| `huge`    | Maximum emphasis  |
 
 **Best practices:**
+
 - Prefer semantic sizes (`primary`, `secondary`, `tertiary`) for new code
 - Use `ctx.fit_text()` when text should fill available space
 - Add `bold=True` for values that need emphasis
@@ -329,6 +337,7 @@ Still supported for backward compatibility:
 ## Testing
 
 Tests are organized by component:
+
 - `tests/test_device.py` - HTTP client tests
 - `tests/test_renderer.py` - Pillow rendering tests
 - `tests/test_config_flow.py` - Config flow and options flow tests
@@ -341,12 +350,14 @@ All tests use mocks and don't require a real device or Home Assistant instance.
 ### Home Assistant Testing Best Practices
 
 Uses `pytest-homeassistant-custom-component` for HA-specific fixtures. See:
+
 - https://github.com/MatthewFlamm/pytest-homeassistant-custom-component
 - https://developers.home-assistant.io/docs/development_testing/
 
 **Available fixtures**: `hass`, `aioclient_mock`, `MockConfigEntry`, etc.
 
 **Testing principles**:
+
 - Use core interfaces (`hass.states`, `hass.services`) instead of integration details
 - Mock external dependencies (`aiohttp`, devices)
 - Add regression tests when fixing bugs
@@ -450,6 +461,7 @@ __all__ = ["async_setup_entry"]
 ### Common Mistake to Avoid
 
 Moving entity files to a subfolder without creating re-export stubs will cause:
+
 ```
 ModuleNotFoundError: No module named 'custom_components.geekmagic.<platform>'
 ```
@@ -461,12 +473,14 @@ The fix is to create stub modules that re-export from the subfolder.
 Home Assistant runs on asyncio. Blocking operations prevent the event loop from executing other tasks and must be handled properly.
 
 ### Blocking Operations to Avoid in Async Code
+
 - **Disk I/O**: `open()`, `glob.glob()`, `os.walk()`, `os.listdir()`, `pathlib` read/write
 - **Network I/O**: urllib operations (use `aiohttp` instead)
 - **Heavy computation**: CPU-intensive tasks like image rendering
 - **Sleep**: Use `asyncio.sleep()` instead of `time.sleep()`
 
 ### How to Offload Blocking Work
+
 ```python
 # In Home Assistant integration code:
 result = await hass.async_add_executor_job(blocking_function, arg1, arg2)
@@ -478,6 +492,7 @@ result = await hass.async_add_executor_job(partial(blocking_function, kwarg1=val
 ```
 
 ### This Integration's Blocking Operations
+
 - **Image rendering** (Pillow): CPU-intensive, runs in executor
 - **JPEG/PNG encoding**: CPU-intensive, runs in executor
 - **HTTP upload to device**: Uses aiohttp (async-native)
@@ -509,3 +524,7 @@ The panel uses content-hash based cache busting. A SHA256 hash of the JS file is
 1. Make changes in `frontend/src/`
 2. Run `npm run build` to regenerate `dist/`
 3. Commit both source and dist changes
+
+## Local verification and GitHub usage
+
+Run checks locally with `pwsh -NoProfile -File .github/local-checks.ps1`. GitHub workflows are manual only. A local agent must not dispatch a hosted run unless the user explicitly requests it. A cloud agent may request a specific hosted run when it cannot perform the required check locally. See `.github/LOCAL_CI.md` for release and verification commands.
