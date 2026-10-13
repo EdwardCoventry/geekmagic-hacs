@@ -4,36 +4,69 @@
     "check": [
       {
         "name": "Locked Python dependency installation",
-        "command": ["uv", "sync", "--dev"],
+        "command": [
+          "uv",
+          "sync",
+          "--dev"
+        ],
         "cwd": "."
       },
       {
+        "name": "Frontend dependency installation",
+        "command": [
+          "npm",
+          "ci"
+        ],
+        "cwd": "custom_components/geekmagic/frontend"
+      },
+      {
         "name": "Pre-commit verification",
-        "command": ["uv", "run", "pre-commit", "run", "--all-files"],
+        "command": [
+          "uv",
+          "run",
+          "pre-commit",
+          "run",
+          "--all-files"
+        ],
         "cwd": "."
       }
     ],
     "frontend": [
       {
         "name": "Frontend dependencies",
-        "command": ["npm", "ci"],
+        "command": [
+          "npm",
+          "ci"
+        ],
         "cwd": "custom_components/geekmagic/frontend"
       },
       {
         "name": "Frontend types",
-        "command": ["npm", "run", "typecheck"],
+        "command": [
+          "npm",
+          "run",
+          "typecheck"
+        ],
         "cwd": "custom_components/geekmagic/frontend"
       },
       {
         "name": "Frontend contracts",
-        "command": ["npm", "test"],
+        "command": [
+          "npm",
+          "test"
+        ],
         "cwd": "custom_components/geekmagic/frontend"
       }
     ],
     "types": [
       {
         "name": "Python type check",
-        "command": ["uv", "run", "ty", "check"],
+        "command": [
+          "uv",
+          "run",
+          "ty",
+          "check"
+        ],
         "cwd": "."
       }
     ]

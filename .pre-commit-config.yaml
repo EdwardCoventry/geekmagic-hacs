@@ -47,8 +47,8 @@ repos:
 
       - id: frontend-dist-check
         name: frontend dist check
-        entry: ./scripts/check-frontend-dist.sh
-        language: script
+        entry: bash scripts/check-frontend-dist.sh
+        language: system
         pass_filenames: false
         stages: [pre-commit]
 
